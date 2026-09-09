@@ -109,10 +109,13 @@ $("test").addEventListener("click", async () => {
     const origin = originPattern(values.backendUrl);
     const saved = await loadSettings();
     const persisted = saved.backendUrl === values.backendUrl && saved.apiKey === values.apiKey;
+    // A reachable server is a success, so it always reads green -- including on a first connect
+    // with 0 picks stored and nothing saved yet. The unsaved hint rides along as text rather than
+    // recolouring the whole line red, which made a working connection look broken.
     setStatus(
       `Connected — ${response.body?.bets ?? 0} picks stored` +
         (persisted ? "" : " (press Save to keep these settings)"),
-      persisted ? "ok" : "bad"
+      "ok"
     );
     void origin;
   } else {

@@ -30,7 +30,7 @@ const STYLES = `
 .clva-box {
   appearance: none; width: 16px; height: 16px; border-radius: 4px; cursor: pointer;
   border: 2px solid var(--clva-accent); background: transparent; position: relative;
-  vertical-align: middle; flex: 0 0 auto; margin: 0 0.5px;
+  vertical-align: middle; flex: 0 0 auto; margin: 0 3px;
   transition: background 120ms ease, border-color 120ms ease;
 }
 .clva-box:hover { background: color-mix(in srgb, var(--clva-accent) 25%, transparent); }

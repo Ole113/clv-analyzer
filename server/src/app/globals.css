@@ -19,12 +19,23 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Column layout down to the viewport floor so the footer can be pinned to the bottom on short
+     pages (an empty /bets, say) without floating up into the middle. */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-.wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px 64px; }
+.wrap {
+  max-width: 1200px; margin: 0 auto; padding: 24px 20px 64px;
+  width: 100%; flex: 1 0 auto; display: flex; flex-direction: column;
+}
+/* Every page renders a <main>; letting it take the slack pushes the footer to the floor while
+   keeping the footer's own margin-top as the minimum gap on long pages. */
+.wrap > main { flex: 1 0 auto; }
 
 header.top {
   display: flex; align-items: baseline; gap: 20px;
@@ -155,6 +166,14 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
   width: 15px; height: 15px; padding: 0; border-radius: 50%; font-size: 10px; line-height: 1;
   font-weight: 700; font-style: italic; color: var(--muted); background: var(--panel-2);
   border: 1px solid var(--border); cursor: pointer; vertical-align: 1px;
+  /* Flex-centre the glyph rather than relying on the button's default text layout, which left the
+     "i" off-centre in the circle. Two sub-pixel corrections on top of that, both measured against
+     the circle's true centre: the line box reserves descender space that a lowercase "i" never
+     uses, so the ink rides high and padding-top pushes it back down; and the italic lean carries
+     the stem right, so text-indent pulls it back. */
+  display: inline-flex; align-items: center; justify-content: center;
+  padding-top: 1.8px;
+  text-indent: -0.2px;
 }
 .info-btn:hover { color: var(--text); border-color: var(--accent); }
 .info-pop {
@@ -176,6 +195,15 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
 }
 .site-footer nav { display: flex; gap: 18px; flex-wrap: wrap; }
 .site-footer .small { font-size: 12px; }
+
+.footer-contact { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12.5px; }
+.footer-contact .contact-label {
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px;
+}
+.contact-item { display: inline-flex; align-items: center; gap: 6px; }
+.contact-item svg { flex: 0 0 auto; }
+/* The Discord handle is not a link -- Discord has no public profile URL to point at. */
+.contact-item.is-static { color: var(--muted); }
 
 /* --- methodology --- */
 .prose { max-width: 760px; }

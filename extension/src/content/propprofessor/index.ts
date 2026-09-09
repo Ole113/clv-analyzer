@@ -31,7 +31,8 @@ function grid(): Element | null {
  * divider. AG Grid lays the pinned and centre containers out as flex siblings, so widening the
  * pinned side shifts the centre columns across cleanly rather than overlapping them.
  */
-const LANE = 22;
+// 16px box + its 3px side margins + breathing room, so the checkbox never touches the divider.
+const LANE = 28;
 const PINNED_BASE = 36;
 const PINNED_TOTAL = PINNED_BASE + LANE;
 
@@ -126,7 +127,7 @@ const adapter: SiteAdapter = {
   extraStyles: LANE_STYLES,
 
   injectHeader() {
-    // No-op: the lane is reserved by CSS, and a 22px header cell has no room for a label.
+    // No-op: the lane is reserved by CSS, and a LANE-wide header cell has no room for a label.
   },
 
   mount(row) {

@@ -9,7 +9,12 @@ import { BREAK_EVEN_RATE } from "@/lib/ev";
 
 export const dynamic = "force-dynamic";
 
-const UNIT_HOURS: Record<string, number> = { days: 24, weeks: 24 * 7, months: 24 * 30 };
+const UNIT_HOURS: Record<string, number> = {
+  days: 24,
+  weeks: 24 * 7,
+  months: 24 * 30,
+  years: 24 * 365,
+};
 
 export default async function SettingsPage() {
   const [total, oldest, newest, demo] = await Promise.all([
@@ -27,7 +32,7 @@ export default async function SettingsPage() {
     return prisma.bet.count({ where: { openCapturedAt: { gte: cutoff } } });
   }
 
-  /** Deletes picks captured within the last N days/weeks/months. Snapshots cascade with them. */
+  /** Deletes picks captured within the last N days/weeks/months/years. Snapshots cascade. */
   async function purgeRecent(amount: number, unit: string): Promise<number> {
     "use server";
     const hours = (UNIT_HOURS[unit] ?? 24) * amount;

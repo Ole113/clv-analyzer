@@ -2,6 +2,9 @@
 
 import { useState, useTransition } from "react";
 
+/** Upper bound per unit, so "365 years" is not offerable once the unit changes. */
+const UNIT_MAX: Record<string, number> = { days: 365, weeks: 260, months: 60, years: 20 };
+
 /**
  * Deleting picks is irreversible and there is no undo, so it takes two deliberate steps: the
  * first press only asks the server how many rows match and shows that number, and only the second
@@ -55,10 +58,10 @@ export function PurgeForm({
       <input
         type="number"
         min={1}
-        max={365}
+        max={UNIT_MAX[unit] ?? 365}
         value={amount}
         onChange={(e) => {
-          setAmount(Math.max(1, Number(e.target.value)));
+          setAmount(Math.max(1, Math.min(UNIT_MAX[unit] ?? 365, Number(e.target.value))));
           setStaged(null);
           setResult(null);
         }}
@@ -66,7 +69,10 @@ export function PurgeForm({
       <select
         value={unit}
         onChange={(e) => {
-          setUnit(e.target.value);
+          const next = e.target.value;
+          setUnit(next);
+          // Switching days -> years must not leave a stale 365 in the box.
+          setAmount((a) => Math.min(a, UNIT_MAX[next] ?? 365));
           setStaged(null);
           setResult(null);
         }}
@@ -74,6 +80,7 @@ export function PurgeForm({
         <option value="days">days</option>
         <option value="weeks">weeks</option>
         <option value="months">months</option>
+        <option value="years">years</option>
       </select>
 
       {staged === null ? (
