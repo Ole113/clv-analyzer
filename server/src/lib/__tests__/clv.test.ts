@@ -76,6 +76,19 @@ describe("isSportsbookForAverage", () => {
     expect(isSportsbookForAverage("col-7", null, true)).toBe(false);
   });
 
+  it("counts the social and exchange books OddsJam lists", () => {
+    expect(isSportsbookForAverage("fliff", "Fliff", true)).toBe(true);
+    expect(isSportsbookForAverage("rebet", "Rebet", true)).toBe(true);
+    expect(isSportsbookForAverage("prophetx", "Prophet X", true)).toBe(true);
+    expect(isSportsbookForAverage("kalshi", "Kalshi", true)).toBe(true);
+  });
+
+  it("does not let a pick'em substring swallow a real sportsbook", () => {
+    // "BetRivers" contains "betr", the hint for Betr Picks.
+    expect(isSportsbookForAverage("betrivers", "BetRivers", true)).toBe(true);
+    expect(isSportsbookForAverage("betrpicks", "Betr Picks", true)).toBe(false);
+  });
+
   it("does not confuse DraftKings with DraftKings Pick6", () => {
     expect(isSportsbookForAverage("draftkings", "DraftKings", true)).toBe(true);
     expect(isSportsbookForAverage("draftkings6", "DraftKings6", true)).toBe(false);

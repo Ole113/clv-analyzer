@@ -2,6 +2,7 @@ import { getOverviewStats, parseBetFilters, getTimeSeries, type Breakdown } from
 import { OverviewChart } from "@/components/overview-chart";
 import { Info } from "@/components/info";
 import { Signed, Rate, ProblemCount } from "@/components/value";
+import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { fmtEdge, fmtPct } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -47,12 +48,14 @@ export default async function OverviewPage() {
     getTimeSeries(),
   ]);
   const { overall, counts } = stats;
-  const needsAttention = counts.needsGameTime + counts.unavailable + counts.failed;
+  const grading = stats.grading;
+  const needsAttention = counts.needsGameTime + counts.unavailable + counts.failed + grading.failed;
 
   return (
     <main>
-      {/* The two numbers that answer "am I actually beating the market?" get the space. */}
-      <div className="hero">
+      {/* The three numbers that answer "is this working?": did the market move my way, was the
+          price right, and did the picks actually win. */}
+      <div className="hero hero-3">
         <div className="tile">
           <div className="label">
             Beat CLV
@@ -68,6 +71,23 @@ export default async function OverviewPage() {
           <div className="sub">
             {overall.beat} of {overall.n} settled picks · avg edge{" "}
             <Signed value={overall.avgEdge} />
+          </div>
+        </div>
+        <div className="tile">
+          <div className="label">
+            Hit rate
+            <Info title="Hit rate" anchor="break-even">
+              Wins over decided picks, from the official box score. Pushes and voids are excluded
+              from both sides. Coloured against break-even ({(BREAK_EVEN_RATE * 100).toFixed(1)}%)
+              rather than 50%, because a pick&apos;em leg pays less than even money.
+            </Info>
+          </div>
+          <div className="value">
+            <Rate value={grading.hitRate} threshold={BREAK_EVEN_RATE} />
+          </div>
+          <div className="sub">
+            {grading.wins}-{grading.losses}
+            {grading.pushes > 0 && `-${grading.pushes}`} over {grading.decided} graded picks
           </div>
         </div>
         <div className="tile">
@@ -112,7 +132,14 @@ export default async function OverviewPage() {
           </div>
           <div className="sub">
             {counts.needsGameTime} no kickoff · {counts.unavailable} unavailable · {counts.failed}{" "}
-            failed
+            failed · {grading.failed} grade failed
+          </div>
+        </div>
+        <div className="tile">
+          <div className="label">Awaiting grade</div>
+          <div className="value">{grading.awaiting}</div>
+          <div className="sub">
+            {grading.ungradeable} with <a href="/bets?graded=ungradeable">no source</a>
           </div>
         </div>
         <div className="tile">

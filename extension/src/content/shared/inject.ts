@@ -35,9 +35,14 @@ const STYLES = `
 }
 .clva-box:hover { background: color-mix(in srgb, var(--clva-accent) 25%, transparent); }
 .clva-box:checked { background: var(--clva-accent); }
+/* Centred by transform rather than hand-tuned offsets, so the tick stays centred at any box
+   size and looks identical on both boards and in the options preview. The -55% vertical nudge
+   accounts for the tick's own visual centre sitting below its bounding box. */
 .clva-box:checked::after {
-  content: ""; position: absolute; left: 4px; top: 0px; width: 3px; height: 8px;
-  border: solid #06110b; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 3px; height: 8px; box-sizing: border-box;
+  border: solid #06110b; border-width: 0 2px 2px 0;
+  transform: translate(-50%, -55%) rotate(45deg);
 }
 .clva-box[data-state="pending"] { border-color: #d29922; background: rgba(210,153,34,0.35); }
 .clva-box[data-state="synced"] { border-color: var(--clva-accent); background: var(--clva-accent); }

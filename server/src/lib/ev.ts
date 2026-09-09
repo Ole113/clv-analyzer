@@ -57,3 +57,16 @@ export function bookFavorability(
   const delta = side === "OVER" ? consensus - bookLine : bookLine - consensus;
   return Math.round(delta * 1000) / 1000;
 }
+
+/**
+ * The win rate a pick'em price needs just to break even.
+ *
+ * This is why hit rate is not coloured against 50%: at the standard -119 leg you must win 54.3%
+ * of the time to be flat, so a 52% hit rate is a losing record, not a winning one.
+ */
+export function impliedProbability(price: number): number | null {
+  if (!Number.isFinite(price) || price === 0) return null;
+  return price > 0 ? 100 / (price + 100) : Math.abs(price) / (Math.abs(price) + 100);
+}
+
+export const BREAK_EVEN_RATE = impliedProbability(DEFAULT_PICKEM_PRICE) ?? 0.5;

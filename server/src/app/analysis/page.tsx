@@ -4,6 +4,7 @@ import { FilterBar } from "@/components/filter-bar";
 import { DivergingBars, type BarDatum } from "@/components/bars";
 import { fmtEdge, fmtPct } from "@/components/ui";
 import { Signed, Rate } from "@/components/value";
+import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { Info } from "@/components/info";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +82,7 @@ export default async function AnalysisPage({
           <th>Prop</th>
           <th className="num">Picks</th>
           <th className="num">Beat CLV</th>
+          <th className="num">Hit rate</th>
           <th className="num">Avg edge</th>
           <th className="num">Avg EV%</th>
           <th className="num">EV gained</th>
@@ -93,6 +95,12 @@ export default async function AnalysisPage({
             <td>{r.key}</td>
             <td className="num">{r.n}</td>
             <td className="num"><Rate value={r.beatRate} /></td>
+            <td className="num">
+              <Rate value={r.hitRate} threshold={BREAK_EVEN_RATE} />
+              {r.decided > 0 && (
+                <span className="muted" style={{ fontSize: 11 }}> ({r.wins}-{r.losses})</span>
+              )}
+            </td>
             <td className="num"><Signed value={r.avgEdge} /></td>
             <td className="num"><Signed value={r.avgEv} unit="%" /></td>
             <td className="num"><Signed value={r.evGained} unit="%" digits={1} /></td>
@@ -106,13 +114,15 @@ export default async function AnalysisPage({
   return (
     <main>
       <h2 style={{ marginTop: 0 }}>Analysis</h2>
-        <FilterBar facets={facets} values={values} action="/analysis" showVerdict />
+        <FilterBar facets={facets} values={values} action="/analysis" showVerdict showResult />
 
       <div className="tiles">
         <div className="tile">
           <div className="label">Settled picks</div>
           <div className="value">{analysis.sampleSize}</div>
-          <div className="sub">{analysis.withEv} with an EV% number</div>
+          <div className="sub">
+            {analysis.withEv} with EV% · {analysis.gradedSample} graded
+          </div>
         </div>
         <div className="tile">
           <div className="label">
@@ -124,6 +134,22 @@ export default async function AnalysisPage({
           </div>
           <div className="value"><Rate value={analysis.overall.beatRate} /></div>
           <div className="sub">line moved your way</div>
+        </div>
+        <div className="tile">
+          <div className="label">
+            Hit rate
+            <Info title="Hit rate" anchor="break-even">
+              Wins divided by decided picks. Pushes and voids are excluded from both sides rather
+              than counted as losses. Coloured against break-even ({(BREAK_EVEN_RATE * 100).toFixed(1)}%),
+              not 50% — at a standard pick&apos;em price you must win more than half just to be flat.
+            </Info>
+          </div>
+          <div className="value">
+            <Rate value={analysis.overall.hitRate} threshold={BREAK_EVEN_RATE} />
+          </div>
+          <div className="sub">
+            {analysis.overall.wins}-{analysis.overall.losses} over {analysis.gradedSample} graded
+          </div>
         </div>
         <div className="tile">
           <div className="label">
@@ -217,6 +243,7 @@ export default async function AnalysisPage({
                 <th>Side</th>
                 <th className="num">Picks</th>
                 <th className="num">Beat CLV</th>
+                <th className="num">Hit rate</th>
                 <th className="num">Avg edge</th>
                 <th className="num">Avg EV%</th>
               </tr>
@@ -227,6 +254,9 @@ export default async function AnalysisPage({
                   <td>{s.side}</td>
                   <td className="num">{s.n}</td>
                   <td className="num"><Rate value={s.beatRate} /></td>
+                  <td className="num">
+                    <Rate value={s.hitRate} threshold={BREAK_EVEN_RATE} />
+                  </td>
                   <td className="num"><Signed value={s.avgEdge} /></td>
                   <td className="num"><Signed value={s.avgEv} unit="%" /></td>
                 </tr>
@@ -235,6 +265,130 @@ export default async function AnalysisPage({
           </table>
         </section>
       </div>
+
+      <h2>Running above or below expectation</h2>
+      <p className="lede muted" style={{ fontSize: 12, marginTop: -4 }}>
+        Your EV% says what these picks should have returned on average. This compares that with
+        what they actually returned, over the picks that are both graded and carry an EV number —
+        the gap is variance, not skill.
+      </p>
+      {analysis.expectation.n === 0 ? (
+        <p className="muted">
+          Needs picks that are both graded and carry an EV% — none yet.
+        </p>
+      ) : (
+        <div className="tiles" style={{ marginBottom: 26 }}>
+          <div className="tile">
+            <div className="label">
+              Expected
+              <Info title="Expected return" anchor="expectation">
+                The sum of each pick&apos;s EV%, at one unit staked per pick. This is what the
+                edge you were getting says the picks should have returned on average.
+              </Info>
+            </div>
+            <div className="value">
+              <Signed value={analysis.expectation.expectedUnits} unit="u" />
+            </div>
+            <div className="sub">over {analysis.expectation.n} graded picks</div>
+          </div>
+          <div className="tile">
+            <div className="label">Actual</div>
+            <div className="value">
+              <Signed value={analysis.expectation.actualUnits} unit="u" />
+            </div>
+            <div className="sub">at the pick&apos;em payout, 1u per pick</div>
+          </div>
+          <div className="tile">
+            <div className="label">
+              Difference
+              <Info title="Above or below expectation" anchor="expectation">
+                Actual minus expected. Positive means you have run better than your edge implies,
+                negative means worse. Over a small sample this is almost entirely luck — it says
+                nothing about whether the picks were good.
+              </Info>
+            </div>
+            <div className="value">
+              <Signed value={analysis.expectation.deltaUnits} unit="u" />
+            </div>
+            <div className="sub">
+              {analysis.expectation.deltaUnits > 0 ? "running hot" : analysis.expectation.deltaUnits < 0 ? "running cold" : "exactly to expectation"}
+            </div>
+          </div>
+          <div className="tile">
+            <div className="label">Hit rate vs expected</div>
+            <div className="value">
+              <Rate value={analysis.expectation.actualHitRate} threshold={analysis.expectation.expectedHitRate ?? BREAK_EVEN_RATE} />
+            </div>
+            <div className="sub">
+              model expected{" "}
+              {analysis.expectation.expectedHitRate === null
+                ? "--"
+                : `${(analysis.expectation.expectedHitRate * 100).toFixed(1)}%`}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <h2>Does beating CLV predict hitting?</h2>
+      <p className="lede muted" style={{ fontSize: 12, marginTop: -4 }}>
+        CLV is only worth tracking if it forecasts results. This compares how often picks that beat
+        the close actually won against those that did not — over picks that have both a CLV verdict
+        and a decided result.
+      </p>
+      {analysis.clvVsResult.overall.beat.n + analysis.clvVsResult.overall.missed.n === 0 ? (
+        <p className="muted">
+          Nothing to compare yet — this needs picks that are both settled for CLV and graded.
+        </p>
+      ) : (
+        <>
+          <ChartCard
+            title="CLV lift by sport"
+            lede="Percentage points of hit rate gained by beating the close. Positive means CLV predicted hitting for that sport."
+            data={analysis.clvVsResult.bySport
+              .filter((b) => b.lift !== null)
+              .map((b) => ({
+                label: b.key,
+                value: b.lift as number,
+                note: `${b.beat.n} beat / ${b.missed.n} missed`,
+              }))}
+            unit="pp"
+            emptyNote="Not enough picks with both a CLV verdict and a result yet."
+            table={
+              <table>
+                <thead>
+                  <tr>
+                    <th>Sport</th>
+                    <th className="num">Beat CLV hit rate</th>
+                    <th className="num">Missed CLV hit rate</th>
+                    <th className="num">Lift</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[analysis.clvVsResult.overall, ...analysis.clvVsResult.bySport].map((b) => (
+                    <tr key={b.key}>
+                      <td>{b.key}</td>
+                      <td className="num">
+                        <Rate value={b.beat.hitRate} threshold={BREAK_EVEN_RATE} />
+                        <span className="muted" style={{ fontSize: 11 }}> (n={b.beat.n})</span>
+                      </td>
+                      <td className="num">
+                        <Rate value={b.missed.hitRate} threshold={BREAK_EVEN_RATE} />
+                        <span className="muted" style={{ fontSize: 11 }}> (n={b.missed.n})</span>
+                      </td>
+                      <td className="num">
+                        <Signed value={b.lift} unit="pp" digits={1} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            }
+          />
+          <p className="muted" style={{ fontSize: 12 }}>
+            Treat small n with suspicion: a handful of picks can show a large lift purely by chance.
+          </p>
+        </>
+      )}
 
       <h2>Worst book per prop type</h2>
       <p className="lede muted" style={{ fontSize: 12, marginTop: -4 }}>

@@ -48,6 +48,57 @@ const book = (bookKey: string, label: string, line: number | null, price: number
   rawText: `${line ?? ""} ${price}`.trim(),
 });
 
+/**
+ * Picks from real, finished games with real player names and kickoff times, so the grading
+ * pipeline can be exercised end to end without waiting for a Sunday.
+ */
+const REAL_GAMES = [
+  { sport: "NFL", player: "Puka Nacua", team: "Los Angeles Rams", opponent: "Houston Texans",
+    stat: "Player Receiving Yards", side: "OVER" as const, taken: 62.5, kickoff: "2025-09-07T20:00:00Z" },
+  { sport: "NFL", player: "Puka Nacua", team: "Los Angeles Rams", opponent: "Houston Texans",
+    stat: "Player Receptions", side: "UNDER" as const, taken: 6.5, kickoff: "2025-09-07T20:00:00Z" },
+  { sport: "NCAAF", player: "Julian Sayin", team: "Ohio State", opponent: "Grambling",
+    stat: "Player Passing Completions", side: "OVER" as const, taken: 15.5, kickoff: "2025-09-06T16:00:00Z" },
+  { sport: "MLB", player: "Daniel Schneemann", team: "Cleveland Guardians", opponent: "Kansas City Royals",
+    stat: "Hits + Runs + RBIs", side: "OVER" as const, taken: 2.5, kickoff: "2025-09-08T22:00:00Z" },
+  // Deliberately ungradeable: exercises the reason + manual-entry path.
+  { sport: "CS2", player: "detr0itJ", team: "Imperial", opponent: "Galorys",
+    stat: "1st 2 Maps Kills", side: "OVER" as const, taken: 33.5, kickoff: "2025-09-08T18:00:00Z" },
+];
+
+async function seedRealGames() {
+  for (const g of REAL_GAMES) {
+    const gameStartTime = new Date(g.kickoff);
+    const openRow = row({
+      player: g.player, statMarket: g.stat, side: g.side, sport: g.sport,
+      takenLine: g.taken, matchup: `${g.team} vs ${g.opponent}`, fairProbability: 0.55,
+      bookLines: [book("fanduel", "FanDuel", g.taken + 1, -114)],
+    });
+    await prisma.bet.create({
+      data: {
+        site: "ODDSJAM", fantasyBook: "prizepicks", sport: g.sport, player: g.player,
+        team: g.team, opponent: g.opponent, matchup: `${g.team} vs ${g.opponent}`,
+        statMarket: g.stat, side: g.side, gameStartTime,
+        matchKey: buildMatchKey({
+          site: "ODDSJAM", fantasyBook: "prizepicks", sport: g.sport, player: g.player,
+          statMarket: g.stat, side: g.side, gameStartTime,
+        }),
+        pageUrl: "https://fantasy.oddsjam.com/fantasy-odds/prizepicks",
+        sourceDevice: DEVICE, takenLine: g.taken, openFairProb: 0.55, fantasyPrice: -119,
+        openEvPercent: evPercent(0.55, -119),
+        openRawSnapshotJson: JSON.stringify(openRow),
+        openCapturedAt: new Date(gameStartTime.getTime() - 3600_000),
+        scheduledFetchAt: new Date(gameStartTime.getTime() + 2 * 60_000),
+        gradeScheduledAt: new Date(gameStartTime.getTime() + 3 * 3600_000),
+        status: "PENDING",
+        openLines: { create: [{ ...book("fanduel", "FanDuel", g.taken + 1, -114), includedInAverage: true }] },
+      },
+    });
+  }
+  console.log(`Seeded ${REAL_GAMES.length} picks from real finished games. Grade them with the`);
+  console.log(`"Grade now" button, or: curl -XPOST -H "x-api-key: $API_KEY" localhost:4319/api/grading/run`);
+}
+
 async function main() {
   if (process.argv.includes("--clear")) {
     const { count } = await prisma.bet.deleteMany({ where: { sourceDevice: DEVICE } });
@@ -57,6 +108,11 @@ async function main() {
 
   // A spread wide enough to exercise the analysis page: several prop types and sports, a mix of
   // sides, and per-book closing lines that scatter around the consensus.
+  if (process.argv.includes("--real-games")) {
+    await seedRealGames();
+    return;
+  }
+
   const templates = [
     { sport: "NFL", stat: "Player Receiving Yards", player: "Puka Nacua", taken: 62.5, drift: 4.5, prob: 0.58 },
     { sport: "NFL", stat: "Player Receiving Yards", player: "CeeDee Lamb", taken: 71.5, drift: 2.0, prob: 0.56 },

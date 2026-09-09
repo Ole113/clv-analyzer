@@ -59,7 +59,9 @@ const adapter: SiteAdapter = {
     const th = document.createElement("th");
     th.setAttribute(HEAD_MARK, "1");
     th.className = "clva-cell clva-head";
-    th.textContent = "CLV";
+    // Deliberately blank: the column needs a header cell to keep the table's columns aligned,
+    // but a label there just competes with OddsJam's own headers.
+    th.textContent = "";
     headerRow.insertBefore(th, headerRow.firstChild);
   },
 

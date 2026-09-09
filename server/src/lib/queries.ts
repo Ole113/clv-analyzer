@@ -12,6 +12,10 @@ export interface BetFilters {
   /** Free-text search across player, stat, matchup and teams. */
   q?: string;
   verdict?: "beat" | "missed";
+  /** Actual outcome of the pick. */
+  result?: "WIN" | "LOSS" | "PUSH" | "VOID";
+  /** Where a pick sits in the grading lifecycle. */
+  graded?: "graded" | "ungraded" | "ungradeable" | "failed";
   from?: Date;
   to?: Date;
   limit: number;
@@ -36,6 +40,10 @@ export function parseBetFilters(params: URLSearchParams): BetFilters {
     side: clean("side"),
     q: clean("q"),
     verdict: verdict === "beat" || verdict === "missed" ? verdict : undefined,
+    result: (["WIN", "LOSS", "PUSH", "VOID"] as const).find((r) => r === clean("result")),
+    graded: (["graded", "ungraded", "ungradeable", "failed"] as const).find(
+      (g) => g === clean("graded")
+    ),
     from: from ? new Date(from) : undefined,
     to: to ? new Date(to) : undefined,
     limit: Math.min(Number(params.get("limit") ?? 200), 1000),
@@ -52,38 +60,49 @@ function whereFrom(filters: BetFilters) {
           ? SETTLED_STATUSES
           : undefined;
 
-  // SQLite's LIKE is case-insensitive for ASCII, which is what Prisma's `contains` compiles to,
-  // so free-text search needs no extra normalisation column.
-  const q = filters.q;
-  return {
-    ...(statuses ? { status: { in: statuses } } : {}),
-    ...(filters.site ? { site: filters.site } : {}),
-    ...(filters.sport ? { sport: filters.sport } : {}),
-    ...(filters.fantasyBook ? { fantasyBook: filters.fantasyBook } : {}),
-    ...(filters.statMarket ? { statMarket: filters.statMarket } : {}),
-    ...(filters.side ? { side: filters.side } : {}),
-    ...(filters.verdict ? { status: "CLOSED", beatClv: filters.verdict === "beat" } : {}),
-    ...(q
-      ? {
-          OR: [
-            { player: { contains: q } },
-            { statMarket: { contains: q } },
-            { matchup: { contains: q } },
-            { team: { contains: q } },
-            { opponent: { contains: q } },
-            { sport: { contains: q } },
-          ],
-        }
-      : {}),
-    ...(filters.from || filters.to
-      ? {
-          openCapturedAt: {
-            ...(filters.from ? { gte: filters.from } : {}),
-            ...(filters.to ? { lte: filters.to } : {}),
-          },
-        }
-      : {}),
-  };
+  // Built by explicit assignment rather than spreading several objects that each carry a `status`
+  // key: a spread let the CLV-verdict filter silently overwrite an active status filter.
+  const where: Record<string, unknown> = {};
+  if (statuses) where.status = { in: statuses };
+  if (filters.site) where.site = filters.site;
+  if (filters.sport) where.sport = filters.sport;
+  if (filters.fantasyBook) where.fantasyBook = filters.fantasyBook;
+  if (filters.statMarket) where.statMarket = filters.statMarket;
+  if (filters.side) where.side = filters.side;
+
+  if (filters.verdict) {
+    // CLV verdicts only exist on picks whose closing line was captured, so this narrows the
+    // status set rather than replacing whatever was already there.
+    where.status = statuses ? { in: statuses.filter((s) => s === "CLOSED") } : "CLOSED";
+    where.beatClv = filters.verdict === "beat";
+  }
+
+  if (filters.result) where.gradeResult = filters.result;
+  if (filters.graded === "graded") where.gradeResult = { in: ["WIN", "LOSS", "PUSH", "VOID"] };
+  if (filters.graded === "ungraded") where.gradeResult = null;
+  if (filters.graded === "ungradeable") where.gradeResult = "UNGRADEABLE";
+  if (filters.graded === "failed") where.gradeResult = "GRADE_FAILED";
+
+  if (filters.q) {
+    // SQLite's LIKE is case-insensitive for ASCII, which is what Prisma's `contains` compiles to.
+    where.OR = [
+      { player: { contains: filters.q } },
+      { statMarket: { contains: filters.q } },
+      { matchup: { contains: filters.q } },
+      { team: { contains: filters.q } },
+      { opponent: { contains: filters.q } },
+      { sport: { contains: filters.q } },
+    ];
+  }
+
+  if (filters.from || filters.to) {
+    where.openCapturedAt = {
+      ...(filters.from ? { gte: filters.from } : {}),
+      ...(filters.to ? { lte: filters.to } : {}),
+    };
+  }
+
+  return where;
 }
 
 export async function listBets(filters: BetFilters) {
@@ -144,6 +163,7 @@ export async function getOverviewStats(filters: BetFilters) {
       beatClv: true,
       edge: true,
       closeEvPercent: true,
+      gradeResult: true,
       sport: true,
       site: true,
       fantasyBook: true,
@@ -167,8 +187,22 @@ export async function getOverviewStats(filters: BetFilters) {
       .sort((a, b) => b.n - a.n);
   };
 
+  const graded = bets.filter((b) => b.gradeResult === "WIN" || b.gradeResult === "LOSS");
+  const wins = graded.filter((b) => b.gradeResult === "WIN").length;
+
   return {
     overall,
+    grading: {
+      wins,
+      losses: graded.length - wins,
+      pushes: bets.filter((b) => b.gradeResult === "PUSH").length,
+      voids: bets.filter((b) => b.gradeResult === "VOID").length,
+      decided: graded.length,
+      hitRate: graded.length ? wins / graded.length : null,
+      ungradeable: bets.filter((b) => b.gradeResult === "UNGRADEABLE").length,
+      failed: bets.filter((b) => b.gradeResult === "GRADE_FAILED").length,
+      awaiting: bets.filter((b) => b.gradeResult === null).length,
+    },
     counts: {
       total: bets.length,
       pending: bets.filter((b) => b.status === "PENDING").length,
@@ -209,6 +243,54 @@ export async function getFacets(): Promise<Facets> {
   };
 }
 
+/** Sport strings the boards emit -> OddsJam's URL path segment. */
+const ODDSJAM_SPORT_SLUG: Record<string, string> = {
+  nfl: "nfl",
+  ncaaf: "ncaaf",
+  "college football": "ncaaf",
+  nba: "nba",
+  wnba: "wnba",
+  mlb: "mlb",
+  nhl: "nhl",
+  ncaab: "ncaab",
+};
+
+/**
+ * Link to the site's own odds screen for this prop.
+ *
+ * OddsJam encodes sport and market in the path, so the screen opens already filtered:
+ * /nfl/screen/player-passing-yards renders "Sportsbook Screen - NFL - Player-passing-yards"
+ * (verified against the live site). The player is not part of any supported URL, so the last hop
+ * is the site's own search.
+ *
+ * PropProfessor's screen keeps all of its filter state in memory: changing a dropdown never
+ * changes the URL, and loading /screen?sport=NFL still shows MLB (both verified). So there is no
+ * honest way to pre-fill it, and the link goes to the plain screen.
+ */
+export function oddsScreenUrlFor(bet: {
+  site: string;
+  sport: string | null;
+  statMarket: string;
+}): { url: string; prefilled: boolean } {
+  if (bet.site !== "ODDSJAM") {
+    return { url: "https://www.propprofessor.com/screen", prefilled: false };
+  }
+
+  const sportSlug = ODDSJAM_SPORT_SLUG[(bet.sport ?? "").trim().toLowerCase()];
+  if (!sportSlug) return { url: "https://oddsjam.com/betting-tools", prefilled: false };
+
+  // "Fantasy Score (PrizePicks)" -> "fantasy-score": the book qualifier is not part of the market.
+  const marketSlug = bet.statMarket
+    .replace(/\([^)]*\)/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (!marketSlug) return { url: `https://oddsjam.com/${sportSlug}/screen/moneyline`, prefilled: false };
+  return { url: `https://oddsjam.com/${sportSlug}/screen/${marketSlug}`, prefilled: true };
+}
+
 /** The public board this pick came from, for the "open on site" links. */
 export function boardUrlFor(bet: {
   site: string;
@@ -227,6 +309,7 @@ export interface SeriesPoint {
   picks: number;
   settled: number;
   beatRate: number | null;
+  hitRate: number | null;
   avgEdge: number | null;
   avgEv: number | null;
   cumulativeEdge: number;
@@ -247,6 +330,7 @@ export async function getTimeSeries(days = 45): Promise<SeriesPoint[]> {
       beatClv: true,
       edge: true,
       closeEvPercent: true,
+      gradeResult: true,
     },
     take: 5000,
   });
@@ -272,6 +356,11 @@ export async function getTimeSeries(days = 45): Promise<SeriesPoint[]> {
         picks: rows.length,
         settled: settled.length,
         beatRate: settled.length ? settled.filter((r) => r.beatClv).length / settled.length : null,
+        hitRate: (() => {
+          const w = rows.filter((r) => r.gradeResult === "WIN").length;
+          const l = rows.filter((r) => r.gradeResult === "LOSS").length;
+          return w + l ? w / (w + l) : null;
+        })(),
         avgEdge: settled.length ? edgeSum / settled.length : null,
         avgEv: evs.length ? evs.reduce((s, v) => s + v, 0) / evs.length : null,
         cumulativeEdge: Math.round(cumulative * 100) / 100,

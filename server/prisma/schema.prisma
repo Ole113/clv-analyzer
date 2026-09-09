@@ -74,10 +74,31 @@ model Bet {
   edge             Float?
   beatClv          Boolean?
 
+  // --- grading -----------------------------------------------------------------
+  // Deliberately separate from `status`, which tracks only the closing-line capture: a pick can
+  // be UNAVAILABLE for CLV and still have a real win/loss.
+  /// WIN | LOSS | PUSH | UNGRADEABLE. Null means not graded yet.
+  gradeResult      String?
+  /// The player's actual stat for this market.
+  actualValue      Float?
+  gradedAt         DateTime?
+  /// espn | mlb | manual
+  gradeSource      String?
+  /// Why it could not be graded, or the last failure detail.
+  gradeReason      String?
+  gradeScheduledAt DateTime?
+  gradeAttempts    Int       @default(0)
+  lastGradeAt      DateTime?
+  /// Cached once resolved so re-grades skip the game lookup.
+  externalGameId   String?
+  /// Provenance for the grade: matched player, game, and a link to the public box score.
+  gradeRawJson     String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status, scheduledFetchAt])
+  @@index([gradeResult, gradeScheduledAt])
   @@index([matchKey])
   @@index([site, sport])
 }

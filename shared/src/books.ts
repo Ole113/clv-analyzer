@@ -13,6 +13,43 @@
  * Matching is therefore by substring, not equality.
  */
 
+/**
+ * Books that always count toward the closing average, checked before the pick'em exclusions.
+ *
+ * An allowlist is needed as well as a denylist because the pick'em hints are substrings, and real
+ * sportsbook names collide with them: "BetRivers" contains "betr" (the hint for Betr Picks), so
+ * without this it would be silently dropped from every average. Anything matched here is a real
+ * sportsbook quoting its own market, including the social/sweepstakes books (Fliff, Rebet) and the
+ * exchanges and prediction markets (Novig, Prophet X, Kalshi, Polymarket).
+ */
+export const SPORTSBOOK_HINTS = [
+  "fanduel",
+  "draftkings", // plain DraftKings; the Pick6 product is excluded by its own hint below
+  "betmgm",
+  "caesars",
+  "pinnacle",
+  "betonline",
+  "bovada",
+  "fliff",
+  "rebet",
+  "betrivers",
+  "espnbet",
+  "fanatics",
+  "hardrock",
+  "ballybet",
+  "betparx",
+  "bet105",
+  "novig",
+  "prophet",
+  "circa",
+  "kalshi",
+  "polymarket",
+  "pointsbet",
+  "wynnbet",
+  "superbook",
+  "4cx",
+];
+
 /** Substrings that mark a DFS / pick'em product rather than a sportsbook. */
 export const FANTASY_BOOK_HINTS = [
   "prizepicks",
@@ -63,6 +100,15 @@ export function isSportsbookForAverage(
 ): boolean {
   if (!hasLine) return false;
   const haystack = `${bookKey.toLowerCase()} ${normalizeBookKey(label) ?? ""}`;
+
+  // Known sportsbooks win outright: the pick'em hints below are substrings, and several real
+  // book names contain them.
+  if (SPORTSBOOK_HINTS.some((hint) => haystack.includes(hint))) {
+    // ...except the DFS spin-offs of a sportsbook brand, which are pick'em products.
+    if (/draftkings\s*6|pick\s*6/.test(haystack)) return false;
+    return true;
+  }
+
   if (FANTASY_BOOK_HINTS.some((hint) => haystack.includes(hint))) return false;
   if (COMPUTED_COLUMN_HINTS.some((hint) => haystack.includes(hint))) return false;
   // Unidentifiable logo columns ("col-7") stay out of the average rather than silently skewing

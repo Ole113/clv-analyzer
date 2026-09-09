@@ -1,6 +1,6 @@
-import { listBets, parseBetFilters, getFacets, boardUrlFor } from "@/lib/queries";
+import { listBets, parseBetFilters, getFacets, boardUrlFor, oddsScreenUrlFor } from "@/lib/queries";
 import { FilterBar } from "@/components/filter-bar";
-import { VerdictBadge, fmtDateTime } from "@/components/ui";
+import { VerdictBadge, ResultBadge, fmtDateTime } from "@/components/ui";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
 
@@ -19,16 +19,18 @@ export default async function BetsPage({
   const [bets, facets] = await Promise.all([listBets(parseBetFilters(params)), getFacets()]);
   const q = params.get("q");
   const settled = bets.filter((b) => b.status === "CLOSED").length;
+  const graded = bets.filter((b) => b.gradeResult === "WIN" || b.gradeResult === "LOSS").length;
   const waiting = bets.filter((b) => ["PENDING", "DUE", "NEEDS_GAME_TIME"].includes(b.status)).length;
 
   return (
     <main>
       <h2 style={{ marginTop: 0 }}>Picks</h2>
-        <FilterBar facets={facets} values={values} action="/bets" showVerdict showStatus />
+        <FilterBar facets={facets} values={values} action="/bets" showVerdict showStatus showResult />
 
       <p className="result-count">
         {bets.length} pick{bets.length === 1 ? "" : "s"}
-        {q ? ` matching “${q}”` : ""} · {waiting} awaiting close · {settled} settled
+        {q ? ` matching “${q}”` : ""} · {waiting} awaiting close · {settled} settled ·{" "}
+        {graded} graded
       </p>
 
       {bets.length === 0 ? (
@@ -63,8 +65,16 @@ export default async function BetsPage({
                   no-vig probability at your line.
                 </Info>
               </th>
+              <th className="num">
+                Actual
+                <Info title="Actual result" anchor="grading">
+                  What the player actually recorded, read from the official box score after the
+                  game finished, shown against the line you took.
+                </Info>
+              </th>
               <th>Kickoff</th>
               <th>Board</th>
+              <th>CLV</th>
               <th>Result</th>
             </tr>
           </thead>
@@ -98,6 +108,16 @@ export default async function BetsPage({
                 <td className="num">
                   <Signed value={b.closeEvPercent ?? b.openEvPercent} unit="%" />
                 </td>
+                <td className="num">
+                  {b.actualValue === null ? (
+                    <span className="muted">--</span>
+                  ) : (
+                    <>
+                      {b.actualValue}
+                      <span className="muted" style={{ fontSize: 11 }}> / {b.takenLine}</span>
+                    </>
+                  )}
+                </td>
                 <td>{fmtDateTime(b.gameStartTime)}</td>
                 <td>
                   <a
@@ -109,9 +129,27 @@ export default async function BetsPage({
                   >
                     {b.site === "ODDSJAM" ? "OddsJam" : "PropProf"} ↗
                   </a>
+                  <div>
+                    <a
+                      className="ext"
+                      href={oddsScreenUrlFor(b).url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={
+                        oddsScreenUrlFor(b).prefilled
+                          ? `Odds screen, already filtered to ${b.sport} / ${b.statMarket}`
+                          : "Odds screen (this site does not support pre-filled filters)"
+                      }
+                    >
+                      odds ↗
+                    </a>
+                  </div>
                 </td>
                 <td>
                   <VerdictBadge beatClv={b.beatClv} status={b.status} />
+                </td>
+                <td>
+                  <ResultBadge gradeResult={b.gradeResult} gradeSource={b.gradeSource} />
                 </td>
               </tr>
             ))}

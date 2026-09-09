@@ -16,12 +16,14 @@ export function FilterBar({
   values,
   showVerdict,
   showStatus,
+  showResult,
 }: {
   facets: Facets;
   action: string;
   values: Record<string, string | undefined>;
   showVerdict?: boolean;
   showStatus?: boolean;
+  showResult?: boolean;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -126,12 +128,39 @@ export function FilterBar({
       {showVerdict && (
         <Select
           name="verdict"
-          label="Result"
+          // Named "CLV", not "Result": with real outcomes on screen, calling the closing-line
+          // verdict "Result" would be actively misleading.
+          label="CLV"
           options={[
             { value: "beat", label: "Beat CLV" },
             { value: "missed", label: "Missed CLV" },
           ]}
         />
+      )}
+
+      {showResult && (
+        <>
+          <Select
+            name="result"
+            label="Result"
+            options={[
+              { value: "WIN", label: "Win" },
+              { value: "LOSS", label: "Loss" },
+              { value: "PUSH", label: "Push" },
+              { value: "VOID", label: "Void" },
+            ]}
+          />
+          <Select
+            name="graded"
+            label="Grading"
+            options={[
+              { value: "graded", label: "Graded" },
+              { value: "ungraded", label: "Awaiting" },
+              { value: "ungradeable", label: "No source" },
+              { value: "failed", label: "Failed" },
+            ]}
+          />
+        </>
       )}
 
       <label className="field">

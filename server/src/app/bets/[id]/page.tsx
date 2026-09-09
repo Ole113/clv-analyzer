@@ -1,10 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getBetDetail, boardUrlFor } from "@/lib/queries";
+import { getBetDetail, boardUrlFor, oddsScreenUrlFor } from "@/lib/queries";
+import { CopyButton } from "@/components/copy-button";
 import { ConfirmButton } from "@/components/confirm-button";
 import { prisma } from "@/lib/prisma";
 import { config } from "@/lib/constants";
-import { StatusBadge, VerdictBadge, fmtDateTime, fmtEdge } from "@/components/ui";
+import { StatusBadge, VerdictBadge, ResultBadge, fmtDateTime, fmtEdge } from "@/components/ui";
+import { gradeBet, gradeManually } from "@/lib/grading/grader";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
 
@@ -98,9 +100,64 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
       data: {
         gameStartTime: start,
         scheduledFetchAt: new Date(start.getTime() + config.closingBufferMinutes * 60_000),
+        gradeScheduledAt: new Date(start.getTime() + config.gradeDelayHours * 3600_000),
         status: "PENDING",
         fetchAttempts: 0,
         lastFetchError: null,
+      },
+    });
+    revalidatePath(`/bets/${id}`);
+  }
+
+  async function gradeNow() {
+    "use server";
+    await prisma.bet.update({
+      where: { id },
+      data: { gradeAttempts: 0, gradeReason: null, gradeScheduledAt: new Date() },
+    });
+    await gradeBet(id);
+    revalidatePath(`/bets/${id}`);
+  }
+
+  async function submitManualGrade(formData: FormData) {
+    "use server";
+    const raw = String(formData.get("actualValue") ?? "").trim();
+    if (raw === "") return;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return;
+    // The outcome is always derived from the value typed in, so the stored number and the stored
+    // result can never contradict each other.
+    await gradeManually(id, value);
+    revalidatePath(`/bets/${id}`);
+  }
+
+  async function voidBet() {
+    "use server";
+    await prisma.bet.update({
+      where: { id },
+      data: {
+        gradeResult: "VOID",
+        actualValue: null,
+        gradedAt: new Date(),
+        gradeSource: "manual",
+        gradeReason: "Voided by hand",
+      },
+    });
+    revalidatePath(`/bets/${id}`);
+  }
+
+  async function clearGrade() {
+    "use server";
+    await prisma.bet.update({
+      where: { id },
+      data: {
+        gradeResult: null,
+        actualValue: null,
+        gradedAt: null,
+        gradeSource: null,
+        gradeReason: null,
+        gradeAttempts: 0,
+        gradeScheduledAt: new Date(),
       },
     });
     revalidatePath(`/bets/${id}`);
@@ -116,6 +173,10 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
   const lagMinutes =
     bet.closingCaptureLagSeconds !== null ? Math.round(bet.closingCaptureLagSeconds / 60) : null;
   const lateBy = lagMinutes !== null && lagMinutes > config.staleCaptureMinutes ? lagMinutes : null;
+
+  const provenance = bet.gradeRawJson
+    ? (JSON.parse(bet.gradeRawJson) as { webUrl?: string | null })
+    : null;
 
   const movement =
     bet.avgClosingLine !== null
@@ -141,8 +202,88 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
         {fmtDateTime(bet.gameStartTime)} ·{" "}
         <a href={boardUrlFor(bet)} target="_blank" rel="noopener noreferrer">
           open board on {bet.site === "ODDSJAM" ? "OddsJam" : "PropProfessor"} ↗
+        </a>{" "}
+        ·{" "}
+        <a href={oddsScreenUrlFor(bet).url} target="_blank" rel="noopener noreferrer">
+          current odds ↗
         </a>
       </p>
+      <p className="muted" style={{ fontSize: 12, marginTop: -8 }}>
+        {oddsScreenUrlFor(bet).prefilled ? (
+          <>
+            The odds screen opens filtered to {bet.sport} / {bet.statMarket}; search it for the
+            player.
+          </>
+        ) : (
+          <>
+            PropProfessor keeps its screen filters in memory rather than the URL, so they cannot be
+            pre-filled from a link — search the screen for the player instead.
+          </>
+        )}{" "}
+        <CopyButton value={bet.player} label="Copy player name" />
+      </p>
+
+      <div className="verdict">
+        <div className="headline">
+          <ResultBadge gradeResult={bet.gradeResult} gradeSource={bet.gradeSource} />{" "}
+          {bet.actualValue !== null && <Signed value={bet.actualValue - bet.takenLine} />}
+        </div>
+        <div className="detail">
+          {bet.actualValue !== null ? (
+            <>
+              {bet.player} recorded <strong>{bet.actualValue}</strong> — you needed{" "}
+              {bet.side === "OVER" ? "over" : "under"} {bet.takenLine}.
+            </>
+          ) : bet.gradeResult === "VOID" ? (
+            "No result: the player did not play, or the game did not finish."
+          ) : bet.gradeResult === "UNGRADEABLE" || bet.gradeResult === "GRADE_FAILED" ? (
+            "Not settled automatically — enter the actual result below to count it."
+          ) : (
+            `Waiting for the box score. Grading runs ${config.gradeDelayHours}h after kickoff.`
+          )}
+        </div>
+        {bet.gradeReason && <p className="err">{bet.gradeReason}</p>}
+        {provenance?.webUrl && (
+          <p className="muted" style={{ fontSize: 12 }}>
+            Graded from the {bet.gradeSource === "mlb" ? "MLB" : "ESPN"} box score{" "}
+            {fmtDateTime(bet.gradedAt)} ·{" "}
+            <a href={provenance.webUrl} target="_blank" rel="noopener noreferrer">
+              check it ↗
+            </a>
+          </p>
+        )}
+
+        {/* Sibling forms, never nested: ConfirmButton renders its own <form>, and nesting forms
+            is invalid HTML that browsers silently unnest. */}
+        <div className="grade-actions">
+          <form action={submitManualGrade} className="inline">
+            <input
+              type="number"
+              step="any"
+              name="actualValue"
+              placeholder="actual result"
+              defaultValue={bet.actualValue ?? ""}
+            />
+            <button type="submit">
+              {bet.actualValue === null ? "Save result" : "Correct result"}
+            </button>
+          </form>
+
+          {bet.gradeResult !== "UNGRADEABLE" && (
+            <form action={gradeNow}>
+              <button type="submit">Grade now</button>
+            </form>
+          )}
+          <ConfirmButton action={voidBet} label="Void" confirm={["Mark this pick void (no result)?"]} />
+          {bet.gradeResult && (
+            <ConfirmButton
+              action={clearGrade}
+              label="Clear grade"
+              confirm={["Clear the recorded result and re-queue this pick?"]}
+            />
+          )}
+        </div>
+      </div>
 
       <div className="verdict">
         <div className="headline">

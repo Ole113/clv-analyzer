@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { bookFavorability } from "./ev";
+import { bookFavorability, decimalFromAmerican, DEFAULT_PICKEM_PRICE } from "./ev";
 import type { BetFilters } from "./queries";
 import type { Side } from "./constants";
 
@@ -8,6 +8,11 @@ export interface PropRow {
   n: number;
   beat: number;
   beatRate: number | null;
+  /** Graded outcomes: decided = wins + losses; pushes and voids are no-action. */
+  wins: number;
+  losses: number;
+  decided: number;
+  hitRate: number | null;
   avgEdge: number | null;
   /** Mean closing EV% across picks that had one. */
   avgEv: number | null;
@@ -31,12 +36,26 @@ export interface SideRow {
   beatRate: number | null;
   avgEv: number | null;
   avgEdge: number | null;
+  hitRate: number | null;
+  wins: number;
+  losses: number;
 }
 
 export interface AnalysisResult {
   sampleSize: number;
+  /** Picks with a decided result (win or loss). */
+  gradedSample: number;
   withEv: number;
-  overall: { beatRate: number | null; avgEdge: number | null; avgEv: number | null };
+  overall: {
+    beatRate: number | null;
+    avgEdge: number | null;
+    avgEv: number | null;
+    hitRate: number | null;
+    wins: number;
+    losses: number;
+  };
+  clvVsResult: { overall: ClvResultBlock; bySport: ClvResultBlock[] };
+  expectation: ExpectationBlock;
   byStat: PropRow[];
   bySport: PropRow[];
   bySide: SideRow[];
@@ -46,19 +65,139 @@ export interface AnalysisResult {
   worstBooksByStat: { stat: string; books: BookRow[] }[];
 }
 
-function summarize(rows: { beatClv: boolean | null; edge: number | null; closeEvPercent: number | null }[]) {
+interface SummarizableRow {
+  beatClv: boolean | null;
+  edge: number | null;
+  closeEvPercent: number | null;
+  gradeResult: string | null;
+}
+
+function summarize(rows: SummarizableRow[]) {
+  // CLV and result eligibility are independent: a pick whose closing line was never captured can
+  // still have a perfectly good win, and a settled pick may not be graded yet.
   const scored = rows.filter((r) => r.beatClv !== null && r.edge !== null);
   const evs = rows.map((r) => r.closeEvPercent).filter((v): v is number => v !== null);
+  const wins = rows.filter((r) => r.gradeResult === "WIN").length;
+  const losses = rows.filter((r) => r.gradeResult === "LOSS").length;
+  const decided = wins + losses;
   const n = scored.length;
   return {
     n,
     beat: scored.filter((r) => r.beatClv).length,
     beatRate: n ? scored.filter((r) => r.beatClv).length / n : null,
+    wins,
+    losses,
+    decided,
+    hitRate: decided ? wins / decided : null,
     avgEdge: n ? scored.reduce((s, r) => s + (r.edge as number), 0) / n : null,
     avgEv: evs.length ? evs.reduce((s, v) => s + v, 0) / evs.length : null,
     evLost: evs.filter((v) => v < 0).reduce((s, v) => s + v, 0),
     evGained: evs.filter((v) => v > 0).reduce((s, v) => s + v, 0),
   };
+}
+
+/**
+ * Expected versus actual return.
+ *
+ * Each pick's EV% says what it should return per unit staked on average. Summing those gives the
+ * profit the picks "should" have produced; summing the graded results gives what they actually
+ * produced. The gap is variance -- running hot or cold relative to the edge the numbers claim.
+ *
+ * Only picks that are BOTH graded win/loss AND carry an EV% can appear, otherwise the two sides
+ * would be measured over different samples and the gap would be meaningless.
+ */
+export interface ExpectationBlock {
+  n: number;
+  /** Units of profit the EV predicted, at 1 unit per pick. */
+  expectedUnits: number;
+  /** Units actually won or lost. */
+  actualUnits: number;
+  /** actual - expected. Positive = running above expectation. */
+  deltaUnits: number;
+  expectedHitRate: number | null;
+  actualHitRate: number | null;
+}
+
+/** Hit rate split by whether the pick beat the close -- the test of whether CLV predicts results. */
+export interface ClvResultCell {
+  n: number;
+  wins: number;
+  hitRate: number | null;
+}
+export interface ClvResultBlock {
+  key: string;
+  beat: ClvResultCell;
+  missed: ClvResultCell;
+  /** Percentage points of hit rate gained by beating the close. Positive = CLV predicted hitting. */
+  lift: number | null;
+}
+
+function expectation(
+  rows: {
+    gradeResult: string | null;
+    closeEvPercent: number | null;
+    openEvPercent: number | null;
+    closeFairProb: number | null;
+    openFairProb: number | null;
+    fantasyPrice: number | null;
+  }[]
+): ExpectationBlock {
+  const usable = rows.filter(
+    (r) =>
+      (r.gradeResult === "WIN" || r.gradeResult === "LOSS") &&
+      (r.closeEvPercent ?? r.openEvPercent) !== null
+  );
+
+  let expectedUnits = 0;
+  let actualUnits = 0;
+  let probSum = 0;
+  let probCount = 0;
+  let wins = 0;
+
+  for (const r of usable) {
+    const ev = (r.closeEvPercent ?? r.openEvPercent) as number;
+    expectedUnits += ev / 100;
+
+    const decimal = decimalFromAmerican(r.fantasyPrice ?? DEFAULT_PICKEM_PRICE) ?? 1;
+    if (r.gradeResult === "WIN") {
+      actualUnits += decimal - 1;
+      wins += 1;
+    } else {
+      actualUnits -= 1;
+    }
+
+    const prob = r.closeFairProb ?? r.openFairProb;
+    if (prob !== null) {
+      probSum += prob;
+      probCount += 1;
+    }
+  }
+
+  const round = (v: number) => Math.round(v * 1000) / 1000;
+  return {
+    n: usable.length,
+    expectedUnits: round(expectedUnits),
+    actualUnits: round(actualUnits),
+    deltaUnits: round(actualUnits - expectedUnits),
+    expectedHitRate: probCount ? probSum / probCount : null,
+    actualHitRate: usable.length ? wins / usable.length : null,
+  };
+}
+
+function crosstab(key: string, rows: SummarizableRow[]): ClvResultBlock {
+  // Only picks that have BOTH a CLV verdict and a decided result can appear here.
+  const usable = rows.filter(
+    (r) => r.beatClv !== null && (r.gradeResult === "WIN" || r.gradeResult === "LOSS")
+  );
+  const cell = (subset: SummarizableRow[]): ClvResultCell => {
+    const wins = subset.filter((r) => r.gradeResult === "WIN").length;
+    return { n: subset.length, wins, hitRate: subset.length ? wins / subset.length : null };
+  };
+  const beat = cell(usable.filter((r) => r.beatClv === true));
+  const missed = cell(usable.filter((r) => r.beatClv === false));
+  const lift =
+    beat.hitRate !== null && missed.hitRate !== null ? (beat.hitRate - missed.hitRate) * 100 : null;
+  return { key, beat, missed, lift };
 }
 
 function group<T>(rows: T[], key: (row: T) => string | null): Map<string, T[]> {
@@ -83,7 +222,9 @@ export async function getAnalysis(
 ): Promise<AnalysisResult> {
   const bets = await prisma.bet.findMany({
     where: {
-      status: "CLOSED",
+      // Deliberately NOT gated on status "CLOSED". Grading is orthogonal to closing capture: a
+      // pick whose closing line was never found can still have a real win, and excluding it here
+      // would quietly drop it from every hit-rate figure.
       ...(filters.site ? { site: filters.site } : {}),
       ...(filters.sport ? { sport: filters.sport } : {}),
       ...(filters.fantasyBook ? { fantasyBook: filters.fantasyBook } : {}),
@@ -123,7 +264,16 @@ export async function getAnalysis(
   const bySide: SideRow[] = (["OVER", "UNDER"] as Side[]).map((side) => {
     const rows = bets.filter((b) => b.side === side);
     const s = summarize(rows);
-    return { side, n: s.n, beatRate: s.beatRate, avgEv: s.avgEv, avgEdge: s.avgEdge };
+    return {
+      side,
+      n: s.n,
+      beatRate: s.beatRate,
+      avgEv: s.avgEv,
+      avgEdge: s.avgEdge,
+      hitRate: s.hitRate,
+      wins: s.wins,
+      losses: s.losses,
+    };
   });
 
   // --- book favourability: how each book's closing number compared with the consensus ---
@@ -166,8 +316,24 @@ export async function getAnalysis(
 
   return {
     sampleSize: bets.length,
+    gradedSample: overall.decided,
     withEv: bets.filter((b) => b.closeEvPercent !== null).length,
-    overall: { beatRate: overall.beatRate, avgEdge: overall.avgEdge, avgEv: overall.avgEv },
+    overall: {
+      beatRate: overall.beatRate,
+      avgEdge: overall.avgEdge,
+      avgEv: overall.avgEv,
+      hitRate: overall.hitRate,
+      wins: overall.wins,
+      losses: overall.losses,
+    },
+    expectation: expectation(bets),
+    clvVsResult: {
+      overall: crosstab("All picks", bets),
+      bySport: [...group(bets, (b) => b.sport).entries()]
+        .map(([sport, rows]) => crosstab(sport, rows))
+        .filter((b) => b.beat.n + b.missed.n >= minSample)
+        .sort((a, b) => (b.lift ?? -Infinity) - (a.lift ?? -Infinity)),
+    },
     byStat: toPropRows(group(bets, (b) => b.statMarket)),
     bySport: toPropRows(group(bets, (b) => b.sport)),
     bySide,

@@ -44,3 +44,35 @@ export function fmtDateTime(value: Date | string | null): string {
 export function fmtPct(rate: number | null): string {
   return rate === null ? "--" : `${(rate * 100).toFixed(1)}%`;
 }
+
+/**
+ * The pick's real outcome, kept visually distinct from the CLV verdict beside it. A hand-entered
+ * grade is marked so it is never mistaken for one verified against a box score.
+ */
+export function ResultBadge({
+  gradeResult,
+  gradeSource,
+}: {
+  gradeResult: string | null;
+  gradeSource?: string | null;
+}) {
+  if (!gradeResult) return <span className="muted">--</span>;
+  const tone: Record<string, string> = {
+    WIN: "good",
+    LOSS: "bad",
+    PUSH: "neutral",
+    VOID: "neutral",
+    UNGRADEABLE: "warn",
+    GRADE_FAILED: "bad",
+  };
+  const label: Record<string, string> = {
+    UNGRADEABLE: "NO SOURCE",
+    GRADE_FAILED: "GRADE FAILED",
+  };
+  return (
+    <span className={`badge ${tone[gradeResult] ?? "neutral"}`}>
+      {label[gradeResult] ?? gradeResult}
+      {gradeSource === "manual" && <span className="badge-sub"> manual</span>}
+    </span>
+  );
+}

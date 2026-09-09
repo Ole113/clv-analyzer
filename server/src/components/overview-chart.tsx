@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { SeriesPoint } from "@/lib/queries";
 
-type MetricKey = "beatRate" | "avgEv" | "avgEdge" | "cumulativeEdge" | "picks";
+type MetricKey = "beatRate" | "hitRate" | "avgEv" | "avgEdge" | "cumulativeEdge" | "picks";
 
 const METRICS: Record<
   MetricKey,
@@ -18,6 +18,7 @@ const METRICS: Record<
   }
 > = {
   beatRate: { label: "Beat CLV %", unit: "%", digits: 1, scale: 100, zeroLine: false, clamp: [0, 100] },
+  hitRate: { label: "Hit rate", unit: "%", digits: 1, scale: 100, zeroLine: false, clamp: [0, 100] },
   avgEv: { label: "Avg EV%", unit: "%", digits: 2, scale: 1, zeroLine: true },
   avgEdge: { label: "Avg edge", unit: "", digits: 2, scale: 1, zeroLine: true },
   cumulativeEdge: { label: "Cumulative edge", unit: "", digits: 1, scale: 1, zeroLine: true },

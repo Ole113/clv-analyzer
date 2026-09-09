@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { config } from "@/lib/constants";
 import { DEFAULT_PICKEM_PRICE } from "@/lib/ev";
 import { PurgeForm } from "@/components/purge-form";
+import { ConfirmButton } from "@/components/confirm-button";
+import { runDueGrades } from "@/lib/grading/grader";
+import { BREAK_EVEN_RATE } from "@/lib/ev";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +48,18 @@ export default async function SettingsPage() {
     return count;
   }
 
+  async function runGrader() {
+    "use server";
+    await runDueGrades();
+    revalidatePath("/settings");
+    revalidatePath("/bets");
+    revalidatePath("/analysis");
+  }
+
+  const gradeCounts = await prisma.bet.groupBy({ by: ["gradeResult"], _count: true });
+  const countOf = (result: string | null) =>
+    gradeCounts.find((g) => g.gradeResult === result)?._count ?? 0;
+
   const fmt = (d: Date | null | undefined) => (d ? d.toLocaleString() : "--");
 
   return (
@@ -70,6 +85,37 @@ export default async function SettingsPage() {
             <PurgeForm demoOnly demoCount={demo} purgeDemoAction={purgeDemo} />
           </div>
         )}
+      </section>
+
+      <section className="chart-card">
+        <h3>Grading</h3>
+        <p className="lede">
+          Results are read from public box scores by the server itself, so grading keeps working
+          with Chrome closed.
+        </p>
+        <table>
+          <tbody>
+            <tr><td>Won / lost</td><td className="num">{countOf("WIN")} / {countOf("LOSS")}</td></tr>
+            <tr><td>Pushes / voids</td><td className="num">{countOf("PUSH")} / {countOf("VOID")}</td></tr>
+            <tr><td>No source (hand-gradeable)</td><td className="num">{countOf("UNGRADEABLE")}</td></tr>
+            <tr><td>Grade failed</td><td className="num">{countOf("GRADE_FAILED")}</td></tr>
+            <tr><td>Awaiting grade</td><td className="num">{countOf(null)}</td></tr>
+            <tr><td>First attempt after kickoff</td><td className="num">{config.gradeDelayHours}h</td></tr>
+            <tr><td>Checks for due picks every</td><td className="num">{config.gradePollMinutes} min</td></tr>
+            <tr><td>Attempts before giving up</td><td className="num">{config.maxGradeAttempts}</td></tr>
+            <tr>
+              <td>Break-even hit rate (from the default payout)</td>
+              <td className="num">{(BREAK_EVEN_RATE * 100).toFixed(1)}%</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style={{ marginTop: 14 }}>
+          <ConfirmButton
+            action={runGrader}
+            label="Run grader now"
+            confirm={["Grade every pick that is due now?"]}
+          />
+        </div>
       </section>
 
       <section className="chart-card">

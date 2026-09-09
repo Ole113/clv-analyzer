@@ -55,6 +55,10 @@ export async function ingestSnapshot(input: SnapshotInput) {
   const scheduledFetchAt = validStart
     ? new Date(validStart.getTime() + config.closingBufferMinutes * 60_000)
     : null;
+  // First grading attempt a few hours after kickoff, once the box score is posted.
+  const gradeScheduledAt = validStart
+    ? new Date(validStart.getTime() + config.gradeDelayHours * 3600_000)
+    : null;
 
   const matchKey = buildMatchKey({
     site: input.site,
@@ -103,6 +107,7 @@ export async function ingestSnapshot(input: SnapshotInput) {
     openRawSnapshotJson: JSON.stringify(row),
     openCapturedAt: new Date(input.capturedAt),
     scheduledFetchAt,
+    gradeScheduledAt,
     status: validStart ? "PENDING" : "NEEDS_GAME_TIME",
   };
 

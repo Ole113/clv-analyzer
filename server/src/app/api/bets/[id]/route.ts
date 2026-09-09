@@ -39,6 +39,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     data: {
       gameStartTime: start,
       scheduledFetchAt: new Date(start.getTime() + config.closingBufferMinutes * 60_000),
+      gradeScheduledAt: new Date(start.getTime() + config.gradeDelayHours * 3600_000),
       status: "PENDING",
       fetchAttempts: 0,
       lastFetchError: null,
