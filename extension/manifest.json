@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "CLV Analyzer Capture",
+  "version": "0.1.0",
+  "description": "Adds a CLV checkbox column to the OddsJam and PropProfessor Fantasy Optimizers and snapshots the board when you tick a pick.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://fantasy.oddsjam.com/*",
+    "https://www.propprofessor.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://fantasy.oddsjam.com/fantasy-odds/*"
+      ],
+      "js": [
+        "content/oddsjam.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.propprofessor.com/fantasy*"
+      ],
+      "js": [
+        "content/propprofessor.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@clv/extension",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch"
+  },
+  "dependencies": {
+    "@clv/shared": "*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.6.3"
+  }
+}

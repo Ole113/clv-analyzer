@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Keeps the CLV analyzer running on the always-on Mac, including across reboots.
+
+  Install:
+    1. Edit the paths below if the repo does not live at ~/Documents/Programming/clv-analyzer.
+    2. cp deploy/com.clvanalyzer.server.plist ~/Library/LaunchAgents/
+    3. launchctl load -w ~/Library/LaunchAgents/com.clvanalyzer.server.plist
+
+  Logs:  tail -f /tmp/clv-analyzer.log
+  Stop:  launchctl unload -w ~/Library/LaunchAgents/com.clvanalyzer.server.plist
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.clvanalyzer.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/zsh</string>
+      <string>-lc</string>
+      <string>cd "$HOME/Documents/Programming/clv-analyzer/server" &amp;&amp; exec npm start</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/clv-analyzer.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/clv-analyzer.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+  </dict>
+</plist>

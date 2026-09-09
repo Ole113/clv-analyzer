@@ -1,0 +1,114 @@
+// SQLite via Prisma. Note: SQLite does not support Prisma enums or the Json scalar, so status /
+// side are validated strings (see src/lib/constants.ts) and raw snapshots are JSON text columns.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Bet {
+  id String @id @default(cuid())
+
+  // --- identity, captured at open time --------------------------------------
+  site        String // ODDSJAM | PROPPROFESSOR
+  fantasyBook String // prizepicks, underdog, ...
+  sport       String?
+  player      String
+  team        String?
+  opponent    String?
+  matchup     String?
+  statMarket  String
+  side        String // OVER | UNDER
+
+  gameStartTime     DateTime?
+  gameStartTimeText String?
+
+  /// Site-provided row identifier. OddsJam: "Aaron Rodgers Over 14".
+  /// PropProfessor: "NFL:GAME:Rams:49ers:1789086900:Player_Receiving_Yards:Puka_Nacua_Over_62.5".
+  /// Both embed the line, which moves before kickoff, so matching uses matchKey.
+  externalPropId String?
+  /// Deterministic key over (site, book, sport, player, stat, side, gameStartTime) used to
+  /// re-find the prop at closing time and to detect duplicate captures.
+  matchKey String
+
+  pageUrl      String?
+  sourceDevice String?
+
+  // --- open snapshot ---------------------------------------------------------
+  takenLine           Float
+  /// The site's own no-vig probability for this pick at capture time (0-1).
+  openFairProb        Float?
+  /// Pick'em payout price for one leg, when the board shows a DFS column.
+  fantasyPrice        Int?
+  /// True EV% at capture: fair probability x decimal payout - 1.
+  openEvPercent       Float?
+  openRawSnapshotJson String
+  openCapturedAt      DateTime @default(now())
+  openLines           OpenLine[]
+
+  // --- scheduling ------------------------------------------------------------
+  scheduledFetchAt DateTime?
+  fetchAttempts    Int       @default(0)
+  lastFetchError   String?
+  lastFetchAt      DateTime?
+
+  // --- close snapshot --------------------------------------------------------
+  status               String    @default("PENDING")
+  closeRawSnapshotJson String?
+  closeCapturedAt      DateTime?
+  closeLines           CloseLine[]
+
+  // --- verdict ---------------------------------------------------------------
+  avgClosingLine   Float?
+  closingBookCount Int?
+  closeFairProb    Float?
+  /// True EV% measured against the closing market -- the number the analysis page ranks on.
+  closeEvPercent   Float?
+  /// Seconds between kickoff and when the closing board was actually read. Large values mean the
+  /// browser was not running at kickoff, so the "closing" lines are really post-game lines.
+  closingCaptureLagSeconds Int?
+  edge             Float?
+  beatClv          Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, scheduledFetchAt])
+  @@index([matchKey])
+  @@index([site, sport])
+}
+
+/// One sportsbook column as rendered in the row when the pick was captured.
+model OpenLine {
+  id                String  @id @default(cuid())
+  betId             String
+  bet               Bet     @relation(fields: [betId], references: [id], onDelete: Cascade)
+  bookKey           String
+  label             String?
+  line              Float?
+  price             Int?
+  rawText           String
+  /// Whether this column feeds the closing average (real sportsbook quoting a line).
+  includedInAverage Boolean @default(false)
+
+  @@index([betId])
+}
+
+/// One sportsbook column as rendered in the row at market close.
+model CloseLine {
+  id                String  @id @default(cuid())
+  betId             String
+  bet               Bet     @relation(fields: [betId], references: [id], onDelete: Cascade)
+  bookKey           String
+  label             String?
+  line              Float?
+  price             Int?
+  rawText           String
+  includedInAverage Boolean @default(false)
+
+  @@index([betId])
+}
