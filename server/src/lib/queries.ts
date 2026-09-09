@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { OPEN_STATUSES, SETTLED_STATUSES, type Status } from "./constants";
+import { OPEN_STATUSES, SETTLED_STATUSES, type MarketType, type Status } from "./constants";
 
 export interface BetFilters {
   group?: "open" | "settled" | "all";
@@ -9,6 +9,10 @@ export interface BetFilters {
   fantasyBook?: string;
   statMarket?: string;
   side?: string;
+  /** Whether the pick was taken in-play or before kickoff. */
+  live?: "live" | "prematch";
+  /** Player prop vs whole-game market (spread, total). */
+  marketType?: MarketType;
   /** Free-text search across player, stat, matchup and teams. */
   q?: string;
   verdict?: "beat" | "missed";
@@ -38,6 +42,10 @@ export function parseBetFilters(params: URLSearchParams): BetFilters {
     fantasyBook: clean("book"),
     statMarket: clean("stat"),
     side: clean("side"),
+    live: (["live", "prematch"] as const).find((v) => v === clean("live")),
+    marketType: (["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "OTHER"] as const).find(
+      (v) => v === clean("market")
+    ),
     q: clean("q"),
     verdict: verdict === "beat" || verdict === "missed" ? verdict : undefined,
     result: (["WIN", "LOSS", "PUSH", "VOID"] as const).find((r) => r === clean("result")),
@@ -69,6 +77,8 @@ function whereFrom(filters: BetFilters) {
   if (filters.fantasyBook) where.fantasyBook = filters.fantasyBook;
   if (filters.statMarket) where.statMarket = filters.statMarket;
   if (filters.side) where.side = filters.side;
+  if (filters.live) where.isLive = filters.live === "live";
+  if (filters.marketType) where.marketType = filters.marketType;
 
   if (filters.verdict) {
     // CLV verdicts only exist on picks whose closing line was captured, so this narrows the
@@ -87,6 +97,9 @@ function whereFrom(filters: BetFilters) {
     // SQLite's LIKE is case-insensitive for ASCII, which is what Prisma's `contains` compiles to.
     where.OR = [
       { player: { contains: filters.q } },
+      // Game markets have no player, so their bet name is what a search has to hit.
+      { selectionName: { contains: filters.q } },
+      { subjectTeam: { contains: filters.q } },
       { statMarket: { contains: filters.q } },
       { matchup: { contains: filters.q } },
       { team: { contains: filters.q } },
@@ -211,6 +224,8 @@ export async function getOverviewStats(filters: BetFilters) {
       closed: closed.length,
       unavailable: bets.filter((b) => b.status === "UNAVAILABLE").length,
       failed: bets.filter((b) => b.status === "FETCH_FAILED").length,
+      /** In-play picks, which carry EV% but never a CLV verdict. */
+      live: bets.filter((b) => b.status === "LIVE_NO_CLV").length,
     },
     bySport: byKey((b) => b.sport),
     bySite: byKey((b) => b.site),

@@ -6,10 +6,11 @@ import { ActionButton, type ActionResult } from "@/components/action-button";
 import { ActionForm } from "@/components/action-form";
 import { prisma } from "@/lib/prisma";
 import { config } from "@/lib/constants";
-import { StatusBadge, VerdictBadge, ResultBadge, fmtDateTime, fmtEdge, betTitle } from "@/components/ui";
+import { VerdictBadge, ResultBadge, fmtDateTime, fmtEdge, betTitle, sideLabel } from "@/components/ui";
 import { gradeBet, gradeManually } from "@/lib/grading/grader";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
+import { MathBreakdown } from "@/components/math-breakdown";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ interface LineRow {
   label: string | null;
   line: number | null;
   price: number | null;
+  logoUrl: string | null;
   includedInAverage: boolean;
 }
 
@@ -56,7 +58,14 @@ function SnapshotTable({
             {lines.map((l) => (
               <tr key={l.id} className={l.includedInAverage ? "" : "excluded"}>
                 <td>
-                  {l.label ?? l.bookKey}
+                  <span className="book">
+                    {/* The board serves these, so the dashboard needs no icon set of its own. A
+                        missing logo just leaves the name, which is why there is no placeholder. */}
+                    {l.logoUrl && (
+                      <img className="book-logo" src={l.logoUrl} alt="" width={16} height={16} loading="lazy" />
+                    )}
+                    <span>{l.label ?? l.bookKey}</span>
+                  </span>
                   {!l.includedInAverage && (
                     <span className="muted" style={{ fontSize: 11 }}>
                       {" "}
@@ -205,6 +214,42 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
     ? (JSON.parse(bet.gradeRawJson) as { webUrl?: string | null })
     : null;
 
+  /**
+   * How far the result landed from what the bet needed.
+   *
+   * A spread is measured against the NEGATED handicap -- taking +5.5 needs a margin better than
+   * -5.5 -- so subtracting the raw line (as a prop does) would report a nonsense number.
+   */
+  const resultMargin =
+    bet.actualValue === null
+      ? null
+      : bet.marketType === "SPREAD"
+        ? bet.actualValue + bet.takenLine
+        : bet.actualValue - bet.takenLine;
+
+  const resultSentence =
+    bet.actualValue === null ? null : bet.marketType === "SPREAD" ? (
+      <>
+        {bet.subjectTeam ?? "The team"} finished{" "}
+        <strong>
+          {bet.actualValue > 0 ? `+${bet.actualValue}` : bet.actualValue}
+        </strong>{" "}
+        on the scoreboard against a {bet.takenLine > 0 ? `+${bet.takenLine}` : bet.takenLine}{" "}
+        spread — {(resultMargin ?? 0) > 0 ? "covered by" : (resultMargin ?? 0) === 0 ? "landed exactly on" : "short by"}{" "}
+        {Math.abs(resultMargin ?? 0)}.
+      </>
+    ) : bet.marketType === "GAME_TOTAL" ? (
+      <>
+        The game totalled <strong>{bet.actualValue}</strong> — you needed{" "}
+        {sideLabel(bet.side).toLowerCase()} {bet.takenLine}.
+      </>
+    ) : (
+      <>
+        {bet.player ?? "This market"} recorded <strong>{bet.actualValue}</strong> — you needed{" "}
+        {sideLabel(bet.side).toLowerCase()} {bet.takenLine}.
+      </>
+    );
+
   const movement =
     bet.avgClosingLine !== null
       ? `Line moved from ${bet.takenLine} to ${bet.avgClosingLine.toFixed(2)} ` +
@@ -253,16 +298,11 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
       <div className="verdict">
         <div className="headline">
           <ResultBadge gradeResult={bet.gradeResult} gradeSource={bet.gradeSource} />{" "}
-          {bet.actualValue !== null && <Signed value={bet.actualValue - bet.takenLine} />}
+          {bet.actualValue !== null && <Signed value={resultMargin} />}
         </div>
         <div className="detail">
           {bet.actualValue !== null ? (
-            <>
-              {bet.player ?? bet.subjectTeam ?? "This market"} recorded{" "}
-              <strong>{bet.actualValue}</strong> — you needed{" "}
-              {bet.side === "OVER" ? "over" : bet.side === "UNDER" ? "under" : "a cover of"}{" "}
-              {bet.takenLine}.
-            </>
+            resultSentence
           ) : bet.gradeResult === "VOID" ? (
             "No result: the player did not play, or the game did not finish."
           ) : bet.gradeResult === "UNGRADEABLE" || bet.gradeResult === "GRADE_FAILED" ? (
@@ -338,6 +378,47 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
 
       <div className="verdict">
         <div className="headline">
+          {bet.openEvPercent === null ? (
+            <span className="muted">EV not recorded</span>
+          ) : (
+            <>
+              <Signed value={bet.openEvPercent} unit="%" /> EV
+            </>
+          )}
+          <Info title="Expected value when you took it" anchor="ev">
+            The board&apos;s own edge on this pick at the moment you ticked it, from its no-vig
+            probability at your exact line.
+          </Info>
+        </div>
+        <div className="detail">
+          {bet.openFairProb !== null ? (
+            <>
+              {bet.site === "ODDSJAM" ? "OddsJam" : "PropProfessor"} put the chance to hit at{" "}
+              <strong>{(bet.openFairProb * 100).toFixed(1)}%</strong> when you took it
+              {bet.fantasyPrice !== null && (
+                <> at a payout of {bet.fantasyPrice > 0 ? `+${bet.fantasyPrice}` : bet.fantasyPrice}</>
+              )}
+              .
+              {bet.closeFairProb !== null && (
+                <>
+                  {" "}By close it was <strong>{(bet.closeFairProb * 100).toFixed(1)}%</strong> (
+                  <Signed value={bet.closeEvPercent} unit="%" /> EV).
+                </>
+              )}
+            </>
+          ) : bet.openEvPercent !== null ? (
+            <>
+              This board states an EV% directly rather than a chance to hit, so it is recorded as
+              shown.
+            </>
+          ) : (
+            "This pick was captured before EV% was recorded, so it carries none."
+          )}
+        </div>
+      </div>
+
+      <div className="verdict">
+        <div className="headline">
           <VerdictBadge beatClv={bet.beatClv} status={bet.status} />{" "}
           {bet.status === "CLOSED" ? <Signed value={bet.edge} /> : ""}
           <Info title="CLV edge" anchor="clv">
@@ -347,7 +428,9 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
         </div>
         <div className="detail">
           {movement ??
-            (bet.status === "UNAVAILABLE"
+            (bet.status === "LIVE_NO_CLV"
+              ? "Taken in-play, so there is no closing line to measure against — the line was already mid-game. EV% is still recorded and the pick is graded normally."
+              : bet.status === "UNAVAILABLE"
               ? "No sportsbook was still quoting this prop when the market closed, so there is no closing line to compare against."
               : bet.status === "NEEDS_GAME_TIME"
                 ? "Captured without a kickoff time, so the closing fetch could not be scheduled. Set one below."
@@ -379,11 +462,13 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
             label={bet.status === "CLOSED" ? "Queue another closing read" : "Queue closing read now"}
             pendingLabel="Queueing..."
             disabledReason={
-              bet.status === "NEEDS_GAME_TIME"
-                ? "Set a kickoff time first — without one there is nothing to schedule against."
-                : bet.status === "DUE"
-                  ? "Already queued and waiting for a browser with the extension to pick it up."
-                  : null
+              bet.isLive
+                ? "This pick was taken in-play, so there is no closing line to read — the line was already mid-game."
+                : bet.status === "NEEDS_GAME_TIME"
+                  ? "Set a kickoff time first — without one there is nothing to schedule against."
+                  : bet.status === "DUE"
+                    ? "Already queued and waiting for a browser with the extension to pick it up."
+                    : null
             }
           />
           <span className="muted" style={{ fontSize: 12 }}>
@@ -426,6 +511,8 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
           emptyNote="Closing lines have not been captured yet."
         />
       </div>
+
+      <MathBreakdown bet={bet} />
     </main>
   );
 }

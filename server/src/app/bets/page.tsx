@@ -1,6 +1,7 @@
 import { listBets, parseBetFilters, getFacets, boardUrlFor, oddsScreenUrlFor } from "@/lib/queries";
 import { FilterBar } from "@/components/filter-bar";
-import { VerdictBadge, ResultBadge, fmtDateTime } from "@/components/ui";
+import { VerdictBadge, ResultBadge, fmtDateTime, sideLabel, betTitle } from "@/components/ui";
+import { BetRow } from "@/components/bet-row";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
 
@@ -39,9 +40,9 @@ export default async function BetsPage({
         <table>
           <thead>
             <tr>
-              <th>Player</th>
-              <th>Stat</th>
               <th>Pick</th>
+              <th>Market</th>
+              <th>Side</th>
               <th className="num">Taken</th>
               <th className="num">
                 Avg close
@@ -80,15 +81,16 @@ export default async function BetsPage({
           </thead>
           <tbody>
             {bets.map((b) => (
-              <tr key={b.id}>
+              <BetRow key={b.id} id={b.id} label={betTitle(b)}>
                 <td>
-                  <a href={`/bets/${b.id}`}>{b.player}</a>
+                  <a href={`/bets/${b.id}`}>{b.player ?? b.selectionName ?? b.statMarket}</a>
                   <div className="muted" style={{ fontSize: 12 }}>
                     {b.matchup ?? b.sport ?? ""}
+                    {b.isLive && <span className="live-chip">LIVE</span>}
                   </div>
                 </td>
                 <td>{b.statMarket}</td>
-                <td>{b.side}</td>
+                <td>{sideLabel(b.side) || <span className="muted">--</span>}</td>
                 <td className="num">{b.takenLine}</td>
                 <td className="num">
                   {b.avgClosingLine === null ? (
@@ -114,7 +116,11 @@ export default async function BetsPage({
                   ) : (
                     <>
                       {b.actualValue}
-                      <span className="muted" style={{ fontSize: 11 }}> / {b.takenLine}</span>
+                      {/* A spread's actual is the bet team's margin, which is measured against
+                          the negated handicap -- showing the raw line here would misread. */}
+                      <span className="muted" style={{ fontSize: 11 }}>
+                        {" "}/ {b.marketType === "SPREAD" ? -b.takenLine : b.takenLine}
+                      </span>
                     </>
                   )}
                 </td>
@@ -151,7 +157,7 @@ export default async function BetsPage({
                 <td>
                   <ResultBadge gradeResult={b.gradeResult} gradeSource={b.gradeSource} />
                 </td>
-              </tr>
+              </BetRow>
             ))}
           </tbody>
         </table>

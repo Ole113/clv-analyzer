@@ -116,6 +116,23 @@ export function FilterBar({
           { value: "UNDER", label: "Under" },
         ]}
       />
+      <Select
+        name="live"
+        label="When taken"
+        options={[
+          { value: "prematch", label: "Pre-match" },
+          { value: "live", label: "In-play" },
+        ]}
+      />
+      <Select
+        name="market"
+        label="Market"
+        options={[
+          { value: "PLAYER_PROP", label: "Player prop" },
+          { value: "GAME_TOTAL", label: "Game total" },
+          { value: "SPREAD", label: "Spread" },
+        ]}
+      />
       <Select name="book" label="Book" options={facets.books.map((b) => ({ value: b, label: b }))} />
       <Select
         name="site"

@@ -8,10 +8,13 @@ export function StatusBadge({ status }: { status: string }) {
     NEEDS_GAME_TIME: "warn",
     UNAVAILABLE: "warn",
     FETCH_FAILED: "bad",
+    LIVE_NO_CLV: "neutral",
   };
   const label: Record<string, string> = {
     NEEDS_GAME_TIME: "NEEDS TIME",
     FETCH_FAILED: "FAILED",
+    // Reads as a state, not an enum: this pick gets no CLV verdict by design.
+    LIVE_NO_CLV: "IN-PLAY",
   };
   return <span className={`badge ${tone[status] ?? "neutral"}`}>{label[status] ?? status}</span>;
 }

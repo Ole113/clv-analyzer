@@ -131,16 +131,25 @@ export default async function OverviewPage() {
             <ProblemCount value={needsAttention} />
           </div>
           <div className="sub">
-            {counts.needsGameTime} no kickoff · {counts.unavailable} unavailable · {counts.failed}{" "}
-            failed · {grading.failed} grade failed
+            {[
+              counts.needsGameTime > 0 ? `${counts.needsGameTime} no kickoff` : null,
+              counts.unavailable > 0 ? `${counts.unavailable} unavailable` : null,
+              counts.failed > 0 ? `${counts.failed} failed` : null,
+              grading.failed > 0 ? `${grading.failed} grade failed` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "nothing needs attention"}
           </div>
         </div>
         <div className="tile">
           <div className="label">Awaiting grade</div>
           <div className="value">{grading.awaiting}</div>
-          <div className="sub">
-            {grading.ungradeable} with <a href="/bets?graded=ungradeable">no source</a>
-          </div>
+          {/* A zero here says nothing worth a line of its own. */}
+          {grading.ungradeable > 0 && (
+            <div className="sub">
+              {grading.ungradeable} with <a href="/bets?graded=ungradeable">no source</a>
+            </div>
+          )}
         </div>
         <div className="tile">
           <div className="label">Total picks</div>

@@ -143,6 +143,27 @@ form.inline { display: flex; gap: 8px; align-items: center; margin-top: 12px; fl
 .modal-body { color: var(--muted); font-size: 13px; line-height: 1.55; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
+/* Whole-row click-through. The row is a link, so it looks like one on hover; the anchors inside
+   keep their own behaviour and are skipped by the handler. */
+tr.row-link { cursor: pointer; }
+tr.row-link:hover > td { background: var(--panel-2); }
+tr.row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Marks a pick taken in-play, which never gets a CLV verdict. */
+.live-chip {
+  display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px;
+  background: rgba(248,81,73,0.16); color: #ff9b95; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; vertical-align: 1px;
+}
+
+/* Book identity in the snapshot tables. Logos come from the source board, so they can 404 or be
+   blocked; sizing the box and hiding a broken image keeps the row aligned either way. */
+.book { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.book-logo {
+  width: 16px; height: 16px; flex: 0 0 16px; border-radius: 3px; object-fit: contain;
+  background: var(--panel-2);
+}
+
 /* --- filter bar --- */
 .filters {
   display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-end;
@@ -257,6 +278,43 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
 .contact-item svg { flex: 0 0 auto; }
 /* The Discord handle is not a link -- Discord has no public profile URL to point at. */
 .contact-item.is-static { color: var(--muted); }
+
+/* --- math breakdown --- */
+.math {
+  margin-top: 20px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0;
+}
+.math > summary {
+  cursor: pointer; padding: 13px 16px; font-size: 13px; font-weight: 600;
+  list-style: none; user-select: none;
+}
+.math > summary::-webkit-details-marker { display: none; }
+/* A rotating caret makes the open/closed state obvious without a JS toggle. */
+.math > summary::before {
+  content: "▸"; display: inline-block; margin-right: 8px; color: var(--muted);
+  transition: transform 120ms ease;
+}
+.math[open] > summary::before { transform: rotate(90deg); }
+.math > summary:hover { color: var(--accent); }
+.math-body { padding: 4px 16px 18px; display: flex; flex-direction: column; gap: 22px; }
+.math-body h4 {
+  margin: 0 0 6px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted);
+}
+.math-body p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.55; }
+.math-step {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.math-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.math-formula, .math-sub {
+  display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; margin-top: 5px; overflow-x: auto; white-space: nowrap;
+}
+.math-formula { color: var(--muted); }
+.math-result { margin-top: 6px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.math-table { margin: 0 0 10px; font-size: 12.5px; }
+.math-table td { padding: 5px 10px; }
 
 /* --- methodology --- */
 .prose { max-width: 760px; }

@@ -230,11 +230,14 @@ export async function getAnalysis(
       ...(filters.fantasyBook ? { fantasyBook: filters.fantasyBook } : {}),
       ...(filters.statMarket ? { statMarket: filters.statMarket } : {}),
       ...(filters.side ? { side: filters.side } : {}),
+      ...(filters.live ? { isLive: filters.live === "live" } : {}),
+      ...(filters.marketType ? { marketType: filters.marketType } : {}),
       ...(filters.verdict ? { beatClv: filters.verdict === "beat" } : {}),
       ...(filters.q
         ? {
             OR: [
               { player: { contains: filters.q } },
+              { selectionName: { contains: filters.q } },
               { statMarket: { contains: filters.q } },
               { matchup: { contains: filters.q } },
             ],

@@ -2,7 +2,7 @@ import { getAnalysis } from "@/lib/analysis";
 import { getFacets, parseBetFilters } from "@/lib/queries";
 import { FilterBar } from "@/components/filter-bar";
 import { DivergingBars, type BarDatum } from "@/components/bars";
-import { fmtEdge, fmtPct } from "@/components/ui";
+import { fmtEdge, fmtPct, sideLabel } from "@/components/ui";
 import { Signed, Rate } from "@/components/value";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { Info } from "@/components/info";
@@ -164,7 +164,7 @@ export default async function AnalysisPage({
         </div>
         <div className="tile">
           <div className="label">Better side</div>
-          <div className="value">{bestSide?.n ? bestSide.side : "--"}</div>
+          <div className="value">{bestSide?.n ? sideLabel(bestSide.side) : "--"}</div>
           <div className="sub">
             {bestSide?.n
               ? `${bestSide.avgEv === null ? "--" : `${bestSide.avgEv.toFixed(2)}%`} EV over ${bestSide.n} picks`
@@ -251,7 +251,7 @@ export default async function AnalysisPage({
             <tbody>
               {analysis.bySide.map((s) => (
                 <tr key={s.side}>
-                  <td>{s.side}</td>
+                  <td>{sideLabel(s.side)}</td>
                   <td className="num">{s.n}</td>
                   <td className="num"><Rate value={s.beatRate} /></td>
                   <td className="num">
