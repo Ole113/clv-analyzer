@@ -65,6 +65,10 @@ Unknown argument `marketType`. Available options are marked with ?.
   clientVersion: '6.19.3'
 }
 - Fix this error when adding a moneyline prop: This bet has no line to track. We should be able to track moneylines.
+- Scrolling on prop professor makes it so the green checkbox appears in the fanduel and circa rows.
+- The styling around the checkbox on PP vs Oj is still not equal. PP has so much padding and OJ still has so little.
+- Make it so in the settings you can load up X amount of test data props. Mark these as test data so when you delete stuff you can choose a checkbox to delete only test data.
+
 
 - Alt-line collision. matchKey deliberately excludes the line so the closing read can re-find a pick. On Alt boards offering the same player/stat/side at two different lines, ticking both would treat the second as an update of the first. Pre-existing, but the Alt fix made it reachable.
 - Extension needs reloading on each browser to pick up the Batch 2 changes — chrome://extensions → reload, since extension/dist is rebuilt but Chrome caches the loaded copy.
