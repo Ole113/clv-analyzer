@@ -76,10 +76,26 @@ than scored against a guess.
 
 ### 1. Install and build
 
+On the machine that hosts the server and database:
+
 ```bash
 npm install
 npm run build
 ```
+
+On a machine that only captures picks — a Windows or Mac laptop running just the extension —
+build the extension alone. It needs neither the Next.js build nor the Prisma client:
+
+```bash
+npm install
+npm run build:extension    # writes extension/dist
+```
+
+`extension/dist` is generated, not committed, so **it does not exist until you build**. Chrome
+reporting a missing or unreadable manifest on "Load unpacked" means the build has not run (or did
+not finish) on that machine.
+
+Windows works for everything except the launchd agent in step 3, which is macOS-only.
 
 ### 2. Configure the server
 
@@ -88,6 +104,9 @@ cd server
 cp .env.example .env      # then set API_KEY to a long random value:  openssl rand -hex 24
 npm run db:push           # creates prisma/clv.db
 ```
+
+On Windows PowerShell the first two are `copy .env.example .env` and
+`-join ((1..24) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })`.
 
 Settings in `.env`:
 
@@ -105,7 +124,11 @@ npm run dev --workspace server     # http://localhost:4319
 ```
 
 For the always-on Mac, install the launchd agent so it survives reboots — see the instructions in
-`server/deploy/com.clvanalyzer.server.plist`.
+`server/deploy/com.clvanalyzer.server.plist`. That file is macOS-only and is the one place in the
+repo with hardcoded paths (`$HOME/Documents/Programming/clv-analyzer`, `/tmp/clv-analyzer.log`);
+edit them if the repo lives elsewhere. To host the server on Windows instead, run
+`npm run start --workspace server` and keep it alive with Task Scheduler ("At startup", "Run
+whether user is logged on or not") or NSSM — nothing else about the server is Mac-specific.
 
 ### 4. Tailscale (so both computers reach it)
 
