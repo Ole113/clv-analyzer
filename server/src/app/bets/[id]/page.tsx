@@ -2,7 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getBetDetail, boardUrlFor, oddsScreenUrlFor } from "@/lib/queries";
 import { CopyButton } from "@/components/copy-button";
-import { ConfirmButton } from "@/components/confirm-button";
+import { ActionButton, type ActionResult } from "@/components/action-button";
+import { ActionForm } from "@/components/action-form";
 import { prisma } from "@/lib/prisma";
 import { config } from "@/lib/constants";
 import { StatusBadge, VerdictBadge, ResultBadge, fmtDateTime, fmtEdge } from "@/components/ui";
@@ -81,20 +82,29 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
 
   // The closing board can only be read by the extension in your own logged-in browser, so this
   // makes the pick due now and the extension collects it on its next poll (within a minute or so).
-  async function queueClosingRead() {
+  async function queueClosingRead(): Promise<ActionResult> {
     "use server";
     await prisma.bet.update({
       where: { id },
       data: { scheduledFetchAt: new Date(), status: "PENDING", fetchAttempts: 0, lastFetchError: null },
     });
     revalidatePath(`/bets/${id}`);
+    // The read itself happens in the browser extension, so the click cannot report a result --
+    // saying who does the work next is the difference between "nothing happened" and "queued".
+    return {
+      message: "Queued for a closing read",
+      detail:
+        "A browser running the extension will pick this up on its next poll, within a minute. Chrome must be open and signed in to the board.",
+    };
   }
 
-  async function setGameTime(formData: FormData) {
+  async function setGameTime(formData: FormData): Promise<ActionResult> {
     "use server";
     const raw = String(formData.get("gameStartTime") ?? "");
     const start = new Date(raw);
-    if (Number.isNaN(start.getTime())) return;
+    if (Number.isNaN(start.getTime())) {
+      return { ok: false, message: "Enter a valid kickoff time" };
+    }
     await prisma.bet.update({
       where: { id },
       data: {
@@ -107,31 +117,45 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
       },
     });
     revalidatePath(`/bets/${id}`);
+    return { message: "Kickoff set and closing read scheduled" };
   }
 
-  async function gradeNow() {
+  async function gradeNow(): Promise<ActionResult> {
     "use server";
     await prisma.bet.update({
       where: { id },
       data: { gradeAttempts: 0, gradeReason: null, gradeScheduledAt: new Date() },
     });
-    await gradeBet(id);
+    const { result, reason } = await gradeBet(id);
     revalidatePath(`/bets/${id}`);
+    // Report what the grader actually concluded. "RETRY" and "UNGRADEABLE" are not successes, and
+    // silently re-rendering the page made them indistinguishable from a graded pick.
+    if (result === "MISSING") return { ok: false, message: "This pick no longer exists" };
+    if (result === "RETRY") {
+      return { ok: false, message: "Could not grade it yet", detail: reason ?? "Will retry automatically." };
+    }
+    if (result === "GRADE_FAILED" || result === "UNGRADEABLE") {
+      return { ok: false, message: `Not graded — ${result === "UNGRADEABLE" ? "no source" : "grading failed"}`, detail: reason ?? null };
+    }
+    return { message: `Graded: ${result}`, detail: reason ?? null };
   }
 
-  async function submitManualGrade(formData: FormData) {
+  async function submitManualGrade(formData: FormData): Promise<ActionResult> {
     "use server";
     const raw = String(formData.get("actualValue") ?? "").trim();
-    if (raw === "") return;
+    if (raw === "") return { ok: false, message: "Enter the actual result first" };
     const value = Number(raw);
-    if (!Number.isFinite(value)) return;
+    if (!Number.isFinite(value)) {
+      return { ok: false, message: `"${raw}" is not a number` };
+    }
     // The outcome is always derived from the value typed in, so the stored number and the stored
     // result can never contradict each other.
     await gradeManually(id, value);
     revalidatePath(`/bets/${id}`);
+    return { message: `Recorded ${value}` };
   }
 
-  async function voidBet() {
+  async function voidBet(): Promise<ActionResult> {
     "use server";
     await prisma.bet.update({
       where: { id },
@@ -144,9 +168,10 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
       },
     });
     revalidatePath(`/bets/${id}`);
+    return { message: "Marked void" };
   }
 
-  async function clearGrade() {
+  async function clearGrade(): Promise<ActionResult> {
     "use server";
     await prisma.bet.update({
       where: { id },
@@ -161,12 +186,14 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
       },
     });
     revalidatePath(`/bets/${id}`);
+    return { message: "Grade cleared and re-queued" };
   }
 
-  async function deleteBet() {
+  async function deleteBet(): Promise<ActionResult> {
     "use server";
     await prisma.bet.delete({ where: { id } });
     revalidatePath("/bets");
+    // Throws NEXT_REDIRECT; ActionButton recognises that as navigation rather than a failure.
     redirect("/bets");
   }
 
@@ -253,10 +280,14 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
           </p>
         )}
 
-        {/* Sibling forms, never nested: ConfirmButton renders its own <form>, and nesting forms
-            is invalid HTML that browsers silently unnest. */}
+        {/* Sibling forms, never nested: ActionForm renders its own <form>, and nesting forms is
+            invalid HTML that browsers silently unnest. */}
         <div className="grade-actions">
-          <form action={submitManualGrade} className="inline">
+          <ActionForm
+            action={submitManualGrade}
+            submitLabel={bet.actualValue === null ? "Save result" : "Correct result"}
+            className="inline"
+          >
             <input
               type="number"
               step="any"
@@ -264,22 +295,40 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
               placeholder="actual result"
               defaultValue={bet.actualValue ?? ""}
             />
-            <button type="submit">
-              {bet.actualValue === null ? "Save result" : "Correct result"}
-            </button>
-          </form>
+          </ActionForm>
 
           {bet.gradeResult !== "UNGRADEABLE" && (
-            <form action={gradeNow}>
-              <button type="submit">Grade now</button>
-            </form>
+            <ActionButton
+              action={gradeNow}
+              label="Grade now"
+              pendingLabel="Grading..."
+              disabledReason={
+                bet.gameStartTime === null
+                  ? "This pick has no kickoff time, so there is no game to look up yet."
+                  : bet.gameStartTime > new Date()
+                    ? `The game has not started yet — it kicks off ${fmtDateTime(bet.gameStartTime)}.`
+                    : null
+              }
+            />
           )}
-          <ConfirmButton action={voidBet} label="Void" confirm={["Mark this pick void (no result)?"]} />
+          <ActionButton
+            action={voidBet}
+            label="Void"
+            success="Marked void"
+            confirmTitle="Mark this pick void?"
+            confirm={["A void pick keeps its CLV verdict but records no win or loss."]}
+            confirmLabel="Mark void"
+            disabledReason={
+              bet.gradeResult === "VOID" ? "This pick is already marked void." : null
+            }
+          />
           {bet.gradeResult && (
-            <ConfirmButton
+            <ActionButton
               action={clearGrade}
               label="Clear grade"
-              confirm={["Clear the recorded result and re-queue this pick?"]}
+              confirmTitle="Clear the recorded result?"
+              confirm={["The pick goes back in the grading queue and will be re-graded."]}
+              confirmLabel="Clear grade"
             />
           )}
         </div>
@@ -313,16 +362,28 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
         {bet.lastFetchError && <p className="err">{bet.lastFetchError}</p>}
 
         {bet.status === "NEEDS_GAME_TIME" && (
-          <form action={setGameTime} className="inline">
+          <ActionForm
+            action={setGameTime}
+            submitLabel="Set kickoff & schedule"
+            className="inline"
+          >
             <input type="datetime-local" name="gameStartTime" required />
-            <button type="submit">Set kickoff &amp; schedule</button>
-          </form>
+          </ActionForm>
         )}
 
-        <form action={queueClosingRead} className="inline">
-          <button type="submit">
-            {bet.status === "CLOSED" ? "Queue another closing read" : "Queue closing read now"}
-          </button>
+        <div className="inline">
+          <ActionButton
+            action={queueClosingRead}
+            label={bet.status === "CLOSED" ? "Queue another closing read" : "Queue closing read now"}
+            pendingLabel="Queueing..."
+            disabledReason={
+              bet.status === "NEEDS_GAME_TIME"
+                ? "Set a kickoff time first — without one there is nothing to schedule against."
+                : bet.status === "DUE"
+                  ? "Already queued and waiting for a browser with the extension to pick it up."
+                  : null
+            }
+          />
           <span className="muted" style={{ fontSize: 12 }}>
             {bet.status === "DUE"
               ? "Queued — waiting for a browser with the extension to pick it up"
@@ -330,15 +391,19 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
                 ? `${bet.fetchAttempts} attempt(s), last ${fmtDateTime(bet.lastFetchAt)}`
                 : ""}
           </span>
-        </form>
+        </div>
       </div>
 
       <div className="danger-zone">
-        <ConfirmButton
+        <ActionButton
           action={deleteBet}
           label="Delete this pick"
           danger
-          confirm={[`Delete ${bet.player} ${bet.side} ${bet.takenLine}? This cannot be undone.`]}
+          confirmTitle="Delete this pick?"
+          confirm={[
+            `${bet.player} ${bet.side} ${bet.takenLine} and both of its snapshots will be removed. This cannot be undone.`,
+          ]}
+          confirmLabel="Delete permanently"
         />
         <span className="muted" style={{ fontSize: 12 }}>
           Removes this pick and both its snapshots from the database.

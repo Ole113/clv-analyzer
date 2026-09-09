@@ -42,6 +42,9 @@ header.top {
   border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 24px;
 }
 header.top h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+/* The wordmark is the usual "back to the dashboard" affordance, so it links home. */
+header.top h1 .brand { color: var(--text); }
+header.top h1 .brand:hover { color: var(--accent); text-decoration: none; }
 header.top nav { display: flex; gap: 16px; font-size: 13px; }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 28px; }
@@ -89,7 +92,56 @@ button, input[type="datetime-local"] {
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; cursor: pointer;
 }
 button:hover { border-color: var(--accent); }
+button:disabled, button[aria-disabled="true"] {
+  opacity: 0.45; cursor: not-allowed; border-color: var(--border);
+}
+button:disabled:hover, button[aria-disabled="true"]:hover { border-color: var(--border); }
+button.primary { border-color: var(--accent); background: rgba(76,154,255,0.14); }
+/* Wraps a possibly-disabled button so its "why" tooltip still fires: a disabled button emits no
+   pointer events of its own. inline-block keeps it laying out exactly like the bare button. */
+.action-btn-wrap { display: inline-block; }
 form.inline { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+
+/* --- toasts --- */
+.toast-stack {
+  position: fixed; right: 18px; bottom: 18px; z-index: 200;
+  display: flex; flex-direction: column; gap: 10px; max-width: min(420px, calc(100vw - 36px));
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--panel-2); border: 1px solid var(--border); border-left-width: 3px;
+  border-radius: 10px; padding: 11px 12px 11px 13px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.5); font-size: 13px;
+  animation: toast-in 140ms ease-out;
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+.toast-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.toast-body strong { font-weight: 600; }
+.toast-detail { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.toast-close {
+  margin-left: auto; background: none; border: none; color: var(--muted);
+  font-size: 17px; line-height: 1; padding: 0 2px; cursor: pointer;
+}
+.toast-close:hover { color: var(--text); }
+.toast-success { border-left-color: var(--good); }
+.toast-error { border-left-color: var(--bad); }
+.toast-warn { border-left-color: var(--warn); }
+.toast-info { border-left-color: var(--accent); }
+
+/* --- modal --- */
+.modal-scrim {
+  position: fixed; inset: 0; z-index: 300; background: rgba(4,7,11,0.66);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.modal {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px 22px; width: min(440px, 100%);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+}
+.modal-title { margin: 0 0 8px; font-size: 15px; }
+.modal-body { color: var(--muted); font-size: 13px; line-height: 1.55; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
 /* --- filter bar --- */
 .filters {
@@ -176,8 +228,9 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
   text-indent: -0.2px;
 }
 .info-btn:hover { color: var(--text); border-color: var(--accent); }
+/* Fixed + portalled to the body: no overflow:hidden ancestor (every table has one) can clip it. */
 .info-pop {
-  position: absolute; z-index: 40; top: 22px; left: -8px; width: 290px;
+  position: fixed; z-index: 150; width: 290px;
   display: flex; flex-direction: column; gap: 7px;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
   padding: 12px 14px; box-shadow: 0 12px 30px rgba(0,0,0,0.45);

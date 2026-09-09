@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { config } from "@/lib/constants";
 import { DEFAULT_PICKEM_PRICE } from "@/lib/ev";
 import { PurgeForm } from "@/components/purge-form";
-import { ConfirmButton } from "@/components/confirm-button";
+import { ActionButton, type ActionResult } from "@/components/action-button";
 import { runDueGrades } from "@/lib/grading/grader";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
 
@@ -53,12 +53,16 @@ export default async function SettingsPage() {
     return count;
   }
 
-  async function runGrader() {
+  async function runGrader(): Promise<ActionResult> {
     "use server";
-    await runDueGrades();
+    const n = await runDueGrades();
     revalidatePath("/settings");
     revalidatePath("/bets");
     revalidatePath("/analysis");
+    // "Nothing was due" is the common outcome and used to look identical to a no-op click.
+    return n === 0
+      ? { message: "Nothing was due", detail: "No pick has reached its grading time yet." }
+      : { message: `Graded ${n} pick${n === 1 ? "" : "s"}` };
   }
 
   const gradeCounts = await prisma.bet.groupBy({ by: ["gradeResult"], _count: true });
@@ -115,10 +119,16 @@ export default async function SettingsPage() {
           </tbody>
         </table>
         <div style={{ marginTop: 14 }}>
-          <ConfirmButton
+          <ActionButton
             action={runGrader}
             label="Run grader now"
-            confirm={["Grade every pick that is due now?"]}
+            pendingLabel="Grading..."
+            confirmTitle="Run the grader now?"
+            confirm={["Every pick that has reached its grading time will be graded against its box score."]}
+            confirmLabel="Run grader"
+            disabledReason={
+              countOf(null) === 0 ? "No pick is waiting to be graded." : null
+            }
           />
         </div>
       </section>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Modal } from "./modal";
+import { useToast } from "./toast";
 
 /** Upper bound per unit, so "365 years" is not offerable once the unit changes. */
 const UNIT_MAX: Record<string, number> = { days: 365, weeks: 260, months: 60, years: 20 };
@@ -8,7 +10,7 @@ const UNIT_MAX: Record<string, number> = { days: 365, weeks: 260, months: 60, ye
 /**
  * Deleting picks is irreversible and there is no undo, so it takes two deliberate steps: the
  * first press only asks the server how many rows match and shows that number, and only the second
- * press -- after a native confirm naming the count -- actually deletes.
+ * press -- behind a dialog naming the count -- actually deletes.
  */
 export function PurgeForm({
   countAction,
@@ -23,34 +25,58 @@ export function PurgeForm({
   demoCount?: number;
   purgeDemoAction?: () => Promise<number>;
 }) {
+  const { push } = useToast();
   const [amount, setAmount] = useState(1);
   const [unit, setUnit] = useState("days");
   const [staged, setStaged] = useState<number | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
 
   if (demoOnly) {
     return (
       <div className="purge">
         <span className="muted">{demoCount} demo pick(s) from the seed script.</span>
-        <button
-          type="button"
-          className="danger"
-          disabled={pending}
-          onClick={() => {
-            if (!window.confirm(`Delete all ${demoCount} demo picks?`)) return;
+        <span className="action-btn-wrap">
+          <button
+            type="button"
+            className="danger"
+            disabled={pending}
+            onClick={() => setConfirming(true)}
+          >
+            {pending ? "Deleting..." : "Delete demo picks"}
+          </button>
+        </span>
+        <Modal
+          open={confirming}
+          title="Delete the demo picks?"
+          body={`All ${demoCount} rows created by the seed script will be removed.`}
+          confirmLabel="Delete them"
+          danger
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
             startTransition(async () => {
-              const n = await purgeDemoAction!();
-              setResult(`Deleted ${n} demo pick(s).`);
+              try {
+                const n = await purgeDemoAction!();
+                push("success", `Deleted ${n} demo pick${n === 1 ? "" : "s"}`);
+              } catch (error) {
+                push(
+                  "error",
+                  "Could not delete the demo picks",
+                  error instanceof Error ? error.message : null
+                );
+              }
             });
           }}
-        >
-          Delete demo picks
-        </button>
-        {result && <span className="ok-note">{result}</span>}
+        />
       </div>
     );
   }
+
+  const max = UNIT_MAX[unit] ?? 365;
+  const reset = () => {
+    setStaged(null);
+  };
 
   return (
     <div className="purge">
@@ -58,12 +84,11 @@ export function PurgeForm({
       <input
         type="number"
         min={1}
-        max={UNIT_MAX[unit] ?? 365}
+        max={max}
         value={amount}
         onChange={(e) => {
-          setAmount(Math.max(1, Math.min(UNIT_MAX[unit] ?? 365, Number(e.target.value))));
-          setStaged(null);
-          setResult(null);
+          setAmount(Math.max(1, Math.min(max, Number(e.target.value))));
+          reset();
         }}
       />
       <select
@@ -73,8 +98,7 @@ export function PurgeForm({
           setUnit(next);
           // Switching days -> years must not leave a stale 365 in the box.
           setAmount((a) => Math.min(a, UNIT_MAX[next] ?? 365));
-          setStaged(null);
-          setResult(null);
+          reset();
         }}
       >
         <option value="days">days</option>
@@ -83,51 +107,87 @@ export function PurgeForm({
         <option value="years">years</option>
       </select>
 
-      {staged === null ? (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() =>
-            startTransition(async () => {
-              setResult(null);
-              setStaged(await countAction!(amount, unit));
-            })
-          }
-        >
-          {pending ? "Checking..." : "Check what this deletes"}
-        </button>
+      {/* At a count of zero there is nothing to confirm or cancel, so neither button is offered --
+          only the finding, plus the chance to check a different window. */}
+      {staged === null || staged === 0 ? (
+        <>
+          {staged === 0 && (
+            <span className="muted">
+              No picks were captured in that window — nothing to delete.
+            </span>
+          )}
+          <span className="action-btn-wrap">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  try {
+                    setStaged(await countAction!(amount, unit));
+                  } catch (error) {
+                    push(
+                      "error",
+                      "Could not check what this deletes",
+                      error instanceof Error ? error.message : null
+                    );
+                  }
+                })
+              }
+            >
+              {pending ? "Checking..." : staged === 0 ? "Check again" : "Check what this deletes"}
+            </button>
+          </span>
+        </>
       ) : (
         <>
-          <span className={staged > 0 ? "warn-note" : "muted"}>
+          <span className="warn-note">
             {staged} pick{staged === 1 ? "" : "s"} would be deleted
           </span>
-          <button
-            type="button"
-            className="danger"
-            disabled={pending || staged === 0}
-            onClick={() => {
-              if (
-                !window.confirm(
-                  `Permanently delete ${staged} pick(s) captured in the last ${amount} ${unit}?`
-                )
-              )
-                return;
-              if (!window.confirm("This cannot be undone. Delete them for good?")) return;
-              startTransition(async () => {
-                const n = await purgeAction!(amount, unit);
-                setStaged(null);
-                setResult(`Deleted ${n} pick(s).`);
-              });
-            }}
-          >
-            {pending ? "Deleting..." : `Delete ${staged}`}
-          </button>
-          <button type="button" onClick={() => setStaged(null)} disabled={pending}>
+          <span className="action-btn-wrap">
+            <button
+              type="button"
+              className="danger"
+              disabled={pending}
+              onClick={() => setConfirming(true)}
+            >
+              {pending ? "Deleting..." : `Delete ${staged}`}
+            </button>
+          </span>
+          <button type="button" onClick={reset} disabled={pending}>
             Cancel
           </button>
         </>
       )}
-      {result && <span className="ok-note">{result}</span>}
+
+      <Modal
+        open={confirming}
+        title={`Delete ${staged} pick${staged === 1 ? "" : "s"}?`}
+        body={
+          <>
+            Every pick captured in the last {amount} {unit}, and both of its snapshots, will be
+            permanently removed. <strong>This cannot be undone.</strong>
+          </>
+        }
+        confirmLabel={`Delete ${staged} permanently`}
+        danger
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          startTransition(async () => {
+            try {
+              const n = await purgeAction!(amount, unit);
+              setStaged(null);
+              push("success", `Deleted ${n} pick${n === 1 ? "" : "s"}`);
+            } catch (error) {
+              push(
+                "error",
+                "Could not delete those picks",
+                error instanceof Error ? error.message : null
+              );
+            }
+          });
+        }}
+      />
     </div>
   );
 }
