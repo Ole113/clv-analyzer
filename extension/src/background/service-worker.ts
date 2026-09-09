@@ -1,6 +1,13 @@
 import type { SnapshotPayload } from "@clv/shared";
 import { apiUrl, loadSettings } from "../content/shared/config";
-import type { CaptureMessage, CaptureResponse } from "../content/shared/messages";
+import type {
+  CaptureMessage,
+  CaptureResponse,
+  TrackedLookupMessage,
+  TrackedLookupResponse,
+  UntrackMessage,
+  UntrackResponse,
+} from "../content/shared/messages";
 import { runClosingWork } from "./closing-worker";
 
 const QUEUE_KEY = "clv:queue";
@@ -36,8 +43,17 @@ async function post(payload: SnapshotPayload): Promise<{ ok: boolean; status?: s
   });
 
   if (!response.ok) {
+    // Prefer the server's own explanation ("This spread does not say which team...") over a bare
+    // status code -- that sentence is what the board shows the user.
     const text = await response.text().catch(() => "");
-    return { ok: false, error: `server ${response.status}: ${text.slice(0, 180)}` };
+    let detail = text.slice(0, 200);
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed.error === "string") detail = parsed.error;
+    } catch {
+      // not JSON; the raw text is the best available detail
+    }
+    return { ok: false, error: detail || `server ${response.status}` };
   }
   const body = (await response.json().catch(() => ({}))) as { status?: string };
   return { ok: true, status: body.status };
@@ -70,6 +86,13 @@ async function flushQueue(): Promise<void> {
   await setQueue(remaining);
 }
 
+/** Shared preflight for the calls that need a configured backend. */
+async function configured(): Promise<{ backendUrl: string; apiKey: string } | null> {
+  const settings = await loadSettings();
+  if (!settings.backendUrl || !settings.apiKey) return null;
+  return { backendUrl: settings.backendUrl, apiKey: settings.apiKey };
+}
+
 chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }, _sender, sendResponse) => {
   if (message?.type === "clv:capture") {
     const payload = (message as CaptureMessage).payload;
@@ -94,6 +117,67 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
           queued: true,
           error: error instanceof Error ? error.message : "network error",
         } satisfies CaptureResponse);
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "clv:tracked") {
+    (async () => {
+      try {
+        const settings = await configured();
+        if (!settings) {
+          sendResponse({ ok: false, error: "not configured" } satisfies TrackedLookupResponse);
+          return;
+        }
+        const response = await fetch(apiUrl(settings.backendUrl, "/api/tracked"), {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+          body: JSON.stringify({ matchKeys: (message as TrackedLookupMessage).matchKeys }),
+        });
+        if (!response.ok) {
+          sendResponse({ ok: false, error: `server ${response.status}` } satisfies TrackedLookupResponse);
+          return;
+        }
+        const body = (await response.json()) as { tracked?: { matchKey: string }[] };
+        sendResponse({
+          ok: true,
+          tracked: (body.tracked ?? []).map((t) => t.matchKey),
+        } satisfies TrackedLookupResponse);
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "lookup failed",
+        } satisfies TrackedLookupResponse);
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "clv:untrack") {
+    (async () => {
+      try {
+        const settings = await configured();
+        if (!settings) {
+          sendResponse({ ok: false, error: "not configured -- open the extension options" } satisfies UntrackResponse);
+          return;
+        }
+        const response = await fetch(apiUrl(settings.backendUrl, "/api/tracked"), {
+          method: "DELETE",
+          headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+          body: JSON.stringify({ matchKey: (message as UntrackMessage).matchKey }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) {
+          sendResponse({ ok: false, error: body.error ?? `server ${response.status}` } satisfies UntrackResponse);
+          return;
+        }
+        sendResponse({ ok: true } satisfies UntrackResponse);
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "remove failed",
+        } satisfies UntrackResponse);
       }
     })();
     return true;

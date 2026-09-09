@@ -1,6 +1,7 @@
 export interface GradeSubject {
   sport: string | null;
-  player: string;
+  /** Null on game markets (spreads, totals), which are settled from the final score instead. */
+  player: string | null;
   team: string | null;
   opponent: string | null;
   matchup: string | null;

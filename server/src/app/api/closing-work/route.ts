@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   const due = await prisma.bet.findMany({
     where: {
       status: { in: ["PENDING", "DUE", "FETCH_FAILED"] },
+      isLive: false,
       scheduledFetchAt: { not: null, lte: new Date() },
       fetchAttempts: { lt: config.maxFetchAttempts },
     },
@@ -25,7 +26,10 @@ export async function GET(request: Request) {
       id: true,
       site: true,
       fantasyBook: true,
+      marketType: true,
       player: true,
+      subjectTeam: true,
+      matchup: true,
       statMarket: true,
       side: true,
       externalPropId: true,

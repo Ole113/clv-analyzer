@@ -31,28 +31,28 @@ describe("averageClosingLine", () => {
 
 describe("computeClv", () => {
   it("an Over beats the close when the number moves up", () => {
-    expect(computeClv("OVER", 14, 15.3)).toEqual({ edge: 1.3, beatClv: true });
+    expect(computeClv("PLAYER_PROP", "OVER", 14, 15.3)).toEqual({ edge: 1.3, beatClv: true });
   });
 
   it("an Over misses when the number moves down", () => {
-    expect(computeClv("OVER", 14, 13.1)).toEqual({ edge: -0.9, beatClv: false });
+    expect(computeClv("PLAYER_PROP", "OVER", 14, 13.1)).toEqual({ edge: -0.9, beatClv: false });
   });
 
   it("an Under beats the close when the number moves down", () => {
-    expect(computeClv("UNDER", 22, 20.5)).toEqual({ edge: 1.5, beatClv: true });
+    expect(computeClv("PLAYER_PROP", "UNDER", 22, 20.5)).toEqual({ edge: 1.5, beatClv: true });
   });
 
   it("an Under misses when the number moves up", () => {
-    expect(computeClv("UNDER", 22, 23.5)).toEqual({ edge: -1.5, beatClv: false });
+    expect(computeClv("PLAYER_PROP", "UNDER", 22, 23.5)).toEqual({ edge: -1.5, beatClv: false });
   });
 
   it("treats a perfectly flat line as not beating the close", () => {
-    expect(computeClv("OVER", 14, 14)).toEqual({ edge: 0, beatClv: false });
-    expect(computeClv("UNDER", 14, 14)).toEqual({ edge: 0, beatClv: false });
+    expect(computeClv("PLAYER_PROP", "OVER", 14, 14)).toEqual({ edge: 0, beatClv: false });
+    expect(computeClv("PLAYER_PROP", "UNDER", 14, 14)).toEqual({ edge: 0, beatClv: false });
   });
 
   it("does not accumulate float noise", () => {
-    expect(computeClv("OVER", 0.1, 0.3).edge).toBe(0.2);
+    expect(computeClv("PLAYER_PROP", "OVER", 0.1, 0.3).edge).toBe(0.2);
   });
 });
 
@@ -95,9 +95,43 @@ describe("isSportsbookForAverage", () => {
   });
 });
 
+describe("CLV direction by market type", () => {
+  // Totals and props: an Over beats the close when the number moves UP, because the bettor needed
+  // fewer than the market later demanded.
+  it("treats a game total like a player prop", () => {
+    expect(computeClv("GAME_TOTAL", "OVER", 29.5, 32.5).beatClv).toBe(true);
+    expect(computeClv("GAME_TOTAL", "OVER", 29.5, 27.5).beatClv).toBe(false);
+    expect(computeClv("GAME_TOTAL", "UNDER", 29.5, 27.5).beatClv).toBe(true);
+    expect(computeClv("GAME_TOTAL", "UNDER", 29.5, 32.5).beatClv).toBe(false);
+  });
+
+  // Spreads run the OTHER WAY and have no side: holding MORE points than the close is the win.
+  it("inverts the direction for spreads, where more points is better", () => {
+    // took Seahawks +5.5, closed +3.5 -> held more points than the market ended up offering
+    expect(computeClv("SPREAD", null, 5.5, 3.5)).toEqual({ edge: 2, beatClv: true });
+    // took +5.5, closed +7.5 -> the market moved away
+    expect(computeClv("SPREAD", null, 5.5, 7.5)).toEqual({ edge: -2, beatClv: false });
+    // favourite: -4.5 closing at -3.5 is a worse number to hold
+    expect(computeClv("SPREAD", null, -4.5, -3.5)).toEqual({ edge: -1, beatClv: false });
+    // favourite: -4.5 closing at -6.5 means the bettor laid fewer points than the close
+    expect(computeClv("SPREAD", null, -4.5, -6.5)).toEqual({ edge: 2, beatClv: true });
+  });
+
+  it("does not count a flat line as beating the close, on any market type", () => {
+    expect(computeClv("SPREAD", null, 5.5, 5.5).beatClv).toBe(false);
+    expect(computeClv("GAME_TOTAL", "OVER", 29.5, 29.5).beatClv).toBe(false);
+    expect(computeClv("PLAYER_PROP", "OVER", 62.5, 62.5).beatClv).toBe(false);
+  });
+});
+
 describe("matching", () => {
   const row = (over: Partial<ParsedRow>): ParsedRow => ({
     rowIndex: 0,
+    marketType: "PLAYER_PROP",
+    selectionName: null,
+    subjectTeam: null,
+    isLive: false,
+    boardEvPercent: null,
     player: "Puka Nacua",
     team: null,
     opponent: null,
@@ -126,6 +160,9 @@ describe("matching", () => {
   it("finds the prop again after the line has moved", () => {
     const rows = [row({ takenLine: 64.5, externalPropId: "Puka Nacua Over 64.5" })];
     const match = findMatchingRow(rows, {
+      marketType: "PLAYER_PROP",
+      subjectTeam: null,
+      matchup: null,
       player: "Puka Nacua",
       statMarket: "Player Receiving Yards",
       side: "OVER",
@@ -136,6 +173,9 @@ describe("matching", () => {
 
   it("never matches the opposite side or a different market", () => {
     const target = {
+      marketType: "PLAYER_PROP" as const,
+      subjectTeam: null,
+      matchup: null,
       player: "Puka Nacua",
       statMarket: "Player Receiving Yards",
       side: "OVER" as const,
@@ -149,6 +189,8 @@ describe("matching", () => {
   it("keeps a stable match key as the line moves", () => {
     const base = {
       site: "ODDSJAM",
+      marketType: "PLAYER_PROP" as const,
+      subjectTeam: null,
       fantasyBook: "prizepicks",
       sport: "NFL",
       player: "Aaron Rodgers",

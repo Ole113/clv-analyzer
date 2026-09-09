@@ -1,6 +1,6 @@
 import type { ParsedRow } from "@clv/shared";
 import { prisma } from "./prisma";
-import type { Side } from "./constants";
+import type { MarketType, Side } from "./constants";
 import { buildClosingVerdict } from "./closing";
 import { evPercent, fantasyPriceFrom } from "./ev";
 
@@ -55,7 +55,12 @@ export async function applyClosingReport(report: ClosingReport) {
     return { ok: true as const, status: updated.status };
   }
 
-  const verdict = buildClosingVerdict(bet.side as Side, bet.takenLine, report.row);
+  const verdict = buildClosingVerdict(
+    bet.marketType as MarketType,
+    bet.side as Side | null,
+    bet.takenLine,
+    report.row
+  );
 
   await prisma.closeLine.deleteMany({ where: { betId: bet.id } });
   const updated = await prisma.bet.update({
@@ -70,11 +75,14 @@ export async function applyClosingReport(report: ClosingReport) {
       avgClosingLine: verdict.avgClosingLine,
       closingBookCount: verdict.closingBookCount,
       closeFairProb: report.row.fairProbability,
-      // Payout comes from the closing board when shown, else the one recorded at capture.
-      closeEvPercent: evPercent(
-        report.row.fairProbability,
-        fantasyPriceFrom(report.row.bookLines) ?? bet.fantasyPrice
-      ),
+      // Payout comes from the closing board when shown, else the one recorded at capture. Boards
+      // that state an EV% directly (rebet/fliff) are again taken at their word.
+      closeEvPercent:
+        report.row.boardEvPercent ??
+        evPercent(
+          report.row.fairProbability,
+          fantasyPriceFrom(report.row.bookLines) ?? bet.fantasyPrice
+        ),
       edge: verdict.edge,
       beatClv: verdict.beatClv,
       // Staleness is derived from closingCaptureLagSeconds by the UI, so it is not repeated here.

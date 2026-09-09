@@ -1,5 +1,5 @@
 import { isAuthorized, unauthorized } from "@/lib/auth";
-import { ingestSnapshot, snapshotSchema } from "@/lib/ingest";
+import { ingestSnapshot, snapshotSchema, validateShape } from "@/lib/ingest";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +19,13 @@ export async function POST(request: Request) {
       { error: "invalid payload", issues: parsed.error.issues.slice(0, 8) },
       { status: 422 }
     );
+  }
+
+  // Shape rules the flat schema cannot express. Returned as a sentence rather than a Zod dump so
+  // the board can tell the user what is actually wrong with the row they ticked.
+  const shapeError = validateShape(parsed.data.row);
+  if (shapeError) {
+    return Response.json({ error: shapeError }, { status: 422 });
   }
 
   try {

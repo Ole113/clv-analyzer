@@ -120,7 +120,7 @@ export const mlbSource: StatsSource = {
     const batting = player.stats?.batting ?? {};
     const pitching = player.stats?.pitching ?? {};
     if (Object.keys(batting).length === 0 && Object.keys(pitching).length === 0) {
-      return { didNotPlay: true, matchedName: player.person?.fullName ?? subject.player };
+      return { didNotPlay: true, matchedName: player.person?.fullName ?? subject.player ?? "the player" };
     }
 
     let total = 0;
@@ -132,7 +132,7 @@ export const mlbSource: StatsSource = {
 
     return {
       value: Math.round(total * 1e6) / 1e6,
-      matchedName: player.person?.fullName ?? subject.player,
+      matchedName: player.person?.fullName ?? subject.player ?? "the player",
     };
   },
 };

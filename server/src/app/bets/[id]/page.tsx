@@ -6,7 +6,7 @@ import { ActionButton, type ActionResult } from "@/components/action-button";
 import { ActionForm } from "@/components/action-form";
 import { prisma } from "@/lib/prisma";
 import { config } from "@/lib/constants";
-import { StatusBadge, VerdictBadge, ResultBadge, fmtDateTime, fmtEdge } from "@/components/ui";
+import { StatusBadge, VerdictBadge, ResultBadge, fmtDateTime, fmtEdge, betTitle } from "@/components/ui";
 import { gradeBet, gradeManually } from "@/lib/grading/grader";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
@@ -221,7 +221,7 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
       </div>
 
       <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>
-        {bet.player} {bet.side} {bet.takenLine}
+        {betTitle(bet)}
       </h1>
       <p className="muted" style={{ marginTop: 0 }}>
         {bet.statMarket} · {bet.matchup ?? "—"} · {bet.sport ?? "—"} ·{" "}
@@ -247,7 +247,7 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
             pre-filled from a link — search the screen for the player instead.
           </>
         )}{" "}
-        <CopyButton value={bet.player} label="Copy player name" />
+        {bet.player && <CopyButton value={bet.player} label="Copy player name" />}
       </p>
 
       <div className="verdict">
@@ -258,8 +258,10 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
         <div className="detail">
           {bet.actualValue !== null ? (
             <>
-              {bet.player} recorded <strong>{bet.actualValue}</strong> — you needed{" "}
-              {bet.side === "OVER" ? "over" : "under"} {bet.takenLine}.
+              {bet.player ?? bet.subjectTeam ?? "This market"} recorded{" "}
+              <strong>{bet.actualValue}</strong> — you needed{" "}
+              {bet.side === "OVER" ? "over" : bet.side === "UNDER" ? "under" : "a cover of"}{" "}
+              {bet.takenLine}.
             </>
           ) : bet.gradeResult === "VOID" ? (
             "No result: the player did not play, or the game did not finish."

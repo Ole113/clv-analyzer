@@ -2,6 +2,7 @@ import {
   parseOddsJamTable,
   parsePropProfessorTable,
   findMatchingRow,
+  type MarketType,
   type ParsedRow,
   type ParseResult,
   type PickSide,
@@ -24,9 +25,15 @@ export interface WorkItem {
   id: string;
   site: "ODDSJAM" | "PROPPROFESSOR";
   fantasyBook: string;
-  player: string;
+  marketType: MarketType;
+  /** Null on game markets (spreads, totals). */
+  player: string | null;
+  /** Spreads only: the team the signed line belongs to. */
+  subjectTeam: string | null;
+  matchup: string | null;
   statMarket: string;
-  side: PickSide;
+  /** Null on spreads. */
+  side: PickSide | null;
   externalPropId: string | null;
   pageUrl: string | null;
   gameStartTime: string | null;
@@ -176,14 +183,18 @@ export async function readClosingBoard(item: WorkItem): Promise<BoardReadResult>
     const absorb = (result: ParseResult) => {
       for (const row of result.rows) {
         const key =
-          row.externalPropId ?? `${row.player}|${row.statMarket}|${row.side}|${row.rowIndex}`;
+          row.externalPropId ??
+          `${row.player ?? row.subjectTeam ?? ""}|${row.statMarket}|${row.side ?? ""}|${row.rowIndex}`;
         if (!seen.has(key)) seen.set(key, row);
       }
     };
     absorb(ready);
 
     const target = {
+      marketType: item.marketType,
       player: item.player,
+      subjectTeam: item.subjectTeam,
+      matchup: item.matchup,
       statMarket: item.statMarket,
       side: item.side,
       externalPropId: item.externalPropId,

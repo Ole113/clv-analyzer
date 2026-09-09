@@ -21,6 +21,11 @@ const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000);
 function row(over: Partial<ParsedRow>): ParsedRow {
   return {
     rowIndex: 0,
+    marketType: "PLAYER_PROP",
+    selectionName: null,
+    subjectTeam: null,
+    isLive: false,
+    boardEvPercent: null,
     player: "Player",
     team: null,
     opponent: null,
@@ -45,6 +50,7 @@ const book = (bookKey: string, label: string, line: number | null, price: number
   label,
   line,
   price,
+  logoUrl: null,
   rawText: `${line ?? ""} ${price}`.trim(),
 });
 
@@ -81,6 +87,7 @@ async function seedRealGames() {
         statMarket: g.stat, side: g.side, gameStartTime,
         matchKey: buildMatchKey({
           site: "ODDSJAM", fantasyBook: "prizepicks", sport: g.sport, player: g.player,
+          marketType: "PLAYER_PROP", subjectTeam: null,
           statMarket: g.stat, side: g.side, gameStartTime,
         }),
         pageUrl: "https://fantasy.oddsjam.com/fantasy-odds/prizepicks",
@@ -183,7 +190,7 @@ async function main() {
     });
 
     const verdict = spec.closeBooks
-      ? buildClosingVerdict(spec.side, spec.taken, row({ ...openRow, bookLines: spec.closeBooks }))
+      ? buildClosingVerdict("PLAYER_PROP", spec.side, spec.taken, row({ ...openRow, bookLines: spec.closeBooks }))
       : null;
 
     await prisma.bet.create({
@@ -199,6 +206,8 @@ async function main() {
         matchKey: buildMatchKey({
           site: "ODDSJAM",
           fantasyBook: "prizepicks",
+          marketType: "PLAYER_PROP",
+          subjectTeam: null,
           sport: spec.sport,
           player: spec.player,
           statMarket: spec.statMarket,

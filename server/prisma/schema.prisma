@@ -17,12 +17,26 @@ model Bet {
   site        String // ODDSJAM | PROPPROFESSOR
   fantasyBook String // prizepicks, underdog, ...
   sport       String?
-  player      String
+  /// PLAYER_PROP | GAME_TOTAL | SPREAD | OTHER. The OddsJam rebet/fliff boards carry whole-game
+  /// markets (spreads, totals, corners) rather than player props, so identity, CLV direction and
+  /// grading all branch on this.
+  marketType  String  @default("PLAYER_PROP")
+  /// Null for game markets, which have no player.
+  player      String?
+  /// The board's own bet name, e.g. "Seattle Seahawks +5.5" or "Over 29.5". Kept verbatim so a
+  /// game market is always displayable even when it does not decompose cleanly.
+  selectionName String?
+  /// For SPREAD: the team the line is quoted for, which is what the line is signed against.
+  subjectTeam String?
   team        String?
   opponent    String?
   matchup     String?
   statMarket  String
-  side        String // OVER | UNDER
+  /// OVER | UNDER. Null for spreads, where the direction is carried by the signed line instead.
+  side        String?
+  /// True when captured from a Live board rather than Pre-Match. Live picks get no CLV verdict --
+  /// the line taken is already mid-game, so a later read is not a "close" in any useful sense.
+  isLive      Boolean @default(false)
 
   gameStartTime     DateTime?
   gameStartTimeText String?
@@ -101,6 +115,7 @@ model Bet {
   @@index([gradeResult, gradeScheduledAt])
   @@index([matchKey])
   @@index([site, sport])
+  @@index([isLive, marketType])
 }
 
 /// One sportsbook column as rendered in the row when the pick was captured.
@@ -113,6 +128,9 @@ model OpenLine {
   line              Float?
   price             Int?
   rawText           String
+  /// Book logo as served by the source board, e.g. "https://www.propprofessor.com/fd.jpg".
+  /// Captured at parse time so the dashboard does not need its own hand-maintained icon set.
+  logoUrl           String?
   /// Whether this column feeds the closing average (real sportsbook quoting a line).
   includedInAverage Boolean @default(false)
 
@@ -129,6 +147,7 @@ model CloseLine {
   line              Float?
   price             Int?
   rawText           String
+  logoUrl           String?
   includedInAverage Boolean @default(false)
 
   @@index([betId])

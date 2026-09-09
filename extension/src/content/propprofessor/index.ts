@@ -58,7 +58,28 @@ const LANE_STYLES = `
   border-right: 1px solid rgba(255, 255, 255, 0.16);
 }
 .clva-lane + * { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; }
+/* Boards with no pinned actions column (plain Dabble) get the lane inside their first cell, which
+   is not a fixed-width pinned cell -- so it must not be stretched, only given room. */
+[role="cell"]:not([col-id="actions"]) > .clva-lane,
+[role="gridcell"]:not([col-id="actions"]) > .clva-lane {
+  border-right: none; width: auto; flex: 0 0 auto; padding-right: 4px;
+}
 `;
+
+/**
+ * The cell the checkbox lives in.
+ *
+ * Most boards pin an "actions" column and the lane goes there. The plain Dabble board has no
+ * actions column at all -- its columns start at "game" -- so requiring one meant no checkbox was
+ * ever created on that board. Falling back to the row's first cell puts the lane in the same
+ * visual position without depending on a column that may not exist.
+ */
+function mountCell(row: Element): HTMLElement | null {
+  const actions = row.querySelector<HTMLElement>('[col-id="actions"]');
+  if (actions) return actions;
+  const first = row.querySelector<HTMLElement>('[role="cell"], [role="gridcell"]');
+  return first ?? null;
+}
 
 const adapter: SiteAdapter = {
   site: "PROPPROFESSOR",
@@ -117,9 +138,8 @@ const adapter: SiteAdapter = {
     for (const el of Array.from(g.querySelectorAll('[role="row"][row-id]'))) {
       const key = el.getAttribute("row-id");
       if (!key) continue;
-      // Prefer the half that owns the actions cell; that is where the checkbox goes.
-      const hasActions = !!el.querySelector('[col-id="actions"]');
-      if (hasActions || !byRowId.has(key)) byRowId.set(key, el);
+      // Prefer the half that owns the mount cell; that is where the checkbox goes.
+      if (mountCell(el) || !byRowId.has(key)) byRowId.set(key, el);
     }
     return [...byRowId.entries()].map(([key, el]) => ({ el, key }));
   },
@@ -131,7 +151,7 @@ const adapter: SiteAdapter = {
   },
 
   mount(row) {
-    const cell = row.querySelector<HTMLElement>('[col-id="actions"]');
+    const cell = mountCell(row);
     if (!cell) return null;
     let lane = cell.querySelector<HTMLElement>(".clva-lane");
     if (!lane) {

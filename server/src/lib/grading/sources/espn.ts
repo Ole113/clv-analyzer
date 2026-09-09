@@ -23,7 +23,7 @@ interface EspnEvent {
   id: string;
   name?: string;
   status?: { type?: { name?: string; completed?: boolean } };
-  competitions?: { competitors?: { team?: EspnTeam }[] }[];
+  competitions?: { competitors?: { team?: EspnTeam; score?: string | number; homeAway?: string }[] }[];
 }
 interface EspnScoreboard {
   events?: EspnEvent[];
@@ -192,7 +192,7 @@ export const espnSource: StatsSource = {
         if (appearances.every((a) => a.didNotPlay === true || hasNoStatLine(a))) {
           return {
             didNotPlay: true,
-            matchedName: appearances[0].athlete?.displayName ?? subject.player,
+            matchedName: appearances[0].athlete?.displayName ?? subject.player ?? "the player",
           };
         }
         continue; // genuinely zero for this category
@@ -218,3 +218,52 @@ export const espnSource: StatsSource = {
     return { value: Math.round(total * 1e6) / 1e6, matchedName };
   },
 };
+
+
+export interface TeamScore {
+  team: EspnTeam;
+  score: number;
+}
+
+/**
+ * Final scores for a game, which is what settles a spread or a total.
+ *
+ * Game markets have no box-score row to read, so they are graded from the scoreboard instead of
+ * the summary endpoint the player grader uses.
+ */
+export async function getFinalScores(
+  subject: GradeSubject,
+  gameId: string
+): Promise<{ scores: TeamScore[] } | { reason: string }> {
+  const path = sportPath(subject.sport);
+  if (!path) return { reason: `No ESPN sport path for "${subject.sport}".` };
+
+  for (const date of candidateDates(subject.gameStartTime)) {
+    let board: EspnScoreboard;
+    try {
+      board = await fetchJson<EspnScoreboard>(`${BASE}/${path}/scoreboard?dates=${yyyymmdd(date)}`);
+    } catch (error) {
+      return { reason: `ESPN scoreboard unavailable: ${error instanceof Error ? error.message : error}` };
+    }
+    const event = (board.events ?? []).find((e) => e.id === gameId);
+    if (!event) continue;
+
+    const competitors = event.competitions?.[0]?.competitors ?? [];
+    const scores: TeamScore[] = [];
+    for (const c of competitors) {
+      const value = Number(c.score);
+      // A missing or non-numeric score means the scoreboard has not settled yet; refusing to
+      // guess is the whole point -- a 0 here would silently grade every Under a winner.
+      if (!c.team || !Number.isFinite(value)) {
+        return { reason: "ESPN has not published final scores for this game yet." };
+      }
+      scores.push({ team: c.team, score: value });
+    }
+    if (scores.length < 2) return { reason: "ESPN returned an incomplete scoreboard for this game." };
+    return { scores };
+  }
+
+  return { reason: "Could not find this game on the ESPN scoreboard." };
+}
+
+export { matchesTeam as espnMatchesTeam };

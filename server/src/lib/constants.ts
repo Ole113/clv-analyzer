@@ -5,12 +5,28 @@ export const SIDES = ["OVER", "UNDER"] as const;
 export type Side = (typeof SIDES)[number];
 
 /**
+ * What kind of market a pick is on.
+ *
+ * PLAYER_PROP  a player's stat line (every PrizePicks/Underdog-style board)
+ * GAME_TOTAL   combined-score total, e.g. "Total Points Over 29.5"
+ * SPREAD       handicap on one team, e.g. "Seattle Seahawks +5.5"
+ * OTHER        a market we can store and show but cannot price or grade (moneylines, exotics)
+ *
+ * The OddsJam rebet/fliff boards are whole-game markets rather than player props, so CLV
+ * direction, matching and grading all branch on this.
+ */
+export const MARKET_TYPES = ["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "OTHER"] as const;
+export type MarketType = (typeof MARKET_TYPES)[number];
+
+/**
  * PENDING          scheduled, kickoff still ahead
  * NEEDS_GAME_TIME  captured without a usable start time -- cannot be scheduled until set
  * DUE              kickoff + buffer has passed, closing fetch in flight
  * CLOSED           closing lines captured, verdict computed
  * UNAVAILABLE      fetch ran but no sportsbook was still quoting the prop
  * FETCH_FAILED     fetch errored (auth expired, selector broke); retried up to MAX_FETCH_ATTEMPTS
+ * LIVE_NO_CLV      captured from a Live board; no closing read is scheduled because the line was
+ *                  already taken mid-game, so there is no "close" to measure against
  */
 export const STATUSES = [
   "PENDING",
@@ -19,11 +35,15 @@ export const STATUSES = [
   "CLOSED",
   "UNAVAILABLE",
   "FETCH_FAILED",
+  "LIVE_NO_CLV",
 ] as const;
 export type Status = (typeof STATUSES)[number];
 
 export const OPEN_STATUSES: Status[] = ["PENDING", "NEEDS_GAME_TIME", "DUE"];
-export const SETTLED_STATUSES: Status[] = ["CLOSED", "UNAVAILABLE", "FETCH_FAILED"];
+export const SETTLED_STATUSES: Status[] = ["CLOSED", "UNAVAILABLE", "FETCH_FAILED", "LIVE_NO_CLV"];
+
+/** Statuses that carry a real CLV verdict. Everything else must be left out of CLV aggregates. */
+export const CLV_STATUSES: Status[] = ["CLOSED"];
 
 /**
  * Grading outcomes. Separate from `Status`, which tracks the closing-line capture only.

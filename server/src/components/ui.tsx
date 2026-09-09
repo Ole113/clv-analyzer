@@ -23,6 +23,33 @@ export function VerdictBadge({ beatClv, status }: { beatClv: boolean | null; sta
   );
 }
 
+/** "OVER" is how the boards label it and how it is stored; "Over" is how it should read. */
+export function sideLabel(side: string | null): string {
+  if (side === "OVER") return "Over";
+  if (side === "UNDER") return "Under";
+  return "";
+}
+
+/**
+ * How a pick is named in headings and confirmations.
+ *
+ * Player props read "Puka Nacua Over 62.5". Game markets have no player, so the board's own bet
+ * name ("Seattle Seahawks +5.5") is used verbatim -- it already reads correctly and inventing a
+ * format for it would only differ from what the user ticked.
+ */
+export function betTitle(bet: {
+  player: string | null;
+  selectionName: string | null;
+  side: string | null;
+  takenLine: number;
+  statMarket: string;
+}): string {
+  if (bet.player) return `${bet.player} ${sideLabel(bet.side)} ${bet.takenLine}`.replace(/\s+/g, " ").trim();
+  if (bet.selectionName) return bet.selectionName;
+  const side = sideLabel(bet.side);
+  return side ? `${bet.statMarket} ${side} ${bet.takenLine}` : `${bet.statMarket} ${bet.takenLine}`;
+}
+
 export function fmtEdge(edge: number | null): string {
   if (edge === null) return "--";
   const sign = edge > 0 ? "+" : "";

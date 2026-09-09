@@ -1,5 +1,11 @@
-import type { ParseResult, SiteId, SnapshotPayload } from "@clv/shared";
-import type { CaptureMessage, CaptureResponse } from "./messages";
+import type { ParseResult, ParsedRow, SiteId, SnapshotPayload } from "@clv/shared";
+import { matchKeyForRow } from "@clv/shared";
+import type {
+  CaptureMessage,
+  CaptureResponse,
+  TrackedLookupResponse,
+  UntrackResponse,
+} from "./messages";
 import { DEFAULT_CHECKBOX_COLOR, loadSettings } from "./config";
 
 export interface SiteAdapter {
@@ -21,6 +27,7 @@ export interface SiteAdapter {
 
 const MARK = "data-clv-injected";
 const KEY_ATTR = "data-clv-key";
+const MATCH_ATTR = "data-clv-match";
 export const STYLE_ID = "clv-analyzer-styles";
 
 const STYLES = `
@@ -47,6 +54,50 @@ const STYLES = `
 .clva-box[data-state="pending"] { border-color: #d29922; background: rgba(210,153,34,0.35); }
 .clva-box[data-state="synced"] { border-color: var(--clva-accent); background: var(--clva-accent); }
 .clva-box[data-state="error"] { border-color: #f85149; background: rgba(248,81,73,0.35); }
+
+/* --- toasts ---------------------------------------------------------------
+   A red checkbox with a title attribute is easy to miss and impossible to read on a dense board,
+   so every outcome that is not a plain success says so in the corner as well. */
+.clva-toasts {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2147483000;
+  display: flex; flex-direction: column; gap: 8px; max-width: 380px;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  pointer-events: none;
+}
+.clva-toast {
+  pointer-events: auto; display: flex; gap: 9px; align-items: flex-start;
+  background: #131a23; color: #e6edf6; border: 1px solid #243040; border-left-width: 3px;
+  border-radius: 9px; padding: 10px 11px; box-shadow: 0 10px 28px rgba(0,0,0,0.55);
+}
+.clva-toast b { font-weight: 600; display: block; }
+.clva-toast span { color: #8b9bb0; font-size: 12px; display: block; margin-top: 2px; }
+.clva-toast-success { border-left-color: #3fb950; }
+.clva-toast-error { border-left-color: #f85149; }
+.clva-toast-info { border-left-color: #4c9aff; }
+.clva-toast button {
+  margin-left: auto; background: none; border: 0; color: #8b9bb0; cursor: pointer;
+  font-size: 16px; line-height: 1; padding: 0 2px;
+}
+
+/* --- confirm dialog --- */
+.clva-scrim {
+  position: fixed; inset: 0; z-index: 2147483001; background: rgba(4,7,11,0.6);
+  display: flex; align-items: center; justify-content: center;
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.clva-modal {
+  background: #131a23; color: #e6edf6; border: 1px solid #243040; border-radius: 11px;
+  padding: 18px 20px; width: min(420px, calc(100vw - 40px));
+  box-shadow: 0 22px 55px rgba(0,0,0,0.65);
+}
+.clva-modal h3 { margin: 0 0 8px; font-size: 15px; }
+.clva-modal p { margin: 0; color: #8b9bb0; }
+.clva-modal .clva-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+.clva-modal button {
+  font: inherit; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  background: #182231; color: #e6edf6; border: 1px solid #243040;
+}
+.clva-modal button.clva-danger { border-color: rgba(248,81,73,0.5); color: #ff9b95; }
 `;
 
 function ensureStyles(extra?: string): void {
@@ -65,9 +116,97 @@ function applyAccent(color: string | undefined): void {
   );
 }
 
+function toastHost(): HTMLElement {
+  let host = document.querySelector<HTMLElement>(".clva-toasts");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "clva-toasts";
+    document.body.appendChild(host);
+  }
+  return host;
+}
+
+function toast(tone: "success" | "error" | "info", message: string, detail?: string | null): void {
+  const el = document.createElement("div");
+  el.className = `clva-toast clva-toast-${tone}`;
+  const body = document.createElement("div");
+  const title = document.createElement("b");
+  title.textContent = message;
+  body.appendChild(title);
+  if (detail) {
+    const sub = document.createElement("span");
+    sub.textContent = detail;
+    body.appendChild(sub);
+  }
+  el.appendChild(body);
+
+  const close = document.createElement("button");
+  close.textContent = "×";
+  close.setAttribute("aria-label", "Dismiss");
+  close.addEventListener("click", () => el.remove());
+  el.appendChild(close);
+
+  toastHost().appendChild(el);
+  // Errors stay put: an error that vanished before it was read is the problem being fixed here.
+  if (tone !== "error") setTimeout(() => el.remove(), 5000);
+}
+
+/** An in-page confirmation, so unticking a pick cannot silently delete it on a stray click. */
+function confirmDialog(title: string, body: string, confirmLabel: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const scrim = document.createElement("div");
+    scrim.className = "clva-scrim";
+    const modal = document.createElement("div");
+    modal.className = "clva-modal";
+    const h = document.createElement("h3");
+    h.textContent = title;
+    const p = document.createElement("p");
+    p.textContent = body;
+    const actions = document.createElement("div");
+    actions.className = "clva-actions";
+    const cancel = document.createElement("button");
+    cancel.textContent = "Keep it";
+    const ok = document.createElement("button");
+    ok.className = "clva-danger";
+    ok.textContent = confirmLabel;
+
+    const done = (value: boolean) => {
+      scrim.remove();
+      document.removeEventListener("keydown", onKey, true);
+      resolve(value);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        done(false);
+      }
+    };
+
+    cancel.addEventListener("click", () => done(false));
+    ok.addEventListener("click", () => done(true));
+    scrim.addEventListener("mousedown", (e) => {
+      if (e.target === scrim) done(false);
+    });
+    document.addEventListener("keydown", onKey, true);
+
+    actions.append(cancel, ok);
+    modal.append(h, p, actions);
+    scrim.appendChild(modal);
+    document.body.appendChild(scrim);
+    ok.focus();
+  });
+}
+
 function setState(box: HTMLInputElement, state: "idle" | "pending" | "synced" | "error"): void {
   if (state === "idle") box.removeAttribute("data-state");
   else box.setAttribute("data-state", state);
+}
+
+function fail(box: HTMLInputElement, message: string, detail?: string | null): void {
+  setState(box, "error");
+  box.checked = false;
+  box.title = `CLV Analyzer: ${message}${detail ? ` — ${detail}` : ""}`;
+  toast("error", message, detail);
 }
 
 async function capture(adapter: SiteAdapter, key: string | null, box: HTMLInputElement): Promise<void> {
@@ -75,8 +214,7 @@ async function capture(adapter: SiteAdapter, key: string | null, box: HTMLInputE
 
   const result = adapter.parse();
   if (!result.ok) {
-    setState(box, "error");
-    box.title = `CLV Analyzer: could not read the board (${result.reason ?? "unknown"})`;
+    fail(box, "Could not read the board", result.reason ?? "unknown reason");
     return;
   }
 
@@ -85,13 +223,23 @@ async function capture(adapter: SiteAdapter, key: string | null, box: HTMLInputE
   const row = key ? (result.rows.find((r) => r.externalPropId === key) ?? null) : null;
 
   if (!row) {
-    setState(box, "error");
-    box.title = "CLV Analyzer: could not match this row in the parsed board";
+    fail(box, "Could not find this row on the board", "It may have moved or been re-sorted; try again.");
     return;
   }
-  if (!row.side || row.takenLine === null) {
-    setState(box, "error");
-    box.title = "CLV Analyzer: row is missing a side or line";
+  if (row.takenLine === null) {
+    fail(
+      box,
+      "This bet has no line to track",
+      "Moneylines and other markets without a number cannot be measured for closing line value."
+    );
+    return;
+  }
+  if (row.marketType === "PLAYER_PROP" && (!row.player || !row.side)) {
+    fail(box, "This row is missing a player or side", "The board may have changed layout.");
+    return;
+  }
+  if (row.marketType === "SPREAD" && !row.subjectTeam) {
+    fail(box, "This spread has no team attached", "The board may have changed layout.");
     return;
   }
 
@@ -110,17 +258,75 @@ async function capture(adapter: SiteAdapter, key: string | null, box: HTMLInputE
     const response: CaptureResponse = await chrome.runtime.sendMessage(message);
     if (response?.ok) {
       setState(box, "synced");
-      box.title = response.queued
-        ? "CLV Analyzer: server unreachable, queued and will retry"
-        : `CLV Analyzer: captured (${response.status ?? "saved"})`;
+      box.setAttribute(MATCH_ATTR, matchKeyForRow(adapter.site, adapter.fantasyBook(), row));
+      if (response.queued) {
+        box.title = "CLV Analyzer: server unreachable, queued and will retry";
+        toast("info", "Queued — the server was unreachable", "It will be sent automatically once the server is reachable again.");
+      } else {
+        box.title = `CLV Analyzer: captured (${response.status ?? "saved"})`;
+        toast(
+          "success",
+          row.isLive ? "Live pick captured" : "Pick captured",
+          row.isLive ? "Live picks record EV% but get no closing-line verdict." : null
+        );
+      }
     } else {
-      setState(box, "error");
-      box.title = `CLV Analyzer: ${response?.error ?? "capture failed"}`;
+      fail(box, "Could not save this pick", response?.error ?? "capture failed");
     }
   } catch (error) {
-    setState(box, "error");
-    box.title = `CLV Analyzer: ${error instanceof Error ? error.message : "capture failed"}`;
+    fail(box, "Could not save this pick", error instanceof Error ? error.message : "capture failed");
   }
+}
+
+/** Removes a pick after the user unticks it, once they confirm they meant to. */
+async function untrack(box: HTMLInputElement, label: string): Promise<void> {
+  const matchKey = box.getAttribute(MATCH_ATTR);
+  if (!matchKey) {
+    // Nothing was ever stored for this row, so unticking is purely local.
+    setState(box, "idle");
+    return;
+  }
+
+  const confirmed = await confirmDialog(
+    "Remove this pick?",
+    `${label} will be deleted from the analyzer, along with the snapshot taken when you ticked it. Picks whose closing line has already been recorded are kept.`,
+    "Remove it"
+  );
+  if (!confirmed) {
+    // Put it back exactly as it was: the user said no.
+    box.checked = true;
+    setState(box, "synced");
+    return;
+  }
+
+  setState(box, "pending");
+  try {
+    const response: UntrackResponse = await chrome.runtime.sendMessage({
+      type: "clv:untrack",
+      matchKey,
+    });
+    if (response?.ok) {
+      box.removeAttribute(MATCH_ATTR);
+      setState(box, "idle");
+      box.title = "Track this pick for CLV";
+      toast("success", "Pick removed");
+    } else {
+      box.checked = true;
+      setState(box, "synced");
+      toast("error", "Could not remove this pick", response?.error ?? "unknown error");
+    }
+  } catch (error) {
+    box.checked = true;
+    setState(box, "synced");
+    toast("error", "Could not remove this pick", error instanceof Error ? error.message : null);
+  }
+}
+
+function labelFor(row: ParsedRow | null): string {
+  if (!row) return "This pick";
+  if (row.selectionName) return row.selectionName;
+  if (row.player) return `${row.player} ${row.side === "OVER" ? "Over" : "Under"} ${row.takenLine}`;
+  return `${row.statMarket ?? "This market"} ${row.takenLine ?? ""}`.trim();
 }
 
 function injectRows(adapter: SiteAdapter): void {
@@ -143,12 +349,76 @@ function injectRows(adapter: SiteAdapter): void {
     box.addEventListener("click", (event) => event.stopPropagation());
     box.addEventListener("change", () => {
       if (!box.checked) {
-        setState(box, "idle");
+        const rowKey = box.getAttribute(KEY_ATTR);
+        const parsed = adapter.parse();
+        const row = rowKey ? (parsed.rows.find((r) => r.externalPropId === rowKey) ?? null) : null;
+        void untrack(box, labelFor(row));
         return;
       }
       void capture(adapter, box.getAttribute(KEY_ATTR), box);
     });
     host.appendChild(box);
+  }
+}
+
+/**
+ * Restores ticks from the server.
+ *
+ * Without this a tick lived only in the DOM, so a refresh (or the board re-rendering on a websocket
+ * odds tick) silently cleared it while the pick stayed in the database -- the checkbox and the
+ * analyzer disagreed. The server is the source of truth; the board is redrawn from it.
+ */
+async function syncTracked(adapter: SiteAdapter): Promise<void> {
+  const boxes = Array.from(document.querySelectorAll<HTMLInputElement>(`[${MARK}]`));
+  if (boxes.length === 0) return;
+
+  const parsed = adapter.parse();
+  if (!parsed.ok) return;
+
+  const book = adapter.fantasyBook();
+  const byPropId = new Map<string, ParsedRow>();
+  for (const row of parsed.rows) {
+    if (row.externalPropId) byPropId.set(row.externalPropId, row);
+  }
+
+  const keyByBox = new Map<HTMLInputElement, string>();
+  for (const box of boxes) {
+    const rowKey = box.getAttribute(KEY_ATTR);
+    const row = rowKey ? byPropId.get(rowKey) : undefined;
+    if (!row || row.takenLine === null) continue;
+    keyByBox.set(box, matchKeyForRow(adapter.site, book, row));
+  }
+  if (keyByBox.size === 0) return;
+
+  let response: TrackedLookupResponse;
+  try {
+    response = await chrome.runtime.sendMessage({
+      type: "clv:tracked",
+      matchKeys: [...new Set(keyByBox.values())],
+    });
+  } catch {
+    return; // offline or the worker is asleep; the next pass tries again
+  }
+  if (!response?.ok || !response.tracked) return;
+
+  const tracked = new Set(response.tracked);
+  for (const [box, matchKey] of keyByBox) {
+    const isTracked = tracked.has(matchKey);
+    // Never fight a click that is still in flight.
+    if (box.getAttribute("data-state") === "pending") continue;
+    if (isTracked) {
+      box.setAttribute(MATCH_ATTR, matchKey);
+      if (!box.checked) {
+        box.checked = true;
+        setState(box, "synced");
+        box.title = "Tracked — untick to remove this pick from the analyzer";
+      }
+    } else if (box.checked && box.getAttribute("data-state") === "synced") {
+      // The pick is gone server-side (deleted from the dashboard), so stop showing it as tracked.
+      box.checked = false;
+      box.removeAttribute(MATCH_ATTR);
+      setState(box, "idle");
+    }
   }
 }
 
@@ -188,4 +458,9 @@ export function startCapture(adapter: SiteAdapter): void {
 
   // The grids sometimes swap their whole container out; a slow interval is a cheap safety net.
   setInterval(schedule, 4000);
+
+  // Restoring ticks needs a round trip, so it runs on its own slower cadence rather than on every
+  // re-render. The first pass is delayed to let the board finish its initial load.
+  setTimeout(() => void syncTracked(adapter), 2500);
+  setInterval(() => void syncTracked(adapter), 15000);
 }

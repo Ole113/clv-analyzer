@@ -1,4 +1,4 @@
-import type { Side } from "./constants";
+import type { MarketType, Side } from "./constants";
 
 export interface LineLike {
   line: number | null;
@@ -17,20 +17,30 @@ export function averageClosingLine(lines: LineLike[]): { avg: number | null; cou
 }
 
 /**
- * Line-number-only CLV, per the agreed method.
+ * Which side of the market a movement has to go for the bettor to have beaten the close.
  *
- * An Over beats the close when the market moved the number UP: the bettor needed fewer than the
- * market later demanded. An Under beats the close when the number moved DOWN. Price movement is
- * captured for reference but deliberately does not feed the verdict.
+ * Totals and player props share a direction: an Over beats the close when the number moves UP,
+ * because the bettor needed fewer than the market later demanded.
  *
- * A perfectly flat line is not a win: no edge was gained, so beatClv is false at edge === 0.
+ * Spreads run the OTHER WAY, and getting this backwards would silently invert a whole category of
+ * results. Taking Seahawks +5.5 and seeing it close at +3.5 means the bettor holds more points
+ * than the market ended up offering, so they beat the close: edge = taken - close. The same
+ * formula reads correctly for a favourite, where -4.5 closing at -3.5 is a worse number to hold
+ * (edge = -4.5 - -3.5 = -1).
  */
 export function computeClv(
-  side: Side,
+  marketType: MarketType,
+  side: Side | null,
   takenLine: number,
   avgClosingLine: number
 ): { edge: number; beatClv: boolean } {
-  const edge = side === "OVER" ? avgClosingLine - takenLine : takenLine - avgClosingLine;
-  const rounded = Math.round(edge * 1e6) / 1e6;
+  const raw =
+    marketType === "SPREAD"
+      ? takenLine - avgClosingLine
+      : side === "UNDER"
+        ? takenLine - avgClosingLine
+        : avgClosingLine - takenLine;
+  const rounded = Math.round(raw * 1e6) / 1e6;
+  // A perfectly flat line is not a win: no edge was gained, so beatClv is false at edge === 0.
   return { edge: rounded, beatClv: rounded > 0 };
 }

@@ -1,4 +1,12 @@
 import { prisma } from "../prisma";
+import { getFinalScores } from "./sources/espn";
+import { matchesTeam, teamVariants } from "./team-names";
+import {
+  actualForTotal,
+  marginForSpread,
+  settleGameMarket,
+  type SideScore,
+} from "./game-markets";
 import { config, type Side } from "../constants";
 import { resolveMapping } from "./stat-map";
 import { settle } from "./grade";
@@ -77,6 +85,79 @@ export async function gradeBet(betId: string): Promise<{ result: string; reason?
     });
     return { result: exhausted ? "GRADE_FAILED" : "RETRY", reason };
   };
+
+  // --- game markets (spreads, totals) --------------------------------------
+  // These carry no player, so they are settled from the final scoreboard rather than a box score.
+  if (bet.marketType === "SPREAD" || bet.marketType === "GAME_TOTAL") {
+    const found = await espnSource.findGame(subject);
+    if ("reason" in found) return markRetryable(found.reason);
+
+    if (found.game.externalGameId !== bet.externalGameId) {
+      await prisma.bet.update({
+        where: { id: betId },
+        data: { externalGameId: found.game.externalGameId },
+      });
+    }
+    if (found.game.abandoned) {
+      return markVoid(`Game was postponed, suspended or cancelled (${found.game.description}).`);
+    }
+    if (!found.game.isFinal) {
+      return markRetryable(`Game is not final yet (${found.game.description}).`);
+    }
+
+    const scored = await getFinalScores(subject, found.game.externalGameId);
+    if ("reason" in scored) return markRetryable(scored.reason);
+
+    const sides: SideScore[] = scored.scores.map((s) => ({
+      variants: teamVariants(s.team),
+      score: s.score,
+      label: s.team.displayName ?? s.team.name ?? "team",
+    }));
+
+    let value: number | null;
+    if (bet.marketType === "SPREAD") {
+      if (!bet.subjectTeam) return markTerminal("This spread has no team recorded, so it cannot be settled.");
+      value = marginForSpread(sides, bet.subjectTeam, matchesTeam);
+      if (value === null) {
+        return markRetryable(
+          `Could not tell which side "${bet.subjectTeam}" is in ${found.game.description}.`
+        );
+      }
+    } else {
+      value = actualForTotal(sides);
+    }
+
+    const result = settleGameMarket(
+      bet.marketType as "SPREAD" | "GAME_TOTAL",
+      bet.side as Side | null,
+      bet.takenLine,
+      value
+    );
+    await prisma.bet.update({
+      where: { id: betId },
+      data: {
+        gradeResult: result,
+        actualValue: value,
+        gradedAt: new Date(),
+        lastGradeAt: new Date(),
+        gradeSource: "espn",
+        gradeReason: null,
+        gradeAttempts: bet.gradeAttempts + 1,
+        gradeRawJson: JSON.stringify({
+          matchedName: bet.subjectTeam ?? bet.statMarket,
+          game: found.game.description,
+          webUrl: found.game.webUrl,
+          market: bet.statMarket,
+          finalScores: sides.map((s) => `${s.label} ${s.score}`).join(" - "),
+        }),
+      },
+    });
+    return { result };
+  }
+
+  if (!bet.player) {
+    return markTerminal("This pick has no player recorded, so no box score can settle it.");
+  }
 
   const { mapping, reason: mappingReason } = resolveMapping(bet.sport, bet.statMarket);
   if (!mapping) return markTerminal(mappingReason ?? "No stat mapping for this market.");

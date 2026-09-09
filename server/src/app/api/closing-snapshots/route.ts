@@ -9,12 +9,20 @@ const bookLineSchema = z.object({
   label: z.string().nullable(),
   line: z.number().nullable(),
   price: z.number().nullable(),
+  logoUrl: z.string().nullable().optional().default(null),
   rawText: z.string(),
 });
 
 const rowSchema = z.object({
   rowIndex: z.number(),
+  marketType: z
+    .enum(["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "OTHER"])
+    .optional()
+    .default("PLAYER_PROP"),
   player: z.string().nullable(),
+  selectionName: z.string().nullable().optional().default(null),
+  subjectTeam: z.string().nullable().optional().default(null),
+  isLive: z.boolean().optional().default(false),
   team: z.string().nullable(),
   opponent: z.string().nullable(),
   matchup: z.string().nullable(),
@@ -23,6 +31,7 @@ const rowSchema = z.object({
   side: z.enum(["OVER", "UNDER"]).nullable(),
   takenLine: z.number().nullable(),
   fairProbability: z.number().nullable().optional().default(null),
+  boardEvPercent: z.number().nullable().optional().default(null),
   gameStartTimeText: z.string().nullable(),
   gameStartTimeIso: z.string().nullable(),
   externalPropId: z.string().nullable(),

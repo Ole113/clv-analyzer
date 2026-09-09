@@ -11,13 +11,21 @@ import { startCapture, type SiteAdapter } from "../shared/inject";
  */
 const HEAD_MARK = "data-clv-head";
 
+/**
+ * The optimizer table, on either layout.
+ *
+ * The player-prop boards head their columns PLAYER / STAT. The rebet and fliff boards are whole
+ * game markets instead and head theirs Game / Market / Bet Name, so probing only for PLAYER+STAT
+ * found nothing there and the column was never injected.
+ */
 function table(): HTMLTableElement | null {
   const tables = Array.from(document.querySelectorAll("table"));
   return (
     tables.find((t) => {
       const header = t.querySelector("thead tr");
       const text = (header?.textContent ?? "").toUpperCase();
-      return text.includes("PLAYER") && text.includes("STAT");
+      if (text.includes("PLAYER") && text.includes("STAT")) return true;
+      return text.includes("BET NAME") && text.includes("MARKET");
     }) ?? null
   );
 }

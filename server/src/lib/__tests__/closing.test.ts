@@ -9,6 +9,11 @@ import type { ParsedRow } from "@clv/shared";
  */
 const oddsJamRow = (overrides: Partial<ParsedRow> = {}): ParsedRow => ({
   rowIndex: 0,
+  marketType: "PLAYER_PROP",
+  selectionName: null,
+  subjectTeam: null,
+  isLive: false,
+  boardEvPercent: null,
   player: "Aaron Rodgers",
   team: "Atlanta Falcons",
   opponent: "Pittsburgh Steelers",
@@ -24,17 +29,17 @@ const oddsJamRow = (overrides: Partial<ParsedRow> = {}): ParsedRow => ({
   externalPlayerId: null,
   rawText: "",
   bookLines: [
-    { bookKey: "oddsjamalgoodds", label: "OddsJam Algo Odds", line: null, price: -165, rawText: "-165.82" },
-    { bookKey: "prizepicks5or6pickflex", label: "PrizePicks (5 or 6 Pick Flex)", line: null, price: -118, rawText: "-118" },
-    { bookKey: "draftkings", label: "DraftKings", line: 18.4, price: -157, rawText: "18.4 -157" },
-    { bookKey: "caesars", label: "Caesars", line: 19.5, price: -175, rawText: "19.5 -175" },
+    { bookKey: "oddsjamalgoodds", label: "OddsJam Algo Odds", line: null, price: -165, logoUrl: null, rawText: "-165.82" },
+    { bookKey: "prizepicks5or6pickflex", label: "PrizePicks (5 or 6 Pick Flex)", line: null, price: -118, logoUrl: null, rawText: "-118" },
+    { bookKey: "draftkings", label: "DraftKings", line: 18.4, price: -157, logoUrl: null, rawText: "18.4 -157" },
+    { bookKey: "caesars", label: "Caesars", line: 19.5, price: -175, logoUrl: null, rawText: "19.5 -175" },
   ],
   ...overrides,
 });
 
 describe("buildClosingVerdict", () => {
   it("averages only the real sportsbook lines and scores the Over", () => {
-    const verdict = buildClosingVerdict("OVER", 14, oddsJamRow());
+    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 14, oddsJamRow());
     expect(verdict.status).toBe("CLOSED");
     expect(verdict.closingBookCount).toBe(2); // DraftKings + Caesars only
     expect(verdict.avgClosingLine).toBeCloseTo(18.95, 5);
@@ -43,7 +48,7 @@ describe("buildClosingVerdict", () => {
   });
 
   it("still records every column, including the ones it excludes", () => {
-    const verdict = buildClosingVerdict("OVER", 14, oddsJamRow());
+    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 14, oddsJamRow());
     expect(verdict.closeLines).toHaveLength(4);
     expect(verdict.closeLines.filter((l) => l.includedInAverage).map((l) => l.bookKey)).toEqual([
       "draftkings",
@@ -52,7 +57,7 @@ describe("buildClosingVerdict", () => {
   });
 
   it("flips the verdict for the same movement on an Under", () => {
-    const verdict = buildClosingVerdict("UNDER", 14, oddsJamRow());
+    const verdict = buildClosingVerdict("PLAYER_PROP", "UNDER", 14, oddsJamRow());
     expect(verdict.beatClv).toBe(false);
     expect(verdict.edge).toBeCloseTo(-4.95, 5);
   });
@@ -60,11 +65,11 @@ describe("buildClosingVerdict", () => {
   it("reports UNAVAILABLE rather than guessing when no book still quotes a line", () => {
     const row = oddsJamRow({
       bookLines: [
-        { bookKey: "oddsjamalgoodds", label: "OddsJam Algo Odds", line: null, price: -165, rawText: "-165.82" },
-        { bookKey: "prizepicks5or6pickflex", label: "PrizePicks", line: 14, price: -118, rawText: "14 -118" },
+        { bookKey: "oddsjamalgoodds", label: "OddsJam Algo Odds", line: null, price: -165, logoUrl: null, rawText: "-165.82" },
+        { bookKey: "prizepicks5or6pickflex", label: "PrizePicks", line: 14, price: -118, logoUrl: null, rawText: "14 -118" },
       ],
     });
-    const verdict = buildClosingVerdict("OVER", 14, row);
+    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 14, row);
     expect(verdict.status).toBe("UNAVAILABLE");
     expect(verdict.avgClosingLine).toBeNull();
     expect(verdict.edge).toBeNull();
