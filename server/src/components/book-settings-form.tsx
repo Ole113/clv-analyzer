@@ -128,7 +128,7 @@ export function BookSettingsForm({
 
       <div style={{ marginTop: 14 }}>
         <span className="action-btn-wrap">
-          <button type="button" disabled={pending} onClick={save}>
+          <button type="button" className="primary" disabled={pending} onClick={save}>
             {pending ? "Saving..." : "Save book settings"}
           </button>
         </span>

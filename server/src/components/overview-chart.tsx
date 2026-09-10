@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { SeriesPoint } from "@/lib/queries";
+import { Info } from "./info";
 
 type MetricKey = "beatRate" | "hitRate" | "avgEv" | "avgEdge" | "cumulativeEdge" | "picks";
 
@@ -49,7 +50,7 @@ export function OverviewChart({ series, initial = "beatRate" }: { series: Series
   if (present.length < 2) {
     return (
       <div className="chart-card">
-        <MetricTabs metric={metric} setMetric={setMetric} />
+        <MetricTabsRow metric={metric} setMetric={setMetric} />
         <p className="muted" style={{ marginBottom: 0 }}>
           Not enough days with data yet to plot {spec.label.toLowerCase()} — at least two are needed.
         </p>
@@ -99,7 +100,7 @@ export function OverviewChart({ series, initial = "beatRate" }: { series: Series
 
   return (
     <div className="chart-card">
-      <MetricTabs metric={metric} setMetric={setMetric} />
+      <MetricTabsRow metric={metric} setMetric={setMetric} />
       <svg className="ts" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${spec.label} over time`}>
         {ticks.map((t, i) => (
           <g key={i}>
@@ -158,6 +159,38 @@ function MetricTabs({
           {METRICS[key].label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** The tab list plus a single "what am I looking at" explainer for the whole picker, docked to
+    the far right of the row rather than repeated per tab. */
+function MetricTabsRow({
+  metric,
+  setMetric,
+}: {
+  metric: MetricKey;
+  setMetric: (m: MetricKey) => void;
+}) {
+  return (
+    <div className="metric-tabs-row">
+      <MetricTabs metric={metric} setMetric={setMetric} />
+      <Info title="Over time options" anchor="beat-rate">
+        <strong>Beat CLV %</strong> — share of that day&apos;s settled picks where the line moved
+        in your favour.
+        <br />
+        <strong>Hit rate</strong> — wins over decided picks from the box score, that day.
+        <br />
+        <strong>Avg EV%</strong> — that day&apos;s picks&apos; expected value, averaged.
+        <br />
+        <strong>Avg edge</strong> — that day&apos;s CLV edge (line units), averaged.
+        <br />
+        <strong>Cumulative edge</strong> — every day&apos;s edge summed running total, so a
+        persistent lean shows up even when no single day stands out.
+        <br />
+        <strong>Picks captured</strong> — how many picks were taken that day, regardless of
+        whether they have settled yet.
+      </Info>
     </div>
   );
 }

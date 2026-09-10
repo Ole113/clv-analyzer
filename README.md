@@ -181,6 +181,36 @@ that market at all, it is **NO_CLOSING_MARKET**. Neither is scored against a gue
 
 ## Setup
 
+### 0. Before you start
+
+Everything below assumes these are already installed. If you have never set up a Node.js project
+before, install them in this order:
+
+| Dependency | What it's for | Install |
+| --- | --- | --- |
+| **Git** | Downloads ("clones") this repository to your computer. | [git-scm.com/downloads](https://git-scm.com/downloads) — macOS/Windows installers, with a plain-language walkthrough. |
+| **Node.js** (v20 or later) | Runs the server and the build scripts. **npm comes bundled with it** — installing Node.js is all you need for both. | [nodejs.org](https://nodejs.org/) — download the **LTS** version for your OS. [Official install guide](https://nodejs.org/en/download) if the installer needs more explanation. |
+| **Google Chrome** | Runs the browser extension that captures picks and reads closing lines. | [google.com/chrome](https://www.google.com/chrome/) |
+
+After installing, confirm they worked by opening a terminal (macOS: Terminal app; Windows:
+PowerShell) and running:
+
+```bash
+git --version
+node --version   # should print v20 or higher
+npm --version    # installed automatically with Node.js
+```
+
+If any of those print "command not found", close and reopen the terminal (installers sometimes
+need a fresh shell to be found) before trying again.
+
+Then clone the repository itself:
+
+```bash
+git clone https://github.com/Ole113/clv-analyzer.git
+cd clv-analyzer
+```
+
 ### 1. Install and build
 
 On the machine that hosts the server and database:

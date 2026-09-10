@@ -1,7 +1,7 @@
 /** Discord has no public per-user profile URL, so the handle is shown as text, not a link. */
-const DISCORD_USERNAME = "ole113";
+const DISCORD_USERNAME = "Ole113";
 const GITHUB_URL = "https://github.com/Ole113";
-const EMAIL = "alex_elbel@icloud.com";
+const EMAIL = "alex.e00113@gmail.com";
 
 function GitHubIcon() {
   return (
@@ -38,6 +38,8 @@ function DiscordIcon() {
   );
 }
 
+const LICENSE_URL = "https://github.com/Ole113/clv-analyzer/blob/main/LICENSE";
+
 export function Footer() {
   return (
     <footer className="site-footer">
@@ -48,35 +50,41 @@ export function Footer() {
           — closing line value tracking for OddsJam &amp; PropProfessor fantasy picks.
         </span>
       </div>
-      <nav>
-        <a href="/methodology">Methodology</a>
-        <a href="/settings">Settings</a>
-        <a href="https://fantasy.oddsjam.com/fantasy-odds/prizepicks" target="_blank" rel="noopener noreferrer">
-          OddsJam ↗
-        </a>
-        <a href="https://www.propprofessor.com/fantasy" target="_blank" rel="noopener noreferrer">
-          PropProfessor ↗
-        </a>
-      </nav>
 
-      <section className="footer-contact" aria-label="Contact">
-        <span className="contact-label muted">Contact</span>
-        <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="contact-item">
-          <GitHubIcon />
-          Ole113
-        </a>
-        <a href={`mailto:${EMAIL}`} className="contact-item">
-          <MailIcon />
-          {EMAIL}
-        </a>
-        <span className="contact-item is-static" title="Discord username">
-          <DiscordIcon />
-          {DISCORD_USERNAME}
-        </span>
-      </section>
+      <div className="footer-columns">
+        <nav>
+          <a href="/methodology">Methodology</a>
+          <a href="/about">About</a>
+          <a href="https://fantasy.oddsjam.com/fantasy-odds/prizepicks" target="_blank" rel="noopener noreferrer">
+            OddsJam ↗
+          </a>
+          <a href="https://www.propprofessor.com/fantasy" target="_blank" rel="noopener noreferrer">
+            PropProfessor ↗
+          </a>
+        </nav>
+
+        <section className="footer-contact" aria-label="Contact">
+          <span className="contact-label muted">Contact</span>
+          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="contact-item">
+            <GitHubIcon />
+            Ole113
+          </a>
+          <a href={`mailto:${EMAIL}`} className="contact-item">
+            <MailIcon />
+            {EMAIL}
+          </a>
+          <span className="contact-item is-static" title="Discord username">
+            <DiscordIcon />
+            {DISCORD_USERNAME}
+          </span>
+        </section>
+      </div>
 
       <div className="muted small">
-        Built by Alex · self-hosted, runs entirely on your own machine
+        Built by Ole113 ·{" "}
+        <a href={LICENSE_URL} target="_blank" rel="noopener noreferrer">
+          MIT License
+        </a>
       </div>
     </footer>
   );

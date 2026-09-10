@@ -63,6 +63,17 @@ export function fmtEdge(edge: number | null): string {
   return `${sign}${edge.toFixed(2)}`;
 }
 
+/**
+ * American odds always carry an explicit sign -- "-110" or "+130", never a bare "130" that reads
+ * as ambiguous. `-0` is displayed as `0`: negative zero is a floating-point artifact, not a real
+ * favourite/underdog distinction worth showing.
+ */
+export function fmtOdds(price: number | null): string {
+  if (price === null) return "--";
+  if (price === 0) return "0";
+  return price > 0 ? `+${price}` : `${price}`;
+}
+
 export function fmtDateTime(value: Date | string | null): string {
   if (!value) return "--";
   const d = typeof value === "string" ? new Date(value) : value;

@@ -183,8 +183,18 @@ tr.row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2
 }
 .filters .field.grow input { width: 100%; }
 .filters input:focus, .filters select:focus { outline: none; border-color: var(--accent); }
-.filters .actions { flex-direction: row; align-items: center; gap: 10px; }
-.filters .reset { font-size: 13px; color: var(--muted); }
+/* Pushed to the far right of the row by the auto margin, and centred (not bottom-aligned like the
+   rest of the row, which is tall because of the label sitting above each input) against whatever
+   field it ends up next to. */
+.filters .actions {
+  flex-direction: row; align-items: center; justify-content: center; gap: 10px;
+  margin-left: auto; align-self: center;
+}
+.filters .reset {
+  font-size: 13px; color: var(--muted); padding: 7px 12px; border: 1px solid var(--border);
+  border-radius: 8px; line-height: 1.2;
+}
+.filters .reset:hover { color: var(--text); border-color: var(--accent); text-decoration: none; }
 
 .ext { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .ext:hover { color: var(--accent); }
@@ -227,6 +237,13 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
   font: inherit; color: var(--text); background: var(--panel-2);
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
 }
+/* A native checkbox carries its own browser-default margin on top of the label's own `gap`,
+   which is what put daylight between the box and "Only test data" -- zeroing it leaves the gap
+   the only source of spacing. */
+.purge input[type="checkbox"] { width: auto; margin: 0; }
+/* Extra room before the destructive action specifically, so it reads as a deliberate next step
+   rather than sitting flush against whatever warning text precedes it. */
+.purge button.danger { margin-left: 6px; padding-left: 20px; }
 .warn-note { color: var(--warn); font-size: 13px; }
 .ok-note { color: var(--good); font-size: 13px; }
 
@@ -270,10 +287,16 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
 /* --- footer --- */
 .site-footer {
   margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 10px; font-size: 13px;
+  display: flex; flex-direction: column; gap: 14px; font-size: 13px;
 }
-.site-footer nav { display: flex; gap: 18px; flex-wrap: wrap; }
 .site-footer .small { font-size: 12px; }
+
+/* Links on the left, contact info on the right -- the "CLV Analyzer" blurb above this stays full
+   width rather than being folded into either column. */
+.footer-columns { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+.footer-columns nav { display: flex; flex-direction: column; gap: 9px; }
+.footer-columns .footer-contact { flex-direction: column; align-items: flex-start; }
+@media (max-width: 560px) { .footer-columns { flex-direction: column; } }
 
 .footer-contact { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12.5px; }
 .footer-contact .contact-label {
@@ -364,6 +387,26 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
 
 .hero.hero-3 { grid-template-columns: repeat(3, 1fr); }
 @media (max-width: 980px) { .hero.hero-3 { grid-template-columns: 1fr; } }
+
+/* --- settings side nav --- */
+.settings-layout { display: flex; gap: 28px; align-items: flex-start; }
+.settings-nav {
+  flex: 0 0 176px; position: sticky; top: 20px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.settings-nav a {
+  padding: 6px 10px; border-radius: 7px; color: var(--muted); font-size: 13px;
+}
+.settings-nav a:hover { color: var(--text); background: var(--panel-2); text-decoration: none; }
+.settings-content { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 780px) {
+  .settings-layout { flex-direction: column; }
+  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+}
+
+/* --- overview: metric picker + explainer --- */
+.metric-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.metric-tabs-row .metric-tabs { margin-bottom: 0; flex: 1 1 auto; }
 
 .copy-btn {
   font: inherit; font-size: 11px; padding: 2px 8px; border-radius: 6px;

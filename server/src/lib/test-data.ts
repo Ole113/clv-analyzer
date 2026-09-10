@@ -1,4 +1,4 @@
-import type { ParsedRow, MarketType } from "@clv/shared";
+import type { ParsedRow, MarketType, SiteId } from "@clv/shared";
 import { prisma } from "./prisma";
 import { buildMatchKey } from "./matching";
 import { buildClosingVerdict } from "./closing";
@@ -56,7 +56,10 @@ const BOOK_LOGOS: Record<string, string> = {
   fanduel: "https://www.google.com/s2/favicons?sz=64&domain=fanduel.com",
   draftkings: "https://www.google.com/s2/favicons?sz=64&domain=draftkings.com",
   pinnacle: "https://www.google.com/s2/favicons?sz=64&domain=pinnacle.com",
-  caesars: "https://www.google.com/s2/favicons?sz=64&domain=caesars.com",
+  // The sportsbook subdomain, not the parent casino/hotel domain -- caesars.com's own favicon is
+  // the Caesars Entertainment crown, not the sportsbook app's icon, which is what a real captured
+  // row actually shows next to this book.
+  caesars: "https://www.google.com/s2/favicons?sz=64&domain=sportsbook.caesars.com",
   betmgm: "https://www.google.com/s2/favicons?sz=64&domain=betmgm.com",
   fanatics: "https://www.google.com/s2/favicons?sz=64&domain=fanatics.com",
 };
@@ -108,8 +111,7 @@ const LEAD_HOURS = [0.4, 2, 5, 12, 40, 100];
 /**
  * Player-prop templates, spread across every sport that has a real PropProfessor market alias
  * (see `shared/src/markets.ts`) so the generated set exercises more than football and basketball.
- */
-/**
+ *
  * `prob` is each template's own "% chance to hit" as OddsJam/PropProfessor would display it at
  * capture time -- real captures cluster tightly between 54.8% and 57%, so the generated set is
  * held to that band too rather than spanning the much wider range a devigged probability could
@@ -173,7 +175,7 @@ const BOOK_BIAS: Record<string, number> = {
 };
 
 interface PickSpec {
-  site: "ODDSJAM";
+  site: SiteId;
   fantasyBook: string;
   pageUrl: string;
   marketType: MarketType;
@@ -206,17 +208,29 @@ interface PlayerPropTemplate {
   prob: number;
 }
 
-/** A player-prop pick built from a template (either `TEMPLATES` or `FANTASY_ONLY_TEMPLATES`). */
+/**
+ * A player-prop pick built from a template (either `TEMPLATES` or `FANTASY_ONLY_TEMPLATES`).
+ *
+ * Both real sites run this exact market shape -- a player prop ticked on a Fantasy Optimizer -- so
+ * `site` picks which board the pick is stamped as having come from. `pageUrl` has to follow: it is
+ * what `boardUrlFor` actually renders as the "open board" link, and pointing a PropProfessor pick
+ * at OddsJam's fantasy URL would be a second, more confusing version of the site-tagging bug this
+ * replaced.
+ */
 function playerPropSpec(
   t: PlayerPropTemplate,
   side: "OVER" | "UNDER",
   gameStartTime: Date,
-  matchup: string
+  matchup: string,
+  site: SiteId = "ODDSJAM"
 ): PickSpec {
   return {
-    site: "ODDSJAM",
+    site,
     fantasyBook: "prizepicks",
-    pageUrl: "https://fantasy.oddsjam.com/fantasy-odds/prizepicks",
+    pageUrl:
+      site === "ODDSJAM"
+        ? "https://fantasy.oddsjam.com/fantasy-odds/prizepicks"
+        : "https://www.propprofessor.com/fantasy",
     marketType: "PLAYER_PROP",
     sport: t.sport,
     statMarket: t.stat,
@@ -257,8 +271,10 @@ function gameMarketSpec(
   const openOther = isMoneyline ? oppositeMoneylinePrice(openLine) : -110;
 
   return {
+    // Whole-game markets (spread/moneyline/total) come off OddsJam's rebet/fliff boards, not the
+    // fantasy DFS boards -- PropProfessor's Fantasy Optimizer has no equivalent, so unlike a
+    // player prop this is never stamped as a PropProfessor pick.
     site: "ODDSJAM",
-    // Whole-game markets come off OddsJam's rebet/fliff boards, not the fantasy DFS boards.
     fantasyBook: "rebet",
     pageUrl: "https://fantasy.oddsjam.com/fantasy-odds/rebet",
     marketType: t.marketType,
@@ -528,48 +544,63 @@ async function createSpecialStatusPick(
  * produces outside the normal win/loss/open cycle. That way a small load still has at least one of
  * everything to look at, and a large one has a realistic mix.
  */
+/**
+ * Spread across roughly this many days of history, oldest first, so a load produces something
+ * the Overview page's "Over time" chart can actually show a trend on -- a batch bunched into the
+ * last hour (the old behaviour) landed in one or two day-buckets no matter how large the load was,
+ * which made every "over time" metric look flat or empty rather than exercising the chart at all.
+ */
+const HISTORY_SPAN_DAYS = 200;
+
 export async function generateTestData(count: number): Promise<number> {
   const n = Math.max(1, Math.min(MAX_TEST_DATA_PER_REQUEST, Math.floor(count) || 0));
   const now = Date.now();
+  const spanMs = HISTORY_SPAN_DAYS * 86_400_000;
+  const step = n > 1 ? spanMs / (n - 1) : 0;
 
   for (let i = 0; i < n; i++) {
-    // Spread a few minutes apart, oldest first, so every generated pick's matchKey is unique.
-    const gameStartTime = new Date(now - (n - i) * 4 * 60_000 - 3600_000);
+    // Oldest first, evenly spread across the whole history window rather than minutes apart --
+    // the exact spacing (hours, given up to 500 picks over 200 days) is comfortably wider than the
+    // one-minute resolution buildMatchKey rounds to, so this still never collides.
+    const gameStartTime = new Date(now - spanMs + i * step - 3600_000);
     const side = i % 3 === 2 ? ("UNDER" as const) : ("OVER" as const);
+    // Alternates rather than being tied to any other cycle, so both sites show up across sports,
+    // statuses and market types alike instead of only on whichever slot happens to land on them.
+    const site: SiteId = i % 2 === 0 ? "ODDSJAM" : "PROPPROFESSOR";
     const slot = i % 20;
 
     if (slot === 11) {
       const t = TEMPLATES[i % TEMPLATES.length];
       await createSpecialStatusPick(
-        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`),
+        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`, site),
         i,
         "NEEDS_GAME_TIME"
       );
     } else if (slot === 12) {
       const t = TEMPLATES[i % TEMPLATES.length];
       await createSpecialStatusPick(
-        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`),
+        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`, site),
         i,
         "LIVE_NO_CLV"
       );
     } else if (slot === 13) {
       const t = TEMPLATES[i % TEMPLATES.length];
       await createSpecialStatusPick(
-        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`),
+        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`, site),
         i,
         "UNAVAILABLE"
       );
     } else if (slot === 14) {
       const t = TEMPLATES[i % TEMPLATES.length];
       await createSpecialStatusPick(
-        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`),
+        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`, site),
         i,
         "FETCH_FAILED"
       );
     } else if (slot === 15) {
       const t = TEMPLATES[i % TEMPLATES.length];
       await createSpecialStatusPick(
-        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`),
+        playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`, site),
         i,
         "DUE"
       );
@@ -580,7 +611,8 @@ export async function generateTestData(count: number): Promise<number> {
           { ...t, drift: 0 },
           side,
           gameStartTime,
-          `Test matchup ${i + 1}`
+          `Test matchup ${i + 1}`,
+          site
         ),
         i,
         "NO_CLOSING_MARKET"
@@ -597,7 +629,7 @@ export async function generateTestData(count: number): Promise<number> {
       // Every fourth pick is left PENDING rather than closed, so the open state is exercised too,
       // not just closed picks with a verdict.
       const leaveOpen = i % 4 === 3;
-      await createPick(playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`), i, leaveOpen);
+      await createPick(playerPropSpec(t, side, gameStartTime, `Test matchup ${i + 1}`, site), i, leaveOpen);
     }
   }
 

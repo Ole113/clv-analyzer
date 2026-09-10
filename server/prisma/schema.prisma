@@ -212,3 +212,29 @@ model CloseLine {
 
   @@index([betId])
 }
+
+/// A pick the extension tried to send but could not be tracked -- a validation rejection or a
+/// thrown exception during ingest. Kept separately from Bet so a bad payload never becomes a
+/// phantom row, but the reason and the payload that produced it are not just lost to a server log
+/// nobody is watching -- they show up in Settings so a rejected tick can actually be debugged.
+model IngestFailure {
+  id          String   @id @default(cuid())
+  occurredAt  DateTime @default(now())
+  /// "validation" (the payload failed the zod schema), "shape" (well-formed but an impossible
+  /// combination, e.g. a player prop with no player), or "exception" (ingestSnapshot itself threw).
+  stage       String
+  reason      String
+  site        String?
+  fantasyBook String?
+  sport       String?
+  player      String?
+  statMarket  String?
+  /// The row that failed, as sent by the extension. SQLite has no Json scalar (see the note at the
+  /// top of this file), so it is stored as text and truncated defensively -- this is for a human
+  /// reading a specific failure, not for replaying it.
+  payloadJson String?
+  /// Stack trace, present only when the failure was a thrown exception rather than a rejection.
+  stack       String?
+
+  @@index([occurredAt])
+}

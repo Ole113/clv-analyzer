@@ -475,7 +475,10 @@ export interface SeriesPoint {
  * Daily buckets for the overview chart, keyed on kickoff (falling back to capture time) so a
  * point reflects when the market actually closed rather than when the pick was noticed.
  */
-export async function getTimeSeries(days = 45): Promise<SeriesPoint[]> {
+// 210 rather than the old 45: wide enough to hold the ~200-day spread the test-data generator now
+// produces (see HISTORY_SPAN_DAYS in lib/test-data.ts), so a load actually shows a trend on the
+// Overview chart instead of most of it falling outside the window.
+export async function getTimeSeries(days = 210): Promise<SeriesPoint[]> {
   const since = new Date(Date.now() - days * 86400_000);
   const bets = await prisma.bet.findMany({
     where: { OR: [{ gameStartTime: { gte: since } }, { openCapturedAt: { gte: since } }] },

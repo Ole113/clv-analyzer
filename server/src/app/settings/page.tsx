@@ -10,6 +10,15 @@ import { runDueGrades } from "@/lib/grading/grader";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { generateTestData, TEST_DATA_SOURCE_DEVICES, MAX_TEST_DATA_PER_REQUEST } from "@/lib/test-data";
 import { getAppSettings, knownBooks, saveBookOrder, saveBookWeights } from "@/lib/app-settings";
+import { getRecentIngestFailures, countIngestFailures, clearIngestFailures } from "@/lib/ingest-log";
+
+const SECTIONS = [
+  { id: "database", label: "Database" },
+  { id: "books", label: "Books" },
+  { id: "grading", label: "Grading" },
+  { id: "closing-config", label: "Closing read config" },
+  { id: "ingest-failures", label: "Ingest failures" },
+];
 
 export const dynamic = "force-dynamic";
 
@@ -117,17 +126,46 @@ export default async function SettingsPage() {
       : { message: `Graded ${n} pick${n === 1 ? "" : "s"}` };
   }
 
+  async function clearIngestFailuresAction(): Promise<ActionResult> {
+    "use server";
+    const n = await clearIngestFailures();
+    revalidatePath("/settings");
+    return { message: `Cleared ${n} log entr${n === 1 ? "y" : "ies"}` };
+  }
+
   const gradeCounts = await prisma.bet.groupBy({ by: ["gradeResult"], _count: true });
   const countOf = (result: string | null) =>
     gradeCounts.find((g) => g.gradeResult === result)?._count ?? 0;
 
+  const [ingestFailures, ingestFailureTotal] = await Promise.all([
+    getRecentIngestFailures(25),
+    countIngestFailures(),
+  ]);
+
   const fmt = (d: Date | null | undefined) => (d ? d.toLocaleString() : "--");
+
+  const STAGE_LABEL: Record<string, string> = {
+    validation: "Malformed payload",
+    shape: "Impossible combination",
+    exception: "Server error",
+  };
 
   return (
     <main>
       <h2 style={{ marginTop: 0 }}>Settings</h2>
 
-      <section className="chart-card">
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {SECTIONS.map((s) => (
+            <a key={s.id} href={`#${s.id}`}>
+              {s.label}
+            </a>
+          ))}
+        </nav>
+
+        <div className="settings-content">
+
+      <section className="chart-card" id="database">
         <h3>Database</h3>
         <p className="lede">
           {total} pick{total === 1 ? "" : "s"} stored
@@ -152,7 +190,7 @@ export default async function SettingsPage() {
         )}
       </section>
 
-      <section className="chart-card">
+      <section className="chart-card" id="books">
         <h3>Books</h3>
         <p className="lede">
           Controls the book order shown in the &quot;When you took it&quot; / &quot;At market
@@ -169,7 +207,7 @@ export default async function SettingsPage() {
         />
       </section>
 
-      <section className="chart-card">
+      <section className="chart-card" id="grading">
         <h3>Grading</h3>
         <p className="lede">
           Results are read from public box scores by the server itself, so grading keeps working
@@ -206,7 +244,7 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section className="chart-card">
+      <section className="chart-card" id="closing-config">
         <h3>How the closing read is configured</h3>
         <p className="lede">Change these in <code>server/.env</code> and restart the server.</p>
         <table>
@@ -230,6 +268,96 @@ export default async function SettingsPage() {
           </tbody>
         </table>
       </section>
+
+      <section className="chart-card" id="ingest-failures">
+        <h3>Ingest failures</h3>
+        <p className="lede">
+          Every pick the extension tried to send but that could not be tracked — a malformed
+          payload, a shape the schema forbids (a player prop with no player, a spread with no
+          team), or an error thrown while writing it. Reasons like these used to only ever reach a
+          server log nobody was watching; they land here instead.
+        </p>
+
+        {ingestFailures.length === 0 ? (
+          <p className="muted">
+            No ingest failures recorded{ingestFailureTotal > 0 ? " in the most recent batch" : ""} —
+            every tick the extension has sent was tracked.
+          </p>
+        ) : (
+          <>
+            <table>
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Stage</th>
+                  <th>Reason</th>
+                  <th>Pick</th>
+                  <th>Debug</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ingestFailures.map((f) => (
+                  <tr key={f.id}>
+                    <td className="num" style={{ whiteSpace: "nowrap" }}>{fmt(f.occurredAt)}</td>
+                    <td>
+                      <span className="badge bad">{STAGE_LABEL[f.stage] ?? f.stage}</span>
+                    </td>
+                    <td className="err" style={{ fontFamily: "inherit" }}>{f.reason}</td>
+                    <td className="muted" style={{ fontSize: 12 }}>
+                      {[f.site, f.sport, f.player, f.statMarket].filter(Boolean).join(" · ") || "—"}
+                    </td>
+                    <td>
+                      {(f.payloadJson || f.stack) && (
+                        <details>
+                          <summary className="muted" style={{ fontSize: 12, cursor: "pointer" }}>
+                            raw
+                          </summary>
+                          {f.stack && (
+                            <pre className="err" style={{ whiteSpace: "pre-wrap", fontSize: 11 }}>
+                              {f.stack}
+                            </pre>
+                          )}
+                          {f.payloadJson && (
+                            <pre
+                              className="muted"
+                              style={{
+                                whiteSpace: "pre-wrap",
+                                fontSize: 11,
+                                maxHeight: 260,
+                                overflow: "auto",
+                                margin: 0,
+                              }}
+                            >
+                              {f.payloadJson}
+                            </pre>
+                          )}
+                        </details>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="muted" style={{ fontSize: 12 }}>
+              Showing the {ingestFailures.length} most recent of {ingestFailureTotal} recorded.
+            </p>
+            <div style={{ marginTop: 14 }}>
+              <ActionButton
+                action={clearIngestFailuresAction}
+                label="Clear log"
+                pendingLabel="Clearing..."
+                danger
+                confirmTitle="Clear the ingest failure log?"
+                confirm={[`All ${ingestFailureTotal} recorded failure(s) will be removed. This cannot be undone.`]}
+                confirmLabel="Clear log"
+              />
+            </div>
+          </>
+        )}
+      </section>
+
+        </div>
+      </div>
     </main>
   );
 }

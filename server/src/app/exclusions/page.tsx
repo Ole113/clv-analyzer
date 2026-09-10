@@ -114,6 +114,11 @@ export default async function ExclusionsPage() {
                 {b.label}{" "}
                 <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>
                   dropped on {b.excluded} of {b.seen}
+                  {/* The table below is only ever the most recent handful, capped in
+                      getExclusionAudit -- without this, "dropped on 38 of 41" next to a 5-row
+                      table read as a bug rather than a deliberate sample. */}
+                  {b.examples.length < b.excluded &&
+                    ` — showing the ${b.examples.length} most recent`}
                 </span>
               </h3>
               <table>

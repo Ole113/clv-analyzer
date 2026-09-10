@@ -34,6 +34,7 @@ export function TestDataForm({
       <span className="action-btn-wrap">
         <button
           type="button"
+          className="primary"
           disabled={pending}
           onClick={() =>
             startTransition(async () => {

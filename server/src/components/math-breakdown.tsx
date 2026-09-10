@@ -1,5 +1,5 @@
 import { decimalFromAmerican, DEFAULT_PICKEM_PRICE } from "@/lib/ev";
-import { sideLabel } from "./ui";
+import { sideLabel, fmtOdds } from "./ui";
 
 interface Line {
   bookKey: string;
@@ -186,7 +186,7 @@ export function MathBreakdown({ bet }: { bet: MathBet }) {
                 result={`${signed(bet.openEvPercent, 2)}%`}
               />
               <p className="muted">
-                Payout {effectivePrice > 0 ? `+${effectivePrice}` : effectivePrice}
+                Payout {fmtOdds(effectivePrice)}
                 {bet.fantasyPrice === null
                   ? " (the board showed no DFS column, so the configured default was used)"
                   : " (from the board's own DFS column)"}

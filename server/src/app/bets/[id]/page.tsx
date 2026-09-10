@@ -2,11 +2,12 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getBetDetail, boardUrlFor, oddsScreenUrlFor } from "@/lib/queries";
 import { CopyButton } from "@/components/copy-button";
+import { BackLink } from "@/components/back-link";
 import { ActionButton, type ActionResult } from "@/components/action-button";
 import { ActionForm } from "@/components/action-form";
 import { prisma } from "@/lib/prisma";
 import { config, scheduledFetchAtFor, CLOSING_WINDOW_DESCRIPTION} from "@/lib/constants";
-import { VerdictBadge, ResultBadge, fmtDateTime, fmtEdge, betTitle, sideLabel } from "@/components/ui";
+import { VerdictBadge, ResultBadge, fmtDateTime, fmtEdge, fmtOdds, betTitle, sideLabel } from "@/components/ui";
 import { gradeBet, gradeManually } from "@/lib/grading/grader";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
@@ -74,7 +75,7 @@ function SnapshotTable({
                   )}
                 </td>
                 <td className="num">{l.line ?? "--"}</td>
-                <td className="num">{l.price ?? "--"}</td>
+                <td className="num">{fmtOdds(l.price)}</td>
               </tr>
             ))}
           </tbody>
@@ -269,9 +270,12 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
       </>
     );
 
+  // A moneyline's "line" is itself an American-odds price -- +130, not 130 -- so it is worded
+  // with the same explicit sign every other price in the app carries.
   const movement =
     bet.avgClosingLine !== null
-      ? `Line moved from ${bet.takenLine} to ${bet.avgClosingLine.toFixed(2)} ` +
+      ? `Line moved from ${bet.marketType === "MONEYLINE" ? fmtOdds(bet.takenLine) : bet.takenLine} ` +
+        `to ${bet.marketType === "MONEYLINE" ? fmtOdds(Math.round(bet.avgClosingLine)) : bet.avgClosingLine.toFixed(2)} ` +
         `(average of ${bet.closingBookCount} book${bet.closingBookCount === 1 ? "" : "s"}) — ` +
         `${fmtEdge(bet.edge)} ${bet.beatClv ? "in your favour" : "against you"}.`
       : null;
@@ -279,9 +283,7 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
   return (
     <main>
       <div style={{ marginBottom: 16 }}>
-        <a href="/bets" className="muted">
-          ← All picks
-        </a>
+        <BackLink fallbackHref="/bets" label="← Back" />
       </div>
 
       <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>
@@ -414,9 +416,7 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
             <>
               {bet.site === "ODDSJAM" ? "OddsJam" : "PropProfessor"} put the chance to hit at{" "}
               <strong>{(bet.openFairProb * 100).toFixed(1)}%</strong> when you took it
-              {bet.fantasyPrice !== null && (
-                <> at a payout of {bet.fantasyPrice > 0 ? `+${bet.fantasyPrice}` : bet.fantasyPrice}</>
-              )}
+              {bet.fantasyPrice !== null && <> at a payout of {fmtOdds(bet.fantasyPrice)}</>}
               .
               {bet.closeFairProb !== null && (
                 <>

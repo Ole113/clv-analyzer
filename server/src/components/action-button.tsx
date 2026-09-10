@@ -91,13 +91,19 @@ export function ActionButton({
   const disabled = Boolean(disabledReason) || pending;
   const title = disabledReason ?? undefined;
 
+  // Every ActionButton runs a real server action, so it defaults to the accent-tinted "primary"
+  // treatment -- that is the whole point of this component versus a plain <button>, and the gray
+  // default made "Run grader now" and "Save book settings" indistinguishable from inert controls.
+  // A caller can still override with its own `className`, and `danger` always wins.
+  const variantClass = danger ? "danger" : (className ?? "primary");
+
   return (
     // The title lives on the wrapper: a disabled button emits no pointer events, so a tooltip on
     // the button itself would never appear -- which is exactly the "nothing happens" complaint.
     <span className="action-btn-wrap" title={title}>
       <button
         type="button"
-        className={[danger ? "danger" : "", className ?? ""].filter(Boolean).join(" ") || undefined}
+        className={variantClass || undefined}
         disabled={disabled}
         aria-disabled={disabled}
         aria-describedby={disabledReason ? undefined : undefined}

@@ -1,6 +1,6 @@
 import { listBets, parseBetFilters, getFacets, boardUrlFor, oddsScreenUrlFor } from "@/lib/queries";
 import { FilterBar } from "@/components/filter-bar";
-import { VerdictBadge, ResultBadge, fmtDateTime, sideLabel, betTitle } from "@/components/ui";
+import { VerdictBadge, ResultBadge, fmtDateTime, fmtOdds, sideLabel, betTitle } from "@/components/ui";
 import { BetRow } from "@/components/bet-row";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
@@ -91,13 +91,19 @@ export default async function BetsPage({
                 </td>
                 <td>{b.statMarket}</td>
                 <td>{sideLabel(b.side) || <span className="muted">--</span>}</td>
-                <td className="num">{b.takenLine}</td>
+                {/* A moneyline's "line" is itself an American-odds price -- +130, not 130 -- so it
+                    gets the same explicit sign every other price in the app does. */}
+                <td className="num">
+                  {b.marketType === "MONEYLINE" ? fmtOdds(b.takenLine) : b.takenLine}
+                </td>
                 <td className="num">
                   {b.avgClosingLine === null ? (
                     <span className="muted">--</span>
                   ) : (
                     <>
-                      {b.avgClosingLine.toFixed(2)}
+                      {b.marketType === "MONEYLINE"
+                        ? fmtOdds(Math.round(b.avgClosingLine))
+                        : b.avgClosingLine.toFixed(2)}
                       {b.closingBookCount ? (
                         <span className="muted" style={{ fontSize: 11 }}> ({b.closingBookCount})</span>
                       ) : null}
