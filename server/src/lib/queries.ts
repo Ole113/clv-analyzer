@@ -333,6 +333,132 @@ export function boardUrlFor(bet: {
     : "https://www.propprofessor.com/fantasy";
 }
 
+/** Enough of a pick to name it and to judge the rejection, without this module rendering anything. */
+export interface ExclusionExample {
+  id: string;
+  player: string | null;
+  selectionName: string | null;
+  side: string | null;
+  takenLine: number;
+  statMarket: string;
+  /** What this book had up at close. */
+  line: number | null;
+  /** What the rest of the field settled on, so the gap that triggered the rejection is visible. */
+  consensus: number | null;
+}
+
+export interface ExclusionRow {
+  bookKey: string;
+  label: string;
+  /** Picks where this book's closing quote was thrown out of the average. */
+  excluded: number;
+  /** Picks where it was present at close at all -- the denominator that makes `excluded` mean something. */
+  seen: number;
+  /** excluded / seen. The number worth sorting on; a book seen twice and dropped twice is noise. */
+  rate: number;
+  /** Most recent picks it was dropped on, for spot-checking whether the rejections were fair. */
+  examples: ExclusionExample[];
+}
+
+export interface ExclusionAudit {
+  /** Picks that carry a closing read at all, i.e. the population these rates are over. */
+  picksWithClose: number;
+  picksWithExclusions: number;
+  books: ExclusionRow[];
+}
+
+/**
+ * Which books keep getting thrown out of the closing average, and how often.
+ *
+ * The rejection itself is already visible per pick, in the note on its detail page. That is the
+ * wrong altitude for the question this answers: a book being far from the field once is a stale
+ * feed, and a book being far from the field on a quarter of the picks it appears on is a
+ * mis-mapped `bookKey` -- the same name pointing at a different market, or an alt-line column
+ * admitted as a main one. Only the rate across picks can tell those apart, and it is invisible
+ * while the evidence is spread one sentence at a time across hundreds of detail pages.
+ *
+ * `seen` is deliberately the count of picks where the book was quoted at close, not the count of
+ * all picks: a book that only ever appears on ten markets should not look reliable merely because
+ * it was absent from the rest.
+ */
+export async function getExclusionAudit(limitPerBook = 5): Promise<ExclusionAudit> {
+  const bets = await prisma.bet.findMany({
+    where: { closeCapturedAt: { not: null } },
+    orderBy: { closeCapturedAt: "desc" },
+    select: {
+      id: true,
+      player: true,
+      selectionName: true,
+      side: true,
+      takenLine: true,
+      statMarket: true,
+      avgClosingLine: true,
+      excludedBooks: true,
+      closeLines: { select: { bookKey: true, label: true, line: true } },
+    },
+    take: 3000,
+  });
+
+  const stats = new Map<string, { label: string; excluded: number; seen: number; examples: ExclusionRow["examples"] }>();
+  let picksWithExclusions = 0;
+
+  for (const bet of bets) {
+    // Stored as JSON text because SQLite has no Json scalar; a row written before this column
+    // existed, or corrupted by hand, must not take the whole page down.
+    let excluded: string[] = [];
+    try {
+      const parsed = bet.excludedBooks ? (JSON.parse(bet.excludedBooks) as unknown) : [];
+      if (Array.isArray(parsed)) excluded = parsed.filter((v): v is string => typeof v === "string");
+    } catch {
+      excluded = [];
+    }
+    if (excluded.length > 0) picksWithExclusions += 1;
+    const excludedSet = new Set(excluded);
+
+    for (const line of bet.closeLines) {
+      const entry = stats.get(line.bookKey) ?? {
+        label: line.label ?? line.bookKey,
+        excluded: 0,
+        seen: 0,
+        examples: [],
+      };
+      entry.seen += 1;
+      if (excludedSet.has(line.bookKey)) {
+        entry.excluded += 1;
+        if (entry.examples.length < limitPerBook) {
+          entry.examples.push({
+            id: bet.id,
+            player: bet.player,
+            selectionName: bet.selectionName,
+            side: bet.side,
+            takenLine: bet.takenLine,
+            statMarket: bet.statMarket,
+            line: line.line,
+            consensus: bet.avgClosingLine,
+          });
+        }
+      }
+      stats.set(line.bookKey, entry);
+    }
+  }
+
+  return {
+    picksWithClose: bets.length,
+    picksWithExclusions,
+    books: [...stats.entries()]
+      .map(([bookKey, v]) => ({
+        bookKey,
+        label: v.label,
+        excluded: v.excluded,
+        seen: v.seen,
+        rate: v.seen ? v.excluded / v.seen : 0,
+        examples: v.examples,
+      }))
+      .filter((b) => b.excluded > 0)
+      .sort((a, b) => b.rate - a.rate || b.excluded - a.excluded),
+  };
+}
+
 export interface SeriesPoint {
   /** ISO date (YYYY-MM-DD) of the bucket. */
   date: string;

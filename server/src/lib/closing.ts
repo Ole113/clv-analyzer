@@ -1,6 +1,6 @@
 import type { ParsedRow } from "@clv/shared";
 import { isSportsbookForAverage, isSportsbookForClose } from "@clv/shared";
-import { averageClosingLine, computeClv, findLineOutliers } from "./clv";
+import { averageClosingLine, averageClosingProbability, computeClv, findLineOutliers } from "./clv";
 import type { MarketType, Side } from "./constants";
 
 /**
@@ -18,6 +18,8 @@ export interface ClosingLineRecord {
   line: number | null;
   price: number | null;
   logoUrl: string | null;
+  liquidity: number | null;
+  fairProbability: number | null;
   rawText: string;
   includedInAverage: boolean;
 }
@@ -29,6 +31,25 @@ export interface ClosingVerdict {
   closingBookCount: number;
   edge: number | null;
   beatClv: boolean | null;
+  /**
+   * Movement measured in de-vigged win probability instead of line units, in probability points.
+   *
+   * Separate from `edge` rather than a correction to it, because they answer different questions.
+   * A player prop moves by moving its number, and `edge` is the honest measure of that. A total
+   * parked at 47.5 all week while the price drifts from -110 to -130 has moved hard against one
+   * side, and `edge` reads exactly 0 -- this is the metric that sees it. Null unless both ends
+   * carry a fair probability, since a one-ended difference is not a difference.
+   */
+  priceEdge: number | null;
+  /**
+   * The market's de-vigged probability that this pick hits, at close. Null when no trusted book
+   * quoted both sides, which is common enough that callers must keep their capture-time fallback.
+   */
+  closeFairProb: number | null;
+  /** How many books that consensus is over. Always <= closingBookCount; often well under it. */
+  fairBookCount: number;
+  /** Books dropped from the average, structurally rather than only as prose inside `note`. */
+  excludedBooks: string[];
   note: string | null;
   /** How the closing number was obtained, so the two methods are never conflated on screen. */
   closingSource: "BOOK_CONSENSUS" | "BOARD_LINE";
@@ -45,7 +66,13 @@ export function buildClosingVerdict(
   takenLine: number,
   row: ParsedRow,
   bookWeights?: Record<string, number> | null,
-  sourceSite: ClosingSourceSite = "OPTIMIZER"
+  sourceSite: ClosingSourceSite = "OPTIMIZER",
+  options: {
+    /** The pick's fair probability at capture, needed for the price-based edge. */
+    openFairProb?: number | null;
+    /** Whether captured depth should weight the average. Off unless the user turned it on. */
+    useLiquidityWeighting?: boolean;
+  } = {}
 ): ClosingVerdict {
   // The screen needs an allowlist: on the optimizer the `hasLine` test did most of the filtering,
   // because DFS and algo columns there are price-only. On an odds screen essentially every column
@@ -58,6 +85,8 @@ export function buildClosingVerdict(
     line: b.line,
     price: b.price,
     logoUrl: b.logoUrl,
+    liquidity: b.liquidity ?? null,
+    fairProbability: b.fairProbability ?? null,
     rawText: b.rawText,
     includedInAverage: classify(b.bookKey, b.label, typeof b.line === "number"),
   }));
@@ -70,7 +99,34 @@ export function buildClosingVerdict(
     if (outliers.has(line.bookKey)) line.includedInAverage = false;
   }
 
-  const { avg, count } = averageClosingLine(closeLines, bookWeights);
+  const { avg, count } = averageClosingLine(
+    closeLines,
+    bookWeights,
+    1,
+    options.useLiquidityWeighting === true
+  );
+
+  // --- the market's fair price at close --------------------------------------------------------
+  //
+  // Over exactly the books that are already trusted for the line average: the allowlist has removed
+  // the pick'em columns (a fixed -119/-119 payout de-vigs to a flat 50% that is a property of the
+  // payout, not of the market) and the outlier test has removed the stale quotes. Books that priced
+  // only one side simply have no fair probability to contribute, so this is a strictly smaller
+  // sample than the line average -- 10 of 18 books on the captured Xavier Robinson market -- and it
+  // is legitimately null on a row that still has a perfectly good closing line.
+  const { avg: closeFairProb, count: fairBookCount } = averageClosingProbability(
+    closeLines.filter((l) => l.includedInAverage),
+    bookWeights
+  );
+
+  // Price-based CLV. Deliberately independent of everything below it: a pick whose closing LINE
+  // could not be formed can still have a closing fair probability, and vice versa, so this is
+  // computed from the two probabilities alone and survives the UNAVAILABLE return.
+  const priceEdge =
+    typeof options.openFairProb === "number" && closeFairProb !== null
+      ? Math.round((closeFairProb - options.openFairProb) * 1e5) / 1e3
+      : null;
+  const excludedBooks = [...outliers];
 
   // Player props: the books each quote their own line, so the close is their consensus.
   //
@@ -92,6 +148,10 @@ export function buildClosingVerdict(
       closingBookCount: 0,
       edge: null,
       beatClv: null,
+      priceEdge,
+      closeFairProb,
+      fairBookCount,
+      excludedBooks,
       note:
         marketType === "PLAYER_PROP"
           ? "No sportsbook was still quoting a line for this prop"
@@ -109,6 +169,10 @@ export function buildClosingVerdict(
     closingBookCount: useBoardLine ? 1 : count,
     edge,
     beatClv,
+    priceEdge,
+    closeFairProb,
+    fairBookCount,
+    excludedBooks,
     // Surfaced rather than silent: a dropped book is a judgement call, and the one place it would
     // do real damage is if it were wrong and nobody could see it had happened.
     note:

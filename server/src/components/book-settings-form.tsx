@@ -19,16 +19,19 @@ export function BookSettingsForm({
   books,
   initialWeights,
   initialUseWeighted,
+  initialUseLiquidity,
   saveAction,
 }: {
   initialOrder: string[];
   books: BookRow[];
   initialWeights: Record<string, number>;
   initialUseWeighted: boolean;
+  initialUseLiquidity: boolean;
   saveAction: (
     order: string[],
     weights: Record<string, number>,
-    useWeightedAverage: boolean
+    useWeightedAverage: boolean,
+    useLiquidityWeighting: boolean
   ) => Promise<void>;
 }) {
   const { push } = useToast();
@@ -37,6 +40,7 @@ export function BookSettingsForm({
   const [order, setOrder] = useState<string[]>(initialOrder);
   const [weights, setWeights] = useState<Record<string, number>>(initialWeights);
   const [useWeighted, setUseWeighted] = useState(initialUseWeighted);
+  const [useLiquidity, setUseLiquidity] = useState(initialUseLiquidity);
   const [pending, startTransition] = useTransition();
 
   const move = (index: number, dir: -1 | 1) => {
@@ -50,7 +54,7 @@ export function BookSettingsForm({
   const save = () =>
     startTransition(async () => {
       try {
-        await saveAction(order, weights, useWeighted);
+        await saveAction(order, weights, useWeighted, useLiquidity);
         push("success", "Book settings saved");
       } catch (error) {
         push("error", "Could not save book settings", error instanceof Error ? error.message : null);
@@ -70,6 +74,20 @@ export function BookSettingsForm({
       <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
         A book left at its default weight (1) is still included — it is just averaged in on equal
         footing with every other unweighted book, rather than counted extra.
+      </p>
+
+      <label className="muted" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <input
+          type="checkbox"
+          checked={useLiquidity}
+          onChange={(e) => setUseLiquidity(e.target.checked)}
+        />
+        Also weight by the money resting behind each closing quote
+      </label>
+      <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+        Only the odds screen reports depth, and most sportsbooks publish none — those keep the
+        default weight rather than being dropped. A weight you set by hand above always wins over
+        the automatic one. Affects closing reads taken from here on, not verdicts already recorded.
       </p>
 
       <table className="math-table">

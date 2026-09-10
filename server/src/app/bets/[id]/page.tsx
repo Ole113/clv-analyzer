@@ -444,6 +444,23 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
             Over: average closing line minus the line you took. Under: the reverse. Positive means
             the market moved toward you before kickoff.
           </Info>
+          {bet.priceEdge !== null && (
+            <span style={{ marginLeft: 10 }}>
+              <span className="muted" style={{ fontSize: 12 }}>
+                price{" "}
+              </span>
+              <Signed value={bet.priceEdge} unit="pp" />
+              <Info title="Price-based CLV" anchor="price-clv">
+                The same question asked of the price instead of the number: the market&apos;s
+                de-vigged chance that this pick hits at close, minus its chance when you took it, in
+                probability points. It exists because the line-based edge beside it reads exactly 0
+                on a market that never moved its number — a total parked at 47.5 all week while the
+                price drifts from −110 to −130 has moved hard against one side, and only this sees
+                it. Neither replaces the other: on a player prop the number is what moves, and the
+                line edge is the better measure of it.
+              </Info>
+            </span>
+          )}
         </div>
         <div className="detail">
           {movement ??

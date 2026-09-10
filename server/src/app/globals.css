@@ -204,6 +204,9 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
 .bars-zero { stroke: var(--border); stroke-width: 1; }
 .bar-pos { fill: #3987e5; }
 .bar-neg { fill: #e66767; }
+/* The histogram's zero-straddling bucket: neither in your favour nor against, so it must not
+   borrow either colour. */
+.bar-flat { fill: var(--border); }
 .bars-label { fill: var(--muted); font-size: 11px; }
 .bars-value { fill: var(--text); font-size: 11px; font-variant-numeric: tabular-nums; }
 

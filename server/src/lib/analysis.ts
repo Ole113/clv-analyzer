@@ -30,6 +30,77 @@ export interface BookRow {
   avgFavorability: number;
 }
 
+/**
+ * Whether betting *into* a given book has tended to beat the close.
+ *
+ * A different question from `BookRow.avgFavorability` above, which measures how good a book's
+ * closing number was against the consensus -- a property of the book's price at one moment. This
+ * measures the outcome of the picks that book was quoting: same underlying rows, opposite
+ * direction of inference. Both are kept because a book can hang a generous number and still be
+ * quoting markets that move against you.
+ */
+export interface BookScorecardRow {
+  bookKey: string;
+  label: string;
+  /** Picks where this book had a closing line that counted toward the average. */
+  picks: number;
+  beatRate: number | null;
+  avgEdge: number | null;
+  avgEv: number | null;
+  /** False when `picks` is below the confidence floor -- a 100% rate over 2 picks is noise. */
+  reliable: boolean;
+}
+
+export interface MarketScorecardRow {
+  statMarket: string;
+  picks: number;
+  beatRate: number | null;
+  avgEdge: number | null;
+  avgEv: number | null;
+  hitRate: number | null;
+  reliable: boolean;
+}
+
+/**
+ * Below this many picks a rate is not reported as a finding.
+ *
+ * Not a filter -- the rows are still shown, because "this book has only been seen three times" is
+ * itself worth knowing and hiding it would make the list silently incomplete. It only controls
+ * whether a row is presented as a signal or as a sample too thin to read.
+ */
+export const MIN_RELIABLE_PICKS = 5;
+
+/**
+ * How CLV varied with how early the pick was taken.
+ *
+ * Buckets of (kickoff - capture), so the question is "how far ahead of the market was I", which is
+ * the actionable version. Taking a number days early means beating a market that has not formed
+ * yet; taking it minutes before kickoff means beating one that has already absorbed the news.
+ * Which of those actually paid is not something the tool could answer before this.
+ */
+export interface TimingBucket {
+  key: string;
+  /** Inclusive lower bound in hours before kickoff; the last bucket is open-ended. */
+  fromHours: number;
+  /** Exclusive upper bound, or null for the open-ended bucket. */
+  toHours: number | null;
+  picks: number;
+  avgEdge: number | null;
+  beatRate: number | null;
+  hitRate: number | null;
+  avgEv: number | null;
+}
+
+/** One column of the edge histogram. `to` is exclusive; the outer buckets are open-ended. */
+export interface EdgeBucket {
+  key: string;
+  from: number | null;
+  to: number | null;
+  picks: number;
+  /** Share of the scored sample, 0-1, so the shape reads independently of sample size. */
+  share: number;
+}
+
 export interface SideRow {
   side: Side;
   n: number;
@@ -63,6 +134,13 @@ export interface AnalysisResult {
   worstBooks: BookRow[];
   /** Same ranking, split per prop type, for the "avoid this book on this prop" view. */
   worstBooksByStat: { stat: string; books: BookRow[] }[];
+  /** Beat-rate and edge for picks each book was quoting -- not the same as favourability above. */
+  bookScorecard: BookScorecardRow[];
+  marketScorecard: MarketScorecardRow[];
+  /** CLV against how far ahead of kickoff the pick was taken. */
+  timing: TimingBucket[];
+  /** The distribution of `edge`, not just its mean. */
+  edgeHistogram: EdgeBucket[];
 }
 
 interface SummarizableRow {
@@ -200,6 +278,91 @@ function crosstab(key: string, rows: SummarizableRow[]): ClvResultBlock {
   return { key, beat, missed, lift };
 }
 
+/**
+ * Bucket edges in hours before kickoff.
+ *
+ * Uneven on purpose, and roughly logarithmic: the hour before kickoff is where lines move most, so
+ * the resolution belongs there rather than being spent separating "three days early" from "four".
+ */
+const TIMING_EDGES: { key: string; fromHours: number; toHours: number | null }[] = [
+  { key: "< 1h", fromHours: 0, toHours: 1 },
+  { key: "1-3h", fromHours: 1, toHours: 3 },
+  { key: "3-8h", fromHours: 3, toHours: 8 },
+  { key: "8-24h", fromHours: 8, toHours: 24 },
+  { key: "1-3d", fromHours: 24, toHours: 72 },
+  { key: "3d+", fromHours: 72, toHours: null },
+];
+
+// Exported for the unit tests: both bucketers have half-open boundary rules that are easy to get
+// subtly wrong (a pick landing exactly on an edge counted twice, or in neither bucket), and that is
+// exactly the kind of error that shows up as a plausible-looking distribution rather than a crash.
+export function timingBuckets(
+  rows: (SummarizableRow & { openCapturedAt: Date; gameStartTime: Date | null })[]
+): TimingBucket[] {
+  // A pick with no kickoff time has no lead time to measure, and one captured *after* kickoff is
+  // an in-play capture whose "lead" is negative -- neither belongs on a pre-kickoff timing curve.
+  const withLead = rows
+    .filter((r): r is typeof r & { gameStartTime: Date } => r.gameStartTime !== null)
+    .map((r) => ({
+      row: r,
+      hours: (r.gameStartTime.getTime() - r.openCapturedAt.getTime()) / 3600_000,
+    }))
+    .filter((r) => r.hours >= 0);
+
+  return TIMING_EDGES.map((edge) => {
+    const inBucket = withLead
+      .filter((r) => r.hours >= edge.fromHours && (edge.toHours === null || r.hours < edge.toHours))
+      .map((r) => r.row);
+    const s = summarize(inBucket);
+    return {
+      key: edge.key,
+      fromHours: edge.fromHours,
+      toHours: edge.toHours,
+      picks: s.n,
+      avgEdge: s.avgEdge,
+      beatRate: s.beatRate,
+      hitRate: s.hitRate,
+      avgEv: s.avgEv,
+    };
+  });
+}
+
+/** Bucket boundaries in line units. Symmetric so the shape's skew is readable at a glance. */
+const EDGE_EDGES = [-3, -2, -1, -0.5, 0, 0.5, 1, 2, 3];
+
+/**
+ * The distribution of `edge`, not just its mean.
+ *
+ * A mean edge of +0.2 can be a steady small win on most picks or a pile of small losses rescued by
+ * two big hits, and those are completely different processes -- the second is not repeatable. The
+ * average alone cannot tell them apart; the shape can.
+ */
+export function edgeHistogram(rows: SummarizableRow[]): EdgeBucket[] {
+  const edges = rows
+    .filter((r) => r.beatClv !== null && r.edge !== null)
+    .map((r) => r.edge as number);
+  const total = edges.length;
+
+  const bounds: { key: string; from: number | null; to: number | null }[] = [
+    { key: `< ${EDGE_EDGES[0]}`, from: null, to: EDGE_EDGES[0] },
+    ...EDGE_EDGES.slice(0, -1).map((from, i) => ({
+      key: `${from} to ${EDGE_EDGES[i + 1]}`,
+      from,
+      to: EDGE_EDGES[i + 1],
+    })),
+    { key: `${EDGE_EDGES[EDGE_EDGES.length - 1]}+`, from: EDGE_EDGES[EDGE_EDGES.length - 1], to: null },
+  ];
+
+  return bounds.map((b) => {
+    // Half-open [from, to) throughout, so a pick landing exactly on 0 counts as "flat to +0.5"
+    // rather than being double-counted or dropped between buckets.
+    const picks = edges.filter(
+      (e) => (b.from === null || e >= b.from) && (b.to === null || e < b.to)
+    ).length;
+    return { ...b, picks, share: total ? picks / total : 0 };
+  });
+}
+
 function group<T>(rows: T[], key: (row: T) => string | null): Map<string, T[]> {
   const out = new Map<string, T[]>();
   for (const row of rows) {
@@ -282,11 +445,48 @@ export async function getAnalysis(
   // --- book favourability: how each book's closing number compared with the consensus ---
   const bookTotals = new Map<string, { label: string; sum: number; n: number }>();
   const bookByStat = new Map<string, Map<string, { label: string; sum: number; n: number }>>();
+  // Scorecard accumulators ride along on the same loop rather than re-querying: they are keyed on
+  // the same (bet, closeLine) pairs, just aggregating the bet's verdict instead of the line's
+  // distance from consensus. One book may quote a pick on several rows, so a bet is counted once
+  // per book, not once per line.
+  const scorecard = new Map<
+    string,
+    { label: string; picks: number; beat: number; scored: number; edgeSum: number; evSum: number; evN: number }
+  >();
 
   for (const bet of bets) {
     if (bet.avgClosingLine === null) continue;
+    const countedForBet = new Set<string>();
     for (const line of bet.closeLines) {
       if (!line.includedInAverage || line.line === null) continue;
+
+      if (!countedForBet.has(line.bookKey)) {
+        countedForBet.add(line.bookKey);
+        const card = scorecard.get(line.bookKey) ?? {
+          label: line.label ?? line.bookKey,
+          picks: 0,
+          beat: 0,
+          scored: 0,
+          edgeSum: 0,
+          evSum: 0,
+          evN: 0,
+        };
+        card.picks += 1;
+        // Beat-rate and edge are over picks that actually carry a verdict, which is a subset of
+        // the picks the book was quoting -- kept separate so a book is not penalised for picks
+        // whose close was never resolved.
+        if (bet.beatClv !== null && bet.edge !== null) {
+          card.scored += 1;
+          if (bet.beatClv) card.beat += 1;
+          card.edgeSum += bet.edge;
+        }
+        if (bet.closeEvPercent !== null) {
+          card.evSum += bet.closeEvPercent;
+          card.evN += 1;
+        }
+        scorecard.set(line.bookKey, card);
+      }
+
       const fav = bookFavorability(bet.side as Side, line.line, bet.avgClosingLine);
       const label = line.label ?? line.bookKey;
 
@@ -317,6 +517,34 @@ export async function getAnalysis(
 
   const overall = summarize(bets);
 
+  const bookScorecard: BookScorecardRow[] = [...scorecard.entries()]
+    .map(([bookKey, v]) => ({
+      bookKey,
+      label: v.label,
+      picks: v.picks,
+      beatRate: v.scored ? v.beat / v.scored : null,
+      avgEdge: v.scored ? Math.round((v.edgeSum / v.scored) * 1000) / 1000 : null,
+      avgEv: v.evN ? Math.round((v.evSum / v.evN) * 1000) / 1000 : null,
+      reliable: v.picks >= MIN_RELIABLE_PICKS,
+    }))
+    .sort((a, b) => (b.beatRate ?? -Infinity) - (a.beatRate ?? -Infinity) || b.picks - a.picks);
+
+  const marketScorecard: MarketScorecardRow[] = [...group(bets, (b) => b.statMarket).entries()]
+    .map(([statMarket, rows]) => {
+      const s = summarize(rows);
+      return {
+        statMarket,
+        picks: s.n,
+        beatRate: s.beatRate,
+        avgEdge: s.avgEdge,
+        avgEv: s.avgEv,
+        hitRate: s.hitRate,
+        reliable: s.n >= MIN_RELIABLE_PICKS,
+      };
+    })
+    .filter((r) => r.picks > 0)
+    .sort((a, b) => (b.beatRate ?? -Infinity) - (a.beatRate ?? -Infinity) || b.picks - a.picks);
+
   return {
     sampleSize: bets.length,
     gradedSample: overall.decided,
@@ -344,5 +572,9 @@ export async function getAnalysis(
     worstBooksByStat: [...bookByStat.entries()]
       .map(([stat, map]) => ({ stat, books: toBookRows(map) }))
       .sort((a, b) => b.books.length - a.books.length),
+    bookScorecard,
+    marketScorecard,
+    timing: timingBuckets(bets),
+    edgeHistogram: edgeHistogram(bets),
   };
 }

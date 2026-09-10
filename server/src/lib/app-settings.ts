@@ -13,6 +13,8 @@ export interface AppSettings {
   bookOrder: string[];
   useWeightedAverage: boolean;
   bookWeights: Record<string, number>;
+  /** Whether captured depth weights the closing average. See useLiquidityWeighting in the schema. */
+  useLiquidityWeighting: boolean;
 }
 
 function parseBookOrder(raw: string): string[] {
@@ -48,6 +50,7 @@ export async function getAppSettings(): Promise<AppSettings> {
     bookOrder,
     useWeightedAverage: row.useWeightedAverage,
     bookWeights: parseWeights(row.bookWeightsJson),
+    useLiquidityWeighting: row.useLiquidityWeighting,
   };
 }
 
@@ -61,17 +64,19 @@ export async function saveBookOrder(order: string[]): Promise<void> {
 
 export async function saveBookWeights(
   weights: Record<string, number>,
-  useWeightedAverage: boolean
+  useWeightedAverage: boolean,
+  useLiquidityWeighting = false
 ): Promise<void> {
   const bookWeightsJson = JSON.stringify(weights);
   await prisma.appSettings.upsert({
     where: { id: SETTINGS_ID },
-    update: { bookWeightsJson, useWeightedAverage },
+    update: { bookWeightsJson, useWeightedAverage, useLiquidityWeighting },
     create: {
       id: SETTINGS_ID,
       bookOrder: DEFAULT_BOOK_ORDER.join(","),
       bookWeightsJson,
       useWeightedAverage,
+      useLiquidityWeighting,
     },
   });
 }

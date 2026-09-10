@@ -10,6 +10,10 @@ const bookLineSchema = z.object({
   line: z.number().nullable(),
   price: z.number().nullable(),
   logoUrl: z.string().nullable().optional().default(null),
+  // Optional so an extension built before liquidity was captured still posts a valid report --
+  // the whole point of the legacy tolerance further down this file.
+  liquidity: z.number().nullable().optional().default(null),
+  fairProbability: z.number().nullable().optional().default(null),
   rawText: z.string(),
 });
 

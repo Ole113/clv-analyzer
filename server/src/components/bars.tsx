@@ -13,6 +13,89 @@ export interface BarDatum {
   note?: string;
 }
 
+export interface HistogramDatum {
+  label: string;
+  count: number;
+  /** Sign of the bucket itself, which is what colours the column -- not the count. */
+  sign: -1 | 0 | 1;
+  note?: string;
+}
+
+const HIST_H = 150;
+const COL_W = 46;
+const HIST_PAD = 34;
+
+/**
+ * Vertical histogram for a distribution.
+ *
+ * Separate from DivergingBars because the encodings differ: there, length is a signed value read
+ * against a zero rule; here, height is a count and the sign lives in the bucket's position along
+ * the axis. Sharing one component would mean one of the two lying about what its bars mean.
+ *
+ * Columns are still coloured by which side of zero their bucket sits on, so the skew of the
+ * distribution is legible at a glance -- but the bucket labels run along the axis, so colour is
+ * never the only thing carrying it.
+ */
+export function Histogram({
+  data,
+  emptyNote = "Not enough settled picks yet.",
+}: {
+  data: HistogramDatum[];
+  emptyNote?: string;
+}) {
+  const total = data.reduce((s, d) => s + d.count, 0);
+  if (total === 0) return <p className="muted">{emptyNote}</p>;
+
+  const peak = Math.max(...data.map((d) => d.count), 1);
+  const width = data.length * COL_W;
+  const height = HIST_H + HIST_PAD;
+
+  return (
+    <svg
+      className="bars"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label="Histogram; the same counts are listed in the table below."
+      preserveAspectRatio="xMinYMin meet"
+    >
+      {data.map((d, i) => {
+        const h = (d.count / peak) * (HIST_H - 16);
+        const x = i * COL_W;
+        const y = HIST_H - h;
+        return (
+          <g key={d.label}>
+            <title>{`${d.label}: ${d.count} pick${d.count === 1 ? "" : "s"}${d.note ? ` (${d.note})` : ""}`}</title>
+            <rect
+              x={x + 4}
+              y={y}
+              width={COL_W - 8}
+              height={Math.max(h, d.count > 0 ? 2 : 0)}
+              rx={3}
+              className={d.sign < 0 ? "bar-neg" : d.sign > 0 ? "bar-pos" : "bar-flat"}
+            />
+            {d.count > 0 && (
+              <text x={x + COL_W / 2} y={y - 4} className="bars-value" textAnchor="middle">
+                {d.count}
+              </text>
+            )}
+            <text
+              x={x + COL_W / 2}
+              y={HIST_H + 14}
+              className="bars-label"
+              textAnchor="middle"
+              style={{ fontSize: 10 }}
+            >
+              {d.label}
+            </text>
+          </g>
+        );
+      })}
+      {/* Baseline, drawn last so the columns sit on it rather than over it. */}
+      <line x1={0} y1={HIST_H} x2={width} y2={HIST_H} className="bars-zero" />
+    </svg>
+  );
+}
+
 const ROW_H = 26;
 const BAR_H = 13;
 const LABEL_W = 190;

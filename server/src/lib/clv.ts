@@ -1,10 +1,42 @@
 import { isExchange } from "@clv/shared";
 import type { MarketType, Side } from "./constants";
 
+// The de-vig arithmetic lives in shared because the closing rows are built there; re-exported so
+// there is still one import site for everything that goes into a closing number.
+export { averageClosingProbability, devigTwoWay } from "@clv/shared";
+
 export interface LineLike {
   bookKey: string;
   line: number | null;
   includedInAverage: boolean;
+  /** Only the odds screen supplies this; absent everywhere else, which reads as "no information". */
+  liquidity?: number | null;
+}
+
+/**
+ * How much a book's quote should count, given the money resting behind it.
+ *
+ * Logarithmic and clamped, for two reasons that both come out of the captured data. Depth spans
+ * four orders of magnitude in a single market -- $20 on Polymarket against $61,709 on PolymarketUS
+ * in the tennis moneyline fixture -- so a linear weight would make the closing "consensus" a
+ * one-book number with decoration. And most books report a flat 0 because they do not publish depth
+ * at all, which is an absence of information rather than an absence of market: those must land on
+ * the default weight, not on zero, or turning this on would silently delete every traditional
+ * sportsbook from the average.
+ *
+ * The ceiling is deliberately low: at the cap a deep book counts about three times an ordinary one,
+ * which is enough to break a tie between a real market and a thin one without letting one exchange
+ * outvote the field.
+ */
+export const MAX_LIQUIDITY_WEIGHT = 3;
+
+export function liquidityWeight(liquidity: number | null | undefined, defaultWeight = 1): number {
+  if (typeof liquidity !== "number" || !Number.isFinite(liquidity) || liquidity <= 0) {
+    return defaultWeight;
+  }
+  // $100 is roughly where a quote stops being a token order; below it this stays near the default.
+  const scaled = defaultWeight * (1 + Math.log10(1 + liquidity / 100));
+  return Math.min(scaled, MAX_LIQUIDITY_WEIGHT * defaultWeight);
 }
 
 /**
@@ -15,22 +47,31 @@ export interface LineLike {
  * that many times as much as a book at the default weight of 1, so an unweighted book is not
  * ignored -- it is just averaged in at the same footing as every other unweighted book. Passing no
  * weights (the default) is a plain mean, unchanged from before this option existed.
+ *
+ * `useLiquidity` layers the captured depth on top of that rather than replacing it: a book the user
+ * has weighted by hand keeps exactly the weight they set, and only books with no manual weight fall
+ * through to `liquidityWeight`. An explicit preference outranks a scraped number. A book reporting
+ * $0 depth -- most of them -- lands on the default weight either way, so switching this on cannot
+ * quietly drop a book out of the average.
  */
 export function averageClosingLine(
   lines: LineLike[],
   weights?: Record<string, number> | null,
-  defaultWeight = 1
+  defaultWeight = 1,
+  useLiquidity = false
 ): { avg: number | null; count: number } {
   const usable = lines.filter((l) => l.includedInAverage && typeof l.line === "number");
   if (usable.length === 0) return { avg: null, count: 0 };
-  if (!weights) {
+  if (!weights && !useLiquidity) {
     const sum = usable.reduce((acc, l) => acc + (l.line as number), 0);
     return { avg: sum / usable.length, count: usable.length };
   }
   let weightedSum = 0;
   let weightTotal = 0;
   for (const l of usable) {
-    const w = weights[l.bookKey] ?? defaultWeight;
+    const manual = weights?.[l.bookKey];
+    const w =
+      manual ?? (useLiquidity ? liquidityWeight(l.liquidity, defaultWeight) : defaultWeight);
     weightedSum += (l.line as number) * w;
     weightTotal += w;
   }

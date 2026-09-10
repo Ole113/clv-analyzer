@@ -39,10 +39,14 @@ export default async function SettingsPage() {
   async function saveBookSettingsAction(
     order: string[],
     weights: Record<string, number>,
-    useWeightedAverage: boolean
+    useWeightedAverage: boolean,
+    useLiquidityWeighting: boolean
   ): Promise<void> {
     "use server";
-    await Promise.all([saveBookOrder(order), saveBookWeights(weights, useWeightedAverage)]);
+    await Promise.all([
+      saveBookOrder(order),
+      saveBookWeights(weights, useWeightedAverage, useLiquidityWeighting),
+    ]);
     revalidatePath("/settings");
     revalidatePath("/bets");
   }
@@ -160,6 +164,7 @@ export default async function SettingsPage() {
           books={books}
           initialWeights={bookSettings.bookWeights}
           initialUseWeighted={bookSettings.useWeightedAverage}
+          initialUseLiquidity={bookSettings.useLiquidityWeighting}
           saveAction={saveBookSettingsAction}
         />
       </section>

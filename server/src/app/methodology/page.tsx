@@ -36,6 +36,24 @@ export default function MethodologyPage() {
         beating the close.
       </p>
 
+      <h3 id="price-clv">Price-based CLV</h3>
+      <div className="formula">
+        priceEdge = closeFairProb − openFairProb, in probability points
+      </div>
+      <p>
+        The line-based edge above has a blind spot: it can only see movement that shows up in the{" "}
+        <em>number</em>. A total that sits at 47.5 all week while its price drifts from −110/−110 to
+        −130/+110 has moved hard against one side, and <code>edge</code> reports exactly zero. This
+        is the same question asked of the price — the market&apos;s de-vigged chance that the pick
+        hits at close, minus its chance when you took it.
+      </p>
+      <p>
+        It is recorded <em>alongside</em> the line edge, never instead of it. On a player prop the
+        number is the thing that moves, and the line edge is the better measure; on a fixed-line
+        market the price is, and only this metric sees it. A pick carries a price edge only when
+        both ends have a fair probability, so it is often blank on older picks.
+      </p>
+
       <h3 id="consensus">The closing average</h3>
       <p>
         <code>avgClosingLine</code> is the unweighted mean of the closing lines across the real
@@ -72,7 +90,19 @@ export default function MethodologyPage() {
       </ul>
       <p>
         Every column is still stored and shown on the pick&apos;s detail page, greyed and marked
-        &quot;not averaged&quot;.
+        &quot;not averaged&quot;. Which books were dropped is also recorded structurally, and{" "}
+        <a href="/exclusions">counted across every pick</a> — one book appearing again and again is
+        a sign that its key is mis-mapped rather than that it was genuinely noisy each time.
+      </p>
+      <p>
+        The mean is unweighted by default. Two optional weightings can be turned on in Settings, and
+        they stack: a <strong>manual</strong> per-book weight, and a <strong>liquidity</strong>{" "}
+        weight taken from the money the screen reports resting behind each closing quote. A weight
+        you set by hand always wins over the automatic one. The liquidity weight is logarithmic and
+        capped at 3× so a single deep exchange cannot outvote the field, and a book publishing no
+        depth — which is most of them, reporting a flat $0 — keeps the default weight rather than
+        being dropped. Both are off unless enabled, because turning one on changes the closing
+        average and so the CLV of every pick read afterwards.
       </p>
       <p>
         Because the screen lists one selection per line rather than one column per book, each
@@ -97,12 +127,34 @@ export default function MethodologyPage() {
       <h3 id="ev">Expected value (EV%)</h3>
       <div className="formula">EV% = fairProbability × decimalPayout − 1</div>
       <p>
-        The fair probability is the site&apos;s own no-vig column — OddsJam&apos;s &quot;% chance to
-        hit&quot;, PropProfessor&apos;s &quot;Value&quot;. That column is used rather than one
-        derived here for a specific reason: it is already de-vigged <em>and</em> quoted at the exact
-        line you took. The raw book cells cannot give this. They show one price per book at{" "}
-        <em>that book&apos;s own line</em>, so there is no opposing side to de-vig against, and no
-        way to re-price a 62.5 pick from a book hanging 90.5 without inventing a distribution.
+        <strong>At capture</strong>, the fair probability is the site&apos;s own no-vig column —
+        OddsJam&apos;s &quot;% chance to hit&quot;, PropProfessor&apos;s &quot;Value&quot;. That
+        column is used rather than one derived here because it is already de-vigged <em>and</em>{" "}
+        quoted at the exact line you took, which the rendered board cannot otherwise give: it shows
+        one price per book at <em>that book&apos;s own line</em>, with no opposing side to de-vig
+        against.
+      </p>
+      <p>
+        <strong>At close</strong>, one is derived. The odds screen publishes no no-vig column of its
+        own, but its raw response does carry both sides of each selection, and a book quoting both
+        can be de-vigged directly:
+      </p>
+      <div className="formula">
+        fair = p(yourSide) ÷ ( p(yourSide) + p(otherSide) )
+      </div>
+      <p>
+        Both raw probabilities include the book&apos;s margin, so together they sum to more than
+        100% — the excess is the hold — and dividing through removes it proportionally. The closing
+        fair probability is the consensus of that figure across the books that quoted{" "}
+        <em>both</em> sides, which is a smaller set than the one behind the closing line: books
+        pricing only the side you did not take still contribute a line, but have no margin to
+        remove. Where no trusted book quoted both sides, the capture-time EV is kept rather than a
+        closing one being invented.
+      </p>
+      <p className="muted">
+        The de-vig is multiplicative, which splits the margin evenly across the two sides. It very
+        slightly overstates a longshot under favourite-longshot bias; Shin&apos;s method corrects
+        for that and would be a drop-in replacement here.
       </p>
       <p>
         The payout is the pick&apos;em price from the DFS column when the board shows one, otherwise

@@ -3,6 +3,7 @@ import { prisma } from "./prisma";
 import { buildMatchKey } from "./matching";
 import { buildClosingVerdict } from "./closing";
 import { evPercent } from "./ev";
+import { devigTwoWay } from "@clv/shared";
 import { scheduledFetchAtFor } from "./constants";
 
 /**
@@ -44,14 +45,33 @@ function row(over: Partial<ParsedRow>): ParsedRow {
   };
 }
 
-const book = (bookKey: string, label: string, line: number | null, price: number) => ({
+const book = (
+  bookKey: string,
+  label: string,
+  line: number | null,
+  price: number,
+  /** The opposite side's price, so the row can be de-vigged the way a real screen read is. */
+  otherPrice: number | null = null,
+  liquidity: number | null = 0
+) => ({
   bookKey,
   label,
   line,
   price,
   logoUrl: null,
+  liquidity,
+  fairProbability: otherPrice === null ? null : devigTwoWay(price, otherPrice),
   rawText: `${line ?? ""} ${price}`.trim(),
 });
+
+/**
+ * Lead times spread across every bucket of the timing curve.
+ *
+ * The generator used to capture every pick exactly five hours before kickoff, which put the whole
+ * sample in one column and made the curve look broken rather than empty. Cycling these gives each
+ * bucket something in it without pretending to a realistic distribution.
+ */
+const LEAD_HOURS = [0.4, 2, 5, 12, 40, 100];
 
 /** Wide enough to exercise the analysis page: several prop types, sports, and sides. */
 const TEMPLATES = [
@@ -121,14 +141,47 @@ export async function generateTestData(count: number): Promise<number> {
     });
 
     const consensus = t.taken + t.drift;
+    // Every sixth pick gets a book hanging a number far outside the field, so the outlier
+    // rejection -- and therefore the exclusions page -- has something real to show.
+    // Stride 7 rather than 6: there are 12 templates, so any stride sharing a factor with 12 would
+    // land the outlier on the same prop type every time -- and on a 244.5 passing-yards line the
+    // tolerance band is wide enough that a fixed offset would never be rejected at all.
+    const plantOutlier = i % 7 === 6;
     const closeBooks = leaveOpen
       ? null
-      : Object.entries(BOOK_BIAS).map(([key, bias]) =>
-          book(key, BOOK_LABELS[key] ?? key, Math.round((consensus + bias) * 10) / 10, -112)
-        );
+      : [
+          ...Object.entries(BOOK_BIAS).map(([key, bias], b) =>
+            book(
+              key,
+              BOOK_LABELS[key] ?? key,
+              Math.round((consensus + bias) * 10) / 10,
+              -112,
+              // Two-sided on most books but not all, mirroring a real screen read where only some
+              // books price the side taken -- which is what makes fairBookCount < closingBookCount.
+              b % 3 === 2 ? null : -108,
+              key === "pinnacle" ? 1200 : 0
+            )
+          ),
+          ...(plantOutlier
+            ? // Proportional, not a fixed offset: the outlier band has a floor at 10% of the line,
+              // so what counts as "far from the field" is a different number on a 1.5 HRR prop and
+              // a 244.5 passing-yards prop.
+              [book("fanatics", "Fanatics", Math.round(consensus * 19) / 10, -900)]
+            : []),
+        ];
 
     const verdict = closeBooks
-      ? buildClosingVerdict("PLAYER_PROP", side, t.taken, row({ ...openRow, bookLines: closeBooks }))
+      ? buildClosingVerdict(
+          "PLAYER_PROP",
+          side,
+          t.taken,
+          row({ ...openRow, bookLines: closeBooks }),
+          null,
+          // The screen path, matching how closing reads actually happen now: it is the one that
+          // runs the outlier test, so the optimizer default would never produce an exclusion.
+          "PP_SCREEN",
+          { openFairProb: t.prob }
+        )
       : null;
 
     await prisma.bet.create({
@@ -160,9 +213,20 @@ export async function generateTestData(count: number): Promise<number> {
         fantasyPrice: -119,
         openEvPercent: evPercent(t.prob, -119),
         openRawSnapshotJson: JSON.stringify(openRow),
-        openCapturedAt: new Date(gameStartTime.getTime() - 5 * 3600_000),
+        openCapturedAt: new Date(
+          gameStartTime.getTime() - LEAD_HOURS[i % LEAD_HOURS.length] * 3600_000
+        ),
         scheduledFetchAt: scheduledFetchAtFor(gameStartTime),
-        openLines: { create: openBooks.map((b) => ({ ...b, includedInAverage: true })) },
+        // Liquidity and per-book fair probability are dropped here rather than carried across:
+        // they come from the odds screen's JSON, and OpenLine has no columns for them because the
+        // capture-time boards are scraped DOM that never shows either. Real ingestion strips them
+        // at the zod boundary; this keeps the generator honest about the same asymmetry.
+        openLines: {
+          create: openBooks.map(({ liquidity: _liquidity, fairProbability: _fair, ...b }) => ({
+            ...b,
+            includedInAverage: true,
+          })),
+        },
         ...(verdict
           ? {
               status: verdict.status,
@@ -170,10 +234,16 @@ export async function generateTestData(count: number): Promise<number> {
               closeRawSnapshotJson: JSON.stringify({ ...openRow, bookLines: closeBooks }),
               avgClosingLine: verdict.avgClosingLine,
               closingBookCount: verdict.closingBookCount,
-              closeFairProb: t.prob,
-              closeEvPercent: evPercent(t.prob, -119),
+              closeFairProb: verdict.closeFairProb ?? t.prob,
+              closeEvPercent: evPercent(verdict.closeFairProb ?? t.prob, -119),
               edge: verdict.edge,
               beatClv: verdict.beatClv,
+              priceEdge: verdict.priceEdge,
+              excludedBooks: verdict.excludedBooks.length
+                ? JSON.stringify(verdict.excludedBooks)
+                : null,
+              closingSourceSite: "PROPPROFESSOR_SCREEN",
+              closingMethod: verdict.closingSource,
               closeLines: { create: verdict.closeLines },
             }
           : { status: "PENDING" }),

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { averageClosingLine, computeClv } from "../clv";
+import {
+  averageClosingLine,
+  averageClosingProbability,
+  computeClv,
+  devigTwoWay,
+  liquidityWeight,
+  MAX_LIQUIDITY_WEIGHT,
+} from "../clv";
 import { isSportsbookForAverage } from "@clv/shared";
 import { buildMatchKey, findMatchingRow, stripTrailingLine } from "../matching";
 import type { ParsedRow } from "@clv/shared";
@@ -58,6 +65,115 @@ describe("averageClosingLine", () => {
       { bookKey: "fanduel", line: 94, includedInAverage: true },
     ];
     expect(averageClosingLine(lines, { pinnacle: 0, fanduel: 0 }).avg).toBe(92);
+  });
+});
+
+describe("liquidity weighting", () => {
+  it("leaves a book publishing no depth on the default weight", () => {
+    // The common case by a wide margin: most sportsbooks report a flat $0. Reading that as "no
+    // market" and zeroing them out would delete the entire traditional field from the average.
+    expect(liquidityWeight(0)).toBe(1);
+    expect(liquidityWeight(null)).toBe(1);
+    expect(liquidityWeight(undefined)).toBe(1);
+    // Negative is not a thing the screen emits, but it must not produce a negative weight if it did.
+    expect(liquidityWeight(-500)).toBe(1);
+  });
+
+  it("grows with depth, but slowly and with a ceiling", () => {
+    expect(liquidityWeight(1050)).toBeGreaterThan(liquidityWeight(100));
+    expect(liquidityWeight(61709)).toBeGreaterThan(liquidityWeight(1050));
+    // The point of the cap: PolymarketUS's $61,709 is 60x Pinnacle's $1,050 in real captured data,
+    // and a linear weight would make the "consensus" that one book with decoration.
+    expect(liquidityWeight(61709)).toBeLessThanOrEqual(MAX_LIQUIDITY_WEIGHT);
+    expect(liquidityWeight(10_000_000)).toBe(MAX_LIQUIDITY_WEIGHT);
+  });
+
+  it("is a no-op on a field where nobody publishes depth", () => {
+    const lines = [
+      { bookKey: "pinnacle", line: 90, includedInAverage: true, liquidity: 0 },
+      { bookKey: "fanduel", line: 94, includedInAverage: true, liquidity: 0 },
+    ];
+    expect(averageClosingLine(lines, null, 1, true).avg).toBe(92);
+    // And identical when the field never reported liquidity at all.
+    const noField = lines.map(({ liquidity: _liquidity, ...rest }) => rest);
+    expect(averageClosingLine(noField, null, 1, true).avg).toBe(92);
+  });
+
+  it("pulls the average toward the book with money behind it", () => {
+    const lines = [
+      { bookKey: "pinnacle", line: 90, includedInAverage: true, liquidity: 50_000 },
+      { bookKey: "fanduel", line: 94, includedInAverage: true, liquidity: 0 },
+    ];
+    const avg = averageClosingLine(lines, null, 1, true).avg!;
+    expect(avg).toBeLessThan(92);
+    // Bounded: pulled toward Pinnacle, never onto it.
+    expect(avg).toBeGreaterThan(90);
+  });
+
+  it("lets a hand-set weight override the automatic one", () => {
+    // The user has said Pinnacle counts triple. FanDuel is the deep book here, so if liquidity were
+    // allowed to overwrite the manual weight the average would move the other way.
+    const lines = [
+      { bookKey: "pinnacle", line: 90, includedInAverage: true, liquidity: 0 },
+      { bookKey: "fanduel", line: 94, includedInAverage: true, liquidity: 500 },
+    ];
+    const manualOnly = averageClosingLine(lines, { pinnacle: 3 }, 1, false).avg!;
+    const both = averageClosingLine(lines, { pinnacle: 3 }, 1, true).avg!;
+    // Pinnacle keeps exactly its 3 -- not 3 plus something for its own depth, and not a liquidity
+    // weight of its own instead. Only FanDuel, which has no manual weight, gains from its depth,
+    // so the average moves toward FanDuel but stays on Pinnacle's side of the midpoint.
+    expect(manualOnly).toBeCloseTo(91, 6);
+    expect(both).toBeGreaterThan(manualOnly);
+    expect(both).toBeLessThan(92);
+  });
+});
+
+describe("de-vigging", () => {
+  it("removes the hold and leaves the two sides summing to 1", () => {
+    // -110/-110 implies 52.38% each, 104.76% in total. Both sides are the same, so each is 50%.
+    expect(devigTwoWay(-110, -110)).toBe(0.5);
+    const favourite = devigTwoWay(-130, 110)!;
+    const dog = devigTwoWay(110, -130)!;
+    expect(favourite + dog).toBeCloseTo(1, 6);
+    // The favourite is the more likely side, and de-vigging must not change which one that is.
+    expect(favourite).toBeGreaterThan(0.5);
+  });
+
+  it("refuses to guess from a one-sided quote", () => {
+    // A book quoting one side has published no margin, so there is nothing to remove -- returning
+    // the raw implied probability here would report the vig itself as the fair price.
+    expect(devigTwoWay(-110, null)).toBeNull();
+    expect(devigTwoWay(null, -110)).toBeNull();
+    expect(devigTwoWay(null, null)).toBeNull();
+    expect(devigTwoWay(0, -110)).toBeNull();
+  });
+
+  it("averages fair probabilities across books, skipping those that have none", () => {
+    const { avg, count } = averageClosingProbability([
+      { bookKey: "fanduel", fairProbability: 0.52 },
+      { bookKey: "pinnacle", fairProbability: 0.54 },
+      { bookKey: "betmgm", fairProbability: null }, // priced one side only
+    ]);
+    expect(avg).toBeCloseTo(0.53, 6);
+    // Reported so a fair price averaged over two books is never mistaken for one over twelve.
+    expect(count).toBe(2);
+  });
+
+  it("returns null rather than 0.5 when no book contributed", () => {
+    expect(averageClosingProbability([{ bookKey: "fanduel", fairProbability: null }])).toEqual({
+      avg: null,
+      count: 0,
+    });
+  });
+
+  it("weights the probability average the same way the line average is weighted", () => {
+    const rows = [
+      { bookKey: "pinnacle", fairProbability: 0.5 },
+      { bookKey: "fanduel", fairProbability: 0.6 },
+    ];
+    // (0.5*3 + 0.6*1) / 4 = 0.525
+    expect(averageClosingProbability(rows, { pinnacle: 3 }).avg).toBeCloseTo(0.525, 6);
+    expect(averageClosingProbability(rows).avg).toBeCloseTo(0.55, 6);
   });
 });
 

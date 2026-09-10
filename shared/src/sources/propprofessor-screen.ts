@@ -35,6 +35,7 @@
 import { normalizeBookKey } from "../books";
 import type { ClosingWorkItem, MarketType, ParseResult, ParsedRow, PickSide } from "../types";
 import { resolveClosingMarket } from "../markets";
+import { devigTwoWay } from "../devig";
 
 /** The screen's own backend. A different subdomain from the www host the content scripts run on. */
 export const PROPPROFESSOR_SCREEN_ENDPOINT = "https://backend.propprofessor.com/screen";
@@ -105,6 +106,9 @@ interface RawOdds {
   book?: unknown;
   odds1?: unknown;
   odds2?: unknown;
+  /** Money resting behind each side. Meaningful on exchanges; most books report a flat 0. */
+  liquidity1?: unknown;
+  liquidity2?: unknown;
 }
 
 interface RawSelection {
@@ -179,6 +183,19 @@ interface BookMainLine {
   line: number | null;
   /** The taken side's price where the book quotes it. Null is normal and not disqualifying. */
   price: number | null;
+  /**
+   * The opposite side's price at the same selection. Already needed to decide which selection is
+   * this book's main line; kept rather than discarded because it is the second half a de-vig needs,
+   * and it is the only place a de-vigged closing probability can come from -- the screen publishes
+   * none of its own.
+   */
+  otherSidePrice: number | null;
+  /**
+   * Money resting behind the chosen selection, when the screen reports any. Almost always 0 on a
+   * traditional sportsbook (they do not publish depth); real numbers come from the exchanges and
+   * from Pinnacle, which is exactly where a size-weighted average is worth having.
+   */
+  liquidity: number | null;
   /** False when even this book's best selection is priced nowhere near a real market. */
   nearMarket: boolean;
   /** Every distinct line this book was seen quoting, so alt-line collapsing stays auditable. */
@@ -227,6 +244,12 @@ function mainLineByBook(
       const other = num(side === 1 ? quote.odds2 : quote.odds1);
       if (price === null && other === null) continue;
 
+      // The taken side's depth, falling back to the other side's when this side is unpriced -- the
+      // book is still making a market, and reading 0 there would understate it as a dead column.
+      const liquidity =
+        num(side === 1 ? quote.liquidity1 : quote.liquidity2) ??
+        num(side === 1 ? quote.liquidity2 : quote.liquidity1);
+
       // Deliberately computed from both prices rather than the taken side's, so the OVER and the
       // UNDER row agree on which selection is a given book's main line.
       const lopsidedness =
@@ -249,11 +272,27 @@ function mainLineByBook(
         if (line !== null) existing.entry.selectionsSeen.push(line);
         if (lopsidedness >= existing.lopsidedness) continue;
         existing.lopsidedness = lopsidedness;
-        existing.entry = { ...existing.entry, label, line, price, nearMarket };
+        existing.entry = {
+          ...existing.entry,
+          label,
+          line,
+          price,
+          otherSidePrice: other,
+          liquidity,
+          nearMarket,
+        };
       } else {
         best.set(bookName, {
           lopsidedness,
-          entry: { label, line, price, nearMarket, selectionsSeen: line !== null ? [line] : [] },
+          entry: {
+            label,
+            line,
+            price,
+            otherSidePrice: other,
+            liquidity,
+            nearMarket,
+            selectionsSeen: line !== null ? [line] : [],
+          },
         });
       }
     }
@@ -314,6 +353,16 @@ function buildRow(
         // convention the OddsJam parser uses, which keeps computeClv's arithmetic unchanged.
         line: plan.marketType === "MONEYLINE" ? b.price : b.line,
         price: b.price,
+        // 0 is recorded as 0 rather than collapsed to null: "this book publishes no depth" and
+        // "this book has depth we did not read" are different, and only the former is the common
+        // case. Downstream weighting treats 0 as "no information", not as "no market".
+        liquidity: b.liquidity,
+        // This book's own no-vig probability for the side taken, where it priced both sides. The
+        // consensus of these is formed downstream rather than here, so that it is taken over
+        // exactly the books that survive the sportsbook allowlist and the outlier test -- a
+        // pick'em column quoting -119/-119 de-vigs to a meaningless flat 50% and must not be
+        // allowed to drag the fair price to the middle.
+        fairProbability: devigTwoWay(b.price, b.otherSidePrice),
         logoUrl: null,
         rawText:
           `${b.line ?? "-"} @ ${b.price ?? "no price this side"}` +
@@ -346,9 +395,11 @@ function buildRow(
     statMarket: plan.requestedStatMarket,
     side: pickSide,
     takenLine,
-    // The screen publishes no de-vigged probability of its own, and deriving one here would need
-    // both sides at the same line from the same book. Left null rather than guessed; capture-time
-    // EV is retained by apply-closing when the close has none.
+    // The screen publishes no *row-level* de-vigged probability, and there is nothing honest to put
+    // here: the raw data does support one (see `fairProbability` on each book line above), but the
+    // consensus of those has to be taken after the sportsbook allowlist and the outlier test have
+    // run, which happens server-side in buildClosingVerdict. Left null so there is exactly one
+    // closing fair probability rather than two that can disagree.
     fairProbability: null,
     boardEvPercent: null,
     gameStartTimeText: str(datum.start),

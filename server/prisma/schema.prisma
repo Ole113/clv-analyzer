@@ -91,6 +91,17 @@ model Bet {
   closingCaptureLagSeconds Int?
   edge             Float?
   beatClv          Boolean?
+  /// Price-based CLV: de-vigged win probability at close minus at open, in probability points.
+  /// Independent of `edge`, which is line-based and reads 0 on markets where only the price moved
+  /// -- a total parked at 47.5 while the price drifts -110 to -130 has moved hard against one side
+  /// and no line-based metric can see it. Null until both ends carry a fair probability.
+  priceEdge        Float?
+  /// JSON array of book keys dropped from the closing average as outliers, e.g. ["fanatics"].
+  /// The same set `lastFetchError` describes in prose, kept structurally so exclusions can be
+  /// counted across picks: one book showing up again and again is a mis-mapped bookKey, not a
+  /// market that happened to be noisy on each of those nights. SQLite has no Json scalar (see the
+  /// note at the top of this file), so it is stored as text.
+  excludedBooks    String?
   /// How the closing number was obtained. PROPPROFESSOR_SCREEN reads the full odds screen, which
   /// lists every market whether or not it still has edge; OPTIMIZER_LEGACY is the old read off the
   /// edge-filtered Fantasy Optimizer, which could only ever find picks whose edge had NOT gone.
@@ -168,6 +179,13 @@ model AppSettings {
   /// on, so every book not explicitly weighted is effectively averaged evenly among itself.
   bookWeightsJson String @default("{}")
 
+  /// Off by default, for the same reason the manual weighting above is: turning it on changes the
+  /// closing average, and therefore every CLV number already recorded against it. When on, a book
+  /// with real depth behind its quote counts for more than one publishing none -- but a weight set
+  /// by hand above always wins over the automatic one, because an explicit preference should not
+  /// be quietly overridden by a number scraped off the screen.
+  useLiquidityWeighting Boolean @default(false)
+
   updatedAt DateTime @updatedAt
 }
 
@@ -182,6 +200,14 @@ model CloseLine {
   price             Int?
   rawText           String
   logoUrl           String?
+  /// Money resting behind this quote at close, where the source reported it. 0 means the book
+  /// publishes no depth (most sportsbooks); null means the source did not say. Only the odds
+  /// screen supplies this, so rows captured from the optimizer carry null.
+  liquidity         Float?
+  /// This book's own de-vigged probability for the side taken, where it quoted both sides. Stored
+  /// per book rather than only as the row's consensus so a suspect fair price can be traced back
+  /// to the quote that produced it.
+  fairProbability   Float?
   includedInAverage Boolean @default(false)
 
   @@index([betId])

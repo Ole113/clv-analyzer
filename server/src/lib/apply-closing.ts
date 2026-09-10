@@ -110,7 +110,11 @@ export async function applyClosingReport(report: ClosingReport) {
     bet.takenLine,
     row,
     settings.useWeightedAverage ? settings.bookWeights : null,
-    "PP_SCREEN"
+    "PP_SCREEN",
+    {
+      openFairProb: bet.openFairProb,
+      useLiquidityWeighting: settings.useLiquidityWeighting,
+    }
   );
 
   await prisma.closeLine.deleteMany({ where: { betId: bet.id } });
@@ -126,16 +130,29 @@ export async function applyClosingReport(report: ClosingReport) {
       closeLines: { create: verdict.closeLines },
       avgClosingLine: verdict.avgClosingLine,
       closingBookCount: verdict.closingBookCount,
-      closeFairProb: row.fairProbability,
+      // The verdict's number first: it is the consensus over the books that survived the allowlist
+      // and the outlier test. `row.fairProbability` remains the fallback for any source that
+      // publishes one of its own (the optimizer did).
+      closeFairProb: verdict.closeFairProb ?? row.fairProbability,
       // Payout comes from the closing read when it shows one, else the one recorded at capture.
-      // The odds screen publishes no de-vigged probability of its own, so in practice this keeps
-      // the capture-time number rather than inventing a closing one.
+      // Now that the screen path derives a de-vigged closing probability, this is a real closing
+      // EV% on any pick where a trusted book quoted both sides; where none did, it still falls
+      // back to the capture-time number rather than inventing one.
       closeEvPercent:
         row.boardEvPercent ??
-        evPercent(row.fairProbability, fantasyPriceFrom(row.bookLines) ?? bet.fantasyPrice) ??
+        evPercent(
+          verdict.closeFairProb ?? row.fairProbability,
+          fantasyPriceFrom(row.bookLines) ?? bet.fantasyPrice
+        ) ??
         bet.closeEvPercent,
       edge: verdict.edge,
       beatClv: verdict.beatClv,
+      priceEdge: verdict.priceEdge,
+      // Null rather than "[]" when nothing was excluded, so a query for picks with exclusions is
+      // a plain null test and an empty array never reads as a recorded finding.
+      excludedBooks: verdict.excludedBooks.length
+        ? JSON.stringify(verdict.excludedBooks)
+        : null,
       closingSourceSite: outcome.source.site,
       closingSourceUrl: outcome.source.url,
       closingMethod: verdict.closingSource,

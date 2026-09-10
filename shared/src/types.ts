@@ -15,6 +15,19 @@ export interface BookLine {
   price: number | null;
   /** Book logo as served by the board, absolute. Stored so the dashboard can show real icons. */
   logoUrl: string | null;
+  /**
+   * Money resting behind this quote, where the source reports it. Optional because the DOM parsers
+   * have nothing to fill it with -- only PropProfessor's `/screen` JSON carries depth. 0 means the
+   * book publishes no depth (the common case, and not the same as an empty market); null means the
+   * source did not say.
+   */
+  liquidity?: number | null;
+  /**
+   * This book's own no-vig probability for the side taken, where it quoted both sides at the same
+   * selection. Optional for the same reason as `liquidity`: it needs two prices from one book, and
+   * only the `/screen` JSON exposes the opposite side. Null means "not derivable here", never 50%.
+   */
+  fairProbability?: number | null;
   rawText: string;
 }
 

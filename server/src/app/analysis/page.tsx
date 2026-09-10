@@ -1,7 +1,8 @@
 import { getAnalysis } from "@/lib/analysis";
 import { getFacets, parseBetFilters } from "@/lib/queries";
 import { FilterBar } from "@/components/filter-bar";
-import { DivergingBars, type BarDatum } from "@/components/bars";
+import { DivergingBars, Histogram, type BarDatum } from "@/components/bars";
+import { MIN_RELIABLE_PICKS } from "@/lib/analysis";
 import { fmtEdge, fmtPct, sideLabel } from "@/components/ui";
 import { Signed, Rate } from "@/components/value";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
@@ -263,6 +264,174 @@ export default async function AnalysisPage({
               ))}
             </tbody>
           </table>
+        </section>
+      </div>
+
+      <h2>How your edge is distributed</h2>
+      <p className="lede muted" style={{ fontSize: 12, marginTop: -4 }}>
+        The average edge above hides its own shape. A mean of +0.2 can be a steady small win on most
+        picks, or a pile of small losses rescued by two big ones — the second is variance, not a
+        method. Buckets are in line units, half-open, and a pick landing exactly flat counts in
+        &quot;0 to 0.5&quot;.
+      </p>
+      <section className="chart-card">
+        <Histogram
+          data={analysis.edgeHistogram.map((b) => ({
+            label: b.key,
+            count: b.picks,
+            sign: (b.to !== null && b.to <= 0 ? -1 : b.from !== null && b.from >= 0 ? 1 : 0) as -1 | 0 | 1,
+            note: `${(b.share * 100).toFixed(1)}% of scored picks`,
+          }))}
+          emptyNote="No pick has a CLV edge yet — this needs picks whose closing line was captured."
+        />
+        {analysis.edgeHistogram.some((b) => b.picks > 0) && (
+          <details>
+            <summary>Show the numbers</summary>
+            <table>
+              <thead>
+                <tr>
+                  <th>Edge</th>
+                  <th className="num">Picks</th>
+                  <th className="num">Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.edgeHistogram.map((b) => (
+                  <tr key={b.key}>
+                    <td>{b.key}</td>
+                    <td className="num">{b.picks}</td>
+                    <td className="num">{(b.share * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        )}
+      </section>
+
+      <h2>When you take the pick</h2>
+      <p className="lede muted" style={{ fontSize: 12, marginTop: -4 }}>
+        CLV against how far ahead of kickoff the pick was captured. Taking a number days early means
+        beating a market that has not formed yet; taking it minutes out means beating one that has
+        already absorbed the news. Live picks and picks with no kickoff time have no lead time to
+        measure and do not appear.
+      </p>
+      <ChartCard
+        title="Average edge by lead time"
+        lede="Line units gained, per bucket of hours before kickoff."
+        data={analysis.timing
+          .filter((t) => t.picks > 0)
+          .map((t) => ({ label: t.key, value: t.avgEdge ?? 0, note: `${t.picks} picks` }))}
+        unit=""
+        emptyNote="No settled pick carries both a kickoff time and a CLV verdict yet."
+        table={
+          <table>
+            <thead>
+              <tr>
+                <th>Before kickoff</th>
+                <th className="num">Picks</th>
+                <th className="num">Beat CLV</th>
+                <th className="num">Hit rate</th>
+                <th className="num">Avg edge</th>
+                <th className="num">Avg EV%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analysis.timing.map((t) => (
+                <tr key={t.key}>
+                  <td>{t.key}</td>
+                  <td className="num">{t.picks}</td>
+                  <td className="num"><Rate value={t.beatRate} /></td>
+                  <td className="num"><Rate value={t.hitRate} threshold={BREAK_EVEN_RATE} /></td>
+                  <td className="num"><Signed value={t.avgEdge} /></td>
+                  <td className="num"><Signed value={t.avgEv} unit="%" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        }
+      />
+
+      <h2>Scorecards</h2>
+      <p className="lede muted" style={{ fontSize: 12, marginTop: -4 }}>
+        Not the same question as &quot;worst sportsbooks&quot; above. That ranks how good a
+        book&apos;s closing <em>number</em> was against the consensus; this asks whether the picks it
+        was quoting went on to beat the close. A book can hang a generous number and still be
+        quoting markets that move against you. Rows under {MIN_RELIABLE_PICKS} picks are greyed:
+        a 100% beat rate over two picks is noise, not a finding.
+      </p>
+
+      <div className="grid-2">
+        <section className="chart-card">
+          <h3>By book</h3>
+          <p className="lede">Picks each book was quoting at close, and how those picks turned out.</p>
+          {analysis.bookScorecard.length === 0 ? (
+            <p className="muted">No closing book lines captured yet.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Book</th>
+                  <th className="num">Picks</th>
+                  <th className="num">Beat CLV</th>
+                  <th className="num">Avg edge</th>
+                  <th className="num">Avg EV%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.bookScorecard.map((b) => (
+                  <tr key={b.bookKey} className={b.reliable ? "" : "excluded"}>
+                    <td>
+                      {b.label}
+                      {!b.reliable && (
+                        <span className="muted" style={{ fontSize: 11 }}> · thin sample</span>
+                      )}
+                    </td>
+                    <td className="num">{b.picks}</td>
+                    <td className="num"><Rate value={b.beatRate} /></td>
+                    <td className="num"><Signed value={b.avgEdge} /></td>
+                    <td className="num"><Signed value={b.avgEv} unit="%" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        <section className="chart-card">
+          <h3>By market</h3>
+          <p className="lede">The same ranking per prop type, ordered by how often it beat the close.</p>
+          {analysis.marketScorecard.length === 0 ? (
+            <p className="muted">No settled picks yet.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Market</th>
+                  <th className="num">Picks</th>
+                  <th className="num">Beat CLV</th>
+                  <th className="num">Hit rate</th>
+                  <th className="num">Avg edge</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.marketScorecard.map((m) => (
+                  <tr key={m.statMarket} className={m.reliable ? "" : "excluded"}>
+                    <td>
+                      {m.statMarket}
+                      {!m.reliable && (
+                        <span className="muted" style={{ fontSize: 11 }}> · thin sample</span>
+                      )}
+                    </td>
+                    <td className="num">{m.picks}</td>
+                    <td className="num"><Rate value={m.beatRate} /></td>
+                    <td className="num"><Rate value={m.hitRate} threshold={BREAK_EVEN_RATE} /></td>
+                    <td className="num"><Signed value={m.avgEdge} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
       </div>
 

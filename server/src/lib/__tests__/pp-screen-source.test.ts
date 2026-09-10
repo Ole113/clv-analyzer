@@ -316,6 +316,153 @@ describe("stray exchange orders", () => {
   });
 });
 
+describe("de-vigged closing probability", () => {
+  const plan = planFor("NCAAF", "Rushing Yards");
+  const target = (side: "OVER" | "UNDER") => ({
+    marketType: "PLAYER_PROP" as const,
+    player: "Xavier Robinson",
+    subjectTeam: null,
+    statMarket: "Rushing Yards",
+    side,
+    matchup: "Oklahoma vs Michigan",
+    externalPropId: null,
+  });
+  const verdictFor = (side: "OVER" | "UNDER", openFairProb: number | null = null) => {
+    const rows = parse("ncaaf-rushing-yards", plan).rows;
+    const match = findMatchingRow(rows, target(side))!;
+    return buildClosingVerdict("PLAYER_PROP", side, 24.5, match, null, "PP_SCREEN", {
+      openFairProb,
+    });
+  };
+
+  it("de-vigs a book that quoted both sides", () => {
+    // Hardrock hangs 21.5 at -110 on the Over against -115 on the Under. Raw those imply 52.38%
+    // and 53.49% -- 105.87% in total, the hold. Renormalising gives the Over 0.5238/1.0587.
+    const verdict = verdictFor("OVER");
+    const hardrock = verdict.closeLines.find((l) => l.bookKey === "hardrock")!;
+    expect(hardrock.fairProbability).toBeCloseTo(0.510121, 6);
+    expect(verdict.closeFairProb).toBeCloseTo(0.50374, 5);
+    // Four of the eighteen books quoted both sides at their main line, so the fair price is a
+    // consensus of four while the line is a consensus of seven.
+    expect(verdict.fairBookCount).toBe(4);
+    expect(verdict.closingBookCount).toBe(7);
+  });
+
+  it("gives the two sides of one market probabilities that sum to 1", () => {
+    // The strongest available check that the arithmetic is a de-vig rather than a rescaling: the
+    // Over row and the Under row are built independently, from opposite prices, and never compare
+    // notes -- so summing to exactly 1 is a property of the maths, not of shared state.
+    const over = verdictFor("OVER").closeFairProb!;
+    const under = verdictFor("UNDER").closeFairProb!;
+    expect(over + under).toBeCloseTo(1, 6);
+  });
+
+  it("keeps a pick'em column out of the fair price", () => {
+    // PrizePicks quotes -119 on both sides of its 20.5, which de-vigs to a flat 50%. That is a
+    // property of the fixed payout, not a reading of the market, and averaging it in would drag
+    // every fair price toward the middle. The allowlist already excludes it from the line average;
+    // this asserts the fair price is taken over the same set rather than over every column.
+    const verdict = verdictFor("OVER");
+    const prizepicks = verdict.closeLines.find((l) => l.bookKey === "prizepicks")!;
+    expect(prizepicks.fairProbability).toBeCloseTo(0.5, 6);
+    expect(prizepicks.includedInAverage).toBe(false);
+  });
+
+  it("measures price movement the line cannot see", () => {
+    // The point of the second metric. Took the pick when the market called it 52%; it closed at
+    // 50.4%, so the price moved against it by 1.6 probability points.
+    expect(verdictFor("OVER", 0.52).priceEdge).toBeCloseTo(-1.626, 3);
+    // And null, not 0, when there is no open probability to compare against -- a one-ended
+    // difference is not a difference.
+    expect(verdictFor("OVER", null).priceEdge).toBeNull();
+  });
+
+  it("reports no fair price rather than a bad one when nobody quoted both sides", () => {
+    const rows = parse("ncaaf-receiving-yards", planFor("NCAAF", "Player Receiving Yards")).rows;
+    const row = rows[0];
+    // Strip every opposite-side price by blanking each book's own -- a book with one price has no
+    // margin to remove, so there is nothing to de-vig.
+    const oneSided = { ...row, bookLines: row.bookLines.map((b) => ({ ...b, fairProbability: null })) };
+    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 26.5, oneSided, null, "PP_SCREEN");
+    expect(verdict.closeFairProb).toBeNull();
+    expect(verdict.fairBookCount).toBe(0);
+    // The closing LINE is unaffected: the two averages are over different samples on purpose.
+    expect(verdict.avgClosingLine).not.toBeNull();
+  });
+});
+
+describe("captured liquidity", () => {
+  const plan = planFor("ATP", "Moneyline", "MONEYLINE" as never);
+  const rowFor = (team: string) =>
+    parse("tennis-moneyline", plan).rows.find((r) => r.subjectTeam === team)!;
+
+  it("reads the depth behind each quote off the screen response", () => {
+    const row = rowFor("Butvilas");
+    const byKey = new Map(row.bookLines.map((b) => [b.bookKey, b.liquidity]));
+    // The exchanges publish real depth; the traditional sportsbooks report a flat 0.
+    expect(byKey.get("polymarketus")).toBe(61709);
+    expect(byKey.get("pinnacle")).toBe(1050);
+    expect(byKey.get("fanduel")).toBe(0);
+  });
+
+  it("lets a deep book pull the average toward its number", () => {
+    const row = rowFor("Tobon");
+    const plainAvg = buildClosingVerdict("MONEYLINE", null, 260, row, null, "PP_SCREEN")
+      .avgClosingLine!;
+    const weighted = buildClosingVerdict("MONEYLINE", null, 260, row, null, "PP_SCREEN", {
+      useLiquidityWeighting: true,
+    }).avgClosingLine!;
+    // Kalshi (+280 behind $2,426), PolymarketUS (+282 behind $1,028) and Pinnacle (+275 behind
+    // $1,050) are all above the field; weighting by depth moves the close up toward them.
+    expect(plainAvg).toBeCloseTo(255.65, 2);
+    expect(weighted).toBeGreaterThan(plainAvg);
+    expect(weighted).toBeCloseTo(261.0, 1);
+    // Bounded, not dominated: the deepest book is 60x the next, and the close still lands inside
+    // the field rather than on top of PolymarketUS's +282.
+    expect(weighted).toBeLessThan(282);
+  });
+
+  it("averages normally when every book reports $0, which is the common case", () => {
+    // The whole NCAAF fixture reports 0 depth throughout, so switching liquidity weighting on must
+    // be a no-op there rather than quietly reshaping every player-prop close.
+    const propPlan = planFor("NCAAF", "Rushing Yards");
+    const match = findMatchingRow(parse("ncaaf-rushing-yards", propPlan).rows, {
+      marketType: "PLAYER_PROP",
+      player: "Xavier Robinson",
+      subjectTeam: null,
+      statMarket: "Rushing Yards",
+      side: "UNDER",
+      matchup: "Oklahoma vs Michigan",
+      externalPropId: null,
+    })!;
+    const plain = buildClosingVerdict("PLAYER_PROP", "UNDER", 24.5, match, null, "PP_SCREEN");
+    const weighted = buildClosingVerdict("PLAYER_PROP", "UNDER", 24.5, match, null, "PP_SCREEN", {
+      useLiquidityWeighting: true,
+    });
+    expect(weighted.avgClosingLine).toBeCloseTo(plain.avgClosingLine!, 10);
+    expect(weighted.closingBookCount).toBe(plain.closingBookCount);
+  });
+});
+
+describe("exclusion audit trail", () => {
+  it("records which books were dropped, not only a sentence about it", () => {
+    const plan = planFor("NCAAF", "Rushing Yards");
+    const match = findMatchingRow(parse("ncaaf-rushing-yards", plan).rows, {
+      marketType: "PLAYER_PROP",
+      player: "Xavier Robinson",
+      subjectTeam: null,
+      statMarket: "Rushing Yards",
+      side: "UNDER",
+      matchup: "Oklahoma vs Michigan",
+      externalPropId: null,
+    })!;
+    const verdict = buildClosingVerdict("PLAYER_PROP", "UNDER", 24.5, match, null, "PP_SCREEN");
+    // The same fact the note states in prose, in a form that can be counted across picks.
+    expect(verdict.excludedBooks).toEqual(["fanatics"]);
+    expect(verdict.note).toMatch(/fanatics/i);
+  });
+});
+
 describe("moneyline", () => {
   const plan = planFor("ATP", "Moneyline", "MONEYLINE" as never);
 
