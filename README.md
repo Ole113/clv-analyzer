@@ -8,21 +8,6 @@ snapshotted — every sportsbook line and price showing at that moment. Shortly 
 extension reads the same market off **PropProfessor's odds screen**, rebuilds each sportsbook's
 main line, averages them, and records whether the pick beat closing line value.
 
-### Two invariants worth knowing up front
-
-**No automated traffic to OddsJam, ever.** That subscription is paid a year up front, so a ban is
-unrecoverable; the PropProfessor account is replaceable. Ticking picks on an OddsJam board is
-still fine — the content script reads the DOM of a page you opened yourself and sends OddsJam
-nothing — and dashboard links to OddsJam are fine, because a human clicking a link is ordinary
-browsing. What is forbidden is any background tab, fetch or timer touching that host. This used to
-happen: the closing worker opened `fantasy.oddsjam.com` every 60 seconds. It is enforced now by
-`server/src/lib/__tests__/oddsjam-automation-guard.test.ts`, not by memory.
-
-**Closing lines never come from an optimizer.** An optimizer only lists props that *still have
-edge*, so a genuinely +EV pick has moved off it by kickoff. Reading the close there meant the best
-picks came back "not found" and were dropped from every aggregate — the tool discarded its own best
-evidence. The odds screen lists every market whether or not any edge is left.
-
 ## How it fits together
 
 | Piece | What it does |
@@ -36,7 +21,7 @@ the close reads a JSON endpoint. The seam between them is `ParsedRow[]`, so ever
 of matching is shared and identical.
 
 Picks are captured on any machine (work laptop, home desktop) and all land in one SQLite database
-on the always-on Mac, reached over Tailscale.
+on a server reached over Tailscale.
 
 ### Why the closing read happens in your browser
 
