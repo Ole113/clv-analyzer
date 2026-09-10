@@ -31,8 +31,9 @@ function grid(): Element | null {
  * divider. AG Grid lays the pinned and centre containers out as flex siblings, so widening the
  * pinned side shifts the centre columns across cleanly rather than overlapping them.
  */
-// 16px box + its 3px side margins + breathing room, so the checkbox never touches the divider.
-const LANE = 28;
+// 16px box + 4px on each side, matching OddsJam's `.clva-cell` padding (shared/inject.ts) so the
+// checkbox reads as the same size on both boards instead of PP's lane dwarfing OJ's bare <td>.
+const LANE = 24;
 const PINNED_BASE = 36;
 const PINNED_TOTAL = PINNED_BASE + LANE;
 
@@ -62,9 +63,23 @@ const LANE_STYLES = `
    is not a fixed-width pinned cell -- so it must not be stretched, only given room. */
 [role="cell"]:not([col-id="actions"]) > .clva-lane,
 [role="gridcell"]:not([col-id="actions"]) > .clva-lane {
-  border-right: none; width: auto; flex: 0 0 auto; padding-right: 4px;
+  border-right: none; width: auto; flex: 0 0 auto; padding: 0 4px;
 }
 `;
+
+/**
+ * Whether this board has a pinned "actions" column at all, checked against the grid rather than
+ * one row: AG Grid renders each logical row as two DOM halves (pinned-left and centre) that share
+ * a row-id, and during scroll the centre half can exist in the DOM briefly before its pinned
+ * partner does. Asking the row itself "do you have an actions cell" would then say no and fall
+ * through to the first-cell guess below -- which, for the centre half, is a book-price cell
+ * (FanDuel, Circa, ...), not the actions lane. Asking the grid instead means the fallback only
+ * ever fires on boards that truly have no actions column (plain Dabble), never on a stale half of
+ * one that does.
+ */
+function hasActionsColumn(): boolean {
+  return !!grid()?.querySelector('[col-id="actions"]');
+}
 
 /**
  * The cell the checkbox lives in.
@@ -77,6 +92,10 @@ const LANE_STYLES = `
 function mountCell(row: Element): HTMLElement | null {
   const actions = row.querySelector<HTMLElement>('[col-id="actions"]');
   if (actions) return actions;
+  // This row element doesn't carry the actions cell. On boards that have one elsewhere (the
+  // pinned-left half, not yet rendered for this row-id), that's a transient gap to wait out --
+  // not a cue to plant the checkbox in whatever cell happens to be first here instead.
+  if (hasActionsColumn()) return null;
   const first = row.querySelector<HTMLElement>('[role="cell"], [role="gridcell"]');
   return first ?? null;
 }

@@ -131,14 +131,33 @@ export default async function OverviewPage() {
             <ProblemCount value={needsAttention} />
           </div>
           <div className="sub">
-            {[
-              counts.needsGameTime > 0 ? `${counts.needsGameTime} no kickoff` : null,
-              counts.unavailable > 0 ? `${counts.unavailable} unavailable` : null,
-              counts.failed > 0 ? `${counts.failed} failed` : null,
-              grading.failed > 0 ? `${grading.failed} grade failed` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ") || "nothing needs attention"}
+            {needsAttention === 0 ? (
+              "nothing needs attention"
+            ) : (
+              <>
+                {[
+                  counts.needsGameTime > 0
+                    ? { href: "/bets?status=NEEDS_GAME_TIME", label: `${counts.needsGameTime} no kickoff` }
+                    : null,
+                  counts.unavailable > 0
+                    ? { href: "/bets?status=UNAVAILABLE", label: `${counts.unavailable} unavailable` }
+                    : null,
+                  counts.failed > 0
+                    ? { href: "/bets?status=FETCH_FAILED", label: `${counts.failed} failed` }
+                    : null,
+                  grading.failed > 0
+                    ? { href: "/bets?graded=failed", label: `${grading.failed} grade failed` }
+                    : null,
+                ]
+                  .filter((item): item is { href: string; label: string } => item !== null)
+                  .map((item, i) => (
+                    <span key={item.href}>
+                      {i > 0 && " · "}
+                      <a href={item.href}>{item.label}</a>
+                    </span>
+                  ))}
+              </>
+            )}
           </div>
         </div>
         <div className="tile">

@@ -131,6 +131,7 @@ export function FilterBar({
           { value: "PLAYER_PROP", label: "Player prop" },
           { value: "GAME_TOTAL", label: "Game total" },
           { value: "SPREAD", label: "Spread" },
+          { value: "MONEYLINE", label: "Moneyline" },
         ]}
       />
       <Select name="book" label="Book" options={facets.books.map((b) => ({ value: b, label: b }))} />

@@ -17,7 +17,7 @@ const bookLineSchema = z.object({
 const rowSchema = z.object({
   rowIndex: z.number(),
   marketType: z
-    .enum(["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "OTHER"])
+    .enum(["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "MONEYLINE", "OTHER"])
     .optional()
     .default("PLAYER_PROP"),
   // Null on game markets, which have no player. A player prop with no player is rejected below.
@@ -71,8 +71,11 @@ export function validateShape(row: SnapshotInput["row"]): string | null {
   if (row.marketType === "SPREAD" && !row.subjectTeam) {
     return "This spread does not say which team the line belongs to.";
   }
+  if (row.marketType === "MONEYLINE" && !row.subjectTeam) {
+    return "This moneyline does not say which team it's on.";
+  }
   if (row.marketType === "OTHER") {
-    return "This market has no line to measure closing line value against (moneylines and exotics are not trackable).";
+    return "This market has no line to measure closing line value against (exotics like parlays and correct-score are not trackable).";
   }
   return null;
 }
@@ -102,6 +105,7 @@ export async function ingestSnapshot(input: SnapshotInput) {
     subjectTeam: row.subjectTeam,
     statMarket: row.statMarket,
     side: row.side,
+    takenLine: row.takenLine,
     gameStartTime: validStart,
   });
 

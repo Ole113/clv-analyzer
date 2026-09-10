@@ -57,7 +57,9 @@ h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
-th { background: var(--panel-2); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+/* nowrap keeps a two-word header ("Avg close") and its trailing Info icon on one line -- without
+   it, only the multi-word headers wrapped, so their icons sat a line lower than the rest. */
+th { background: var(--panel-2); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; white-space: nowrap; }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: var(--panel-2); }
 .num { text-align: right; }

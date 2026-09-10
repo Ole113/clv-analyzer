@@ -1,0 +1,942 @@
+{
+  "_source": "propprofessor.com/_next/static/chunks/pages/screen-*.js, captured 2026-09-10",
+  "_note": "`value` is what POST /screen wants as `market`; `label` is only the dropdown caption.",
+  "leagues": [
+    "NBA",
+    "NCAAB",
+    "NCAAF",
+    "NFL",
+    "CFL",
+    "NHL",
+    "MLB",
+    "NPB",
+    "KBO",
+    "PGA",
+    "Soccer",
+    "Tennis",
+    "UFC",
+    "WNBA",
+    "CSGO",
+    "COD",
+    "LoL",
+    "Valorant"
+  ],
+  "markets": {
+    "football": [
+      {
+        "label": "Moneyline",
+        "value": "Moneyline"
+      },
+      {
+        "label": "Point Spread",
+        "value": "Point Spread"
+      },
+      {
+        "label": "Total Points",
+        "value": "Total Points"
+      },
+      {
+        "label": "Total Touchdowns",
+        "value": "Total Touchdowns"
+      },
+      {
+        "label": "Total Field Goals",
+        "value": "Total Field Goals"
+      },
+      {
+        "label": "Total Rushing Yards",
+        "value": "Total Rushing Yards"
+      },
+      {
+        "label": "Total Rushing Touchdowns",
+        "value": "Total Rushing Touchdowns"
+      },
+      {
+        "label": "Total Receiving Yards",
+        "value": "Total Receiving Yards"
+      },
+      {
+        "label": "Total First Downs",
+        "value": "Total First Downs"
+      },
+      {
+        "label": "Total Turnovers",
+        "value": "Total Turnovers"
+      },
+      {
+        "label": "Total Sacks",
+        "value": "Total Sacks"
+      },
+      {
+        "label": "Total Punts",
+        "value": "Total Punts"
+      },
+      {
+        "label": "Total Points Odd/Even",
+        "value": "Total Points Odd/Even"
+      },
+      {
+        "label": "To Go To Overtime",
+        "value": "To Go To Overtime"
+      },
+      {
+        "label": "Highest Scoring Half",
+        "value": "Highest Scoring Half"
+      },
+      {
+        "label": "Highest Scoring Quarter",
+        "value": "Highest Scoring Quarter"
+      },
+      {
+        "label": "Safety To Be Scored",
+        "value": "Safety To Be Scored"
+      },
+      {
+        "label": "Successful 2 Point Conversion",
+        "value": "Successful 2 Point Conversion"
+      },
+      {
+        "label": "Any Quarter To End Scoreless",
+        "value": "Any Quarter To End Scoreless"
+      },
+      {
+        "label": "First Team To Score",
+        "value": "First Team To Score"
+      },
+      {
+        "label": "Last Team To Score",
+        "value": "Last Team To Score"
+      },
+      {
+        "label": "First Team To Make A Field Goal",
+        "value": "First Team To Make A Field Goal"
+      },
+      {
+        "label": "Team Total Points",
+        "value": "Team Total Points"
+      },
+      {
+        "label": "Team Total Touchdowns",
+        "value": "Team Total Touchdowns"
+      },
+      {
+        "label": "Team Total Field Goals",
+        "value": "Team Total Field Goals"
+      },
+      {
+        "label": "Team Total Yards",
+        "value": "Team Total Yards"
+      },
+      {
+        "label": "Team Total Rushing Yards",
+        "value": "Team Total Rushing Yards"
+      },
+      {
+        "label": "Team Total Rushing Touchdowns",
+        "value": "Team Total Rushing Touchdowns"
+      },
+      {
+        "label": "Team Total Passing Yards",
+        "value": "Team Total Passing Yards"
+      },
+      {
+        "label": "Team Total Passing Touchdowns",
+        "value": "Team Total Passing Touchdowns"
+      },
+      {
+        "label": "Team Total Receptions",
+        "value": "Team Total Receptions"
+      },
+      {
+        "label": "Team Total Sacks",
+        "value": "Team Total Sacks"
+      },
+      {
+        "label": "Team To Win Both Halves",
+        "value": "Team To Win Both Halves"
+      },
+      {
+        "label": "Team To Score First And Win",
+        "value": "Team To Score First And Win"
+      },
+      {
+        "label": "Team To Score In Every Quarter",
+        "value": "Team To Score In Every Quarter"
+      },
+      {
+        "label": "Team To Score In Both Halves",
+        "value": "Team To Score In Both Halves"
+      },
+      {
+        "label": "First Touchdown Scorer",
+        "value": "First Touchdown Scorer"
+      },
+      {
+        "label": "Last Touchdown Scorer",
+        "value": "Last Touchdown Scorer"
+      },
+      {
+        "label": "Player Passing Yards",
+        "value": "Player Passing Yards"
+      },
+      {
+        "label": "Player Passing Attempts",
+        "value": "Player Passing Attempts"
+      },
+      {
+        "label": "Player Passing Completions",
+        "value": "Player Passing Completions"
+      },
+      {
+        "label": "Player Completion Percentage",
+        "value": "Player Completion Percentage"
+      },
+      {
+        "label": "Player Longest Completion",
+        "value": "Player Longest Completion"
+      },
+      {
+        "label": "Player Interceptions",
+        "value": "Player Interceptions"
+      },
+      {
+        "label": "Player Passing Touchdowns",
+        "value": "Player Passing Touchdowns"
+      },
+      {
+        "label": "Player Passing First Downs",
+        "value": "Player Passing First Downs"
+      },
+      {
+        "label": "Player Times Sacked",
+        "value": "Player Times Sacked"
+      },
+      {
+        "label": "Player Rushing Yards",
+        "value": "Player Rushing Yards"
+      },
+      {
+        "label": "Player Rushing Attempts",
+        "value": "Player Rushing Attempts"
+      },
+      {
+        "label": "Player Rushing Touchdowns",
+        "value": "Player Rushing Touchdowns"
+      },
+      {
+        "label": "Player Longest Rush",
+        "value": "Player Longest Rush"
+      },
+      {
+        "label": "Player Receiving Yards",
+        "value": "Player Receiving Yards"
+      },
+      {
+        "label": "Player Receptions",
+        "value": "Player Receptions"
+      },
+      {
+        "label": "Player Receiving Targets",
+        "value": "Player Receiving Targets"
+      },
+      {
+        "label": "Player Receiving Touchdowns",
+        "value": "Player Receiving Touchdowns"
+      },
+      {
+        "label": "Player Longest Reception",
+        "value": "Player Longest Reception"
+      },
+      {
+        "label": "Player Tackles",
+        "value": "Player Tackles"
+      },
+      {
+        "label": "Player Solo Tackles",
+        "value": "Player Solo Tackles"
+      },
+      {
+        "label": "Player Tackles + Assists",
+        "value": "Player Tackles + Assists"
+      },
+      {
+        "label": "Player Tackles For Loss",
+        "value": "Player Tackles For Loss"
+      },
+      {
+        "label": "Player Tackles Assisted",
+        "value": "Player Tackles Assisted"
+      },
+      {
+        "label": "Player Sacks",
+        "value": "Player Sacks"
+      },
+      {
+        "label": "Player Field Goals Made",
+        "value": "Player Field Goals Made"
+      },
+      {
+        "label": "Player Longest Field Goal Made",
+        "value": "Player Longest Field Goal Made"
+      },
+      {
+        "label": "Player Extra Points",
+        "value": "Player PAT Made"
+      },
+      {
+        "label": "Player Kicking Points",
+        "value": "Player Kicking Points"
+      },
+      {
+        "label": "Player Punts",
+        "value": "Player Punts"
+      },
+      {
+        "label": "Player Touchdowns",
+        "value": "Player Touchdowns"
+      },
+      {
+        "label": "Player First Downs",
+        "value": "Player First Downs"
+      },
+      {
+        "label": "Player Fumbles",
+        "value": "Player Fumbles"
+      },
+      {
+        "label": "Player Fumbles Lost",
+        "value": "Player Fumbles Lost"
+      },
+      {
+        "label": "Player Passing + Rushing Yards",
+        "value": "Player Passing + Rushing Yards"
+      },
+      {
+        "label": "Player Passing + Receiving Yards",
+        "value": "Player Passing + Receiving Yards"
+      },
+      {
+        "label": "Player Rushing + Receiving Yards",
+        "value": "Player Rushing + Receiving Yards"
+      },
+      {
+        "label": "Player Pass + Rush + Rec Touchdowns",
+        "value": "Player Passing + Rushing + Receiving Touchdowns"
+      }
+    ],
+    "basketball": [
+      {
+        "label": "Moneyline",
+        "value": "Moneyline"
+      },
+      {
+        "label": "Point Spread",
+        "value": "Point Spread"
+      },
+      {
+        "label": "Total Points",
+        "value": "Total Points"
+      },
+      {
+        "label": "First Team To Score",
+        "value": "First Team To Score"
+      },
+      {
+        "label": "Team Total Points",
+        "value": "Team Total Points"
+      },
+      {
+        "label": "Player Points",
+        "value": "Player Points"
+      },
+      {
+        "label": "Player Assists",
+        "value": "Player Assists"
+      },
+      {
+        "label": "Player Rebounds",
+        "value": "Player Rebounds"
+      },
+      {
+        "label": "Player Offensive Rebounds",
+        "value": "Player Offensive Rebounds"
+      },
+      {
+        "label": "Player Defensive Rebounds",
+        "value": "Player Defensive Rebounds"
+      },
+      {
+        "label": "Player Steals",
+        "value": "Player Steals"
+      },
+      {
+        "label": "Player Blocks",
+        "value": "Player Blocks"
+      },
+      {
+        "label": "Player Turnovers",
+        "value": "Player Turnovers"
+      },
+      {
+        "label": "Player Blocks + Steals",
+        "value": "Player Blocks + Steals"
+      },
+      {
+        "label": "Player Turnovers + Steals",
+        "value": "Player Turnovers + Steals"
+      },
+      {
+        "label": "Player Turnovers + Steals + Blocks",
+        "value": "Player Turnovers + Steals + Blocks"
+      },
+      {
+        "label": "Player Points + Rebounds",
+        "value": "Player Points + Rebounds"
+      },
+      {
+        "label": "Player Points + Assists",
+        "value": "Player Points + Assists"
+      },
+      {
+        "label": "Player Rebounds + Assists",
+        "value": "Player Rebounds + Assists"
+      },
+      {
+        "label": "Player Points + Rebounds + Assists",
+        "value": "Player Points + Rebounds + Assists"
+      },
+      {
+        "label": "Player Threes Made",
+        "value": "Player Threes Made"
+      },
+      {
+        "label": "Player Threes Attempted",
+        "value": "Player Threes Attempted"
+      },
+      {
+        "label": "Player Twos Made",
+        "value": "Player Twos Made"
+      },
+      {
+        "label": "Player Twos Attempted",
+        "value": "Player Twos Attempted"
+      },
+      {
+        "label": "Player Field Goals Made",
+        "value": "Player Field Goals Made"
+      },
+      {
+        "label": "Player Field Goals Attempted",
+        "value": "Player Field Goals Attempted"
+      },
+      {
+        "label": "Player Field Goals Missed",
+        "value": "Player Field Goals Missed"
+      },
+      {
+        "label": "Player Free Throws Made",
+        "value": "Player Free Throws Made"
+      },
+      {
+        "label": "Player Free Throws Attempted",
+        "value": "Player Free Throws Attempted"
+      },
+      {
+        "label": "Player Dunks",
+        "value": "Player Dunks"
+      },
+      {
+        "label": "Player Fouls",
+        "value": "Player Fouls"
+      },
+      {
+        "label": "Player Personal Fouls",
+        "value": "Player Personal Fouls"
+      },
+      {
+        "label": "Player Minutes Played",
+        "value": "Player Minutes Played"
+      },
+      {
+        "label": "Player Double Double",
+        "value": "Player Double Double"
+      },
+      {
+        "label": "Player Triple Double",
+        "value": "Player Triple Double"
+      }
+    ],
+    "baseball": [
+      {
+        "label": "Moneyline",
+        "value": "Moneyline"
+      },
+      {
+        "label": "Run Line",
+        "value": "Run Line"
+      },
+      {
+        "label": "Total Runs",
+        "value": "Total Runs"
+      },
+      {
+        "label": "Total Hits",
+        "value": "Total Hits"
+      },
+      {
+        "label": "Total Home Runs",
+        "value": "Total Home Runs"
+      },
+      {
+        "label": "First Team To Score",
+        "value": "First Team To Score"
+      },
+      {
+        "label": "Team Total Runs",
+        "value": "Team Total Runs"
+      },
+      {
+        "label": "Player Hits",
+        "value": "Player Hits"
+      },
+      {
+        "label": "Player Total Bases",
+        "value": "Player Total Bases"
+      },
+      {
+        "label": "Player Runs",
+        "value": "Player Runs"
+      },
+      {
+        "label": "Player RBIs",
+        "value": "Player RBIs"
+      },
+      {
+        "label": "Player Hits + Runs + RBIs",
+        "value": "Player Hits + Runs + RBIs"
+      },
+      {
+        "label": "Player Singles",
+        "value": "Player Singles"
+      },
+      {
+        "label": "Player Doubles",
+        "value": "Player Doubles"
+      },
+      {
+        "label": "Player Triples",
+        "value": "Player Triples"
+      },
+      {
+        "label": "Player Home Runs",
+        "value": "Player Home Runs"
+      },
+      {
+        "label": "Player Strikeouts",
+        "value": "Player Strikeouts"
+      },
+      {
+        "label": "Player Walks",
+        "value": "Player Walks"
+      },
+      {
+        "label": "Player Stolen Bases",
+        "value": "Player Stolen Bases"
+      },
+      {
+        "label": "Player Runs + RBIs",
+        "value": "Player Runs + RBIs"
+      },
+      {
+        "label": "Pitcher Earned Runs Allowed",
+        "value": "Pitcher Earned Runs Allowed"
+      },
+      {
+        "label": "Pitcher Runs Allowed",
+        "value": "Pitcher Runs Allowed"
+      },
+      {
+        "label": "Pitcher Strikeouts",
+        "value": "Pitcher Strikeouts"
+      },
+      {
+        "label": "Pitcher Hits Allowed",
+        "value": "Pitcher Hits Allowed"
+      },
+      {
+        "label": "Pitcher Home Runs Allowed",
+        "value": "Pitcher Home Runs Allowed"
+      },
+      {
+        "label": "Pitcher Walks Allowed",
+        "value": "Pitcher Walks Allowed"
+      },
+      {
+        "label": "Pitcher Outs Recorded",
+        "value": "Pitcher Outs Recorded"
+      },
+      {
+        "label": "Pitcher Pitches Thrown",
+        "value": "Pitcher Pitches Thrown"
+      }
+    ],
+    "NHL": [
+      {
+        "label": "Moneyline",
+        "value": "Moneyline"
+      },
+      {
+        "label": "Puck Line",
+        "value": "Puck Line"
+      },
+      {
+        "label": "Total Goals",
+        "value": "Total Goals"
+      },
+      {
+        "label": "Team Total Goals",
+        "value": "Team Total Goals"
+      },
+      {
+        "label": "Total Shots On Goal",
+        "value": "Total Shots On Goal"
+      },
+      {
+        "label": "Team Total Shots On Goal",
+        "value": "Team Total Shots On Goal"
+      },
+      {
+        "label": "Player Goals",
+        "value": "Player Goals"
+      },
+      {
+        "label": "Player Assists",
+        "value": "Player Assists"
+      },
+      {
+        "label": "Player Points",
+        "value": "Player Points"
+      },
+      {
+        "label": "Player Shots On Goal",
+        "value": "Player Shots On Goal"
+      },
+      {
+        "label": "Player Hits",
+        "value": "Player Hits"
+      },
+      {
+        "label": "Player Blocks",
+        "value": "Player Blocks"
+      },
+      {
+        "label": "Player Faceoffs Won",
+        "value": "Player Faceoffs Won"
+      },
+      {
+        "label": "Player Saves",
+        "value": "Player Saves"
+      },
+      {
+        "label": "Player Blocked Shots",
+        "value": "Player Blocked Shots"
+      },
+      {
+        "label": "Player Power Play Points",
+        "value": "Player Power Play Points"
+      },
+      {
+        "label": "Player Plus/Minus",
+        "value": "Player Plus/Minus"
+      },
+      {
+        "label": "Player Time On Ice",
+        "value": "Player Time On Ice"
+      },
+      {
+        "label": "Player Goals Allowed",
+        "value": "Player Goals Allowed"
+      },
+      {
+        "label": "Player Shutout",
+        "value": "Player Shutout"
+      }
+    ],
+    "Tennis": [
+      {
+        "label": "Moneyline",
+        "value": "Moneyline"
+      },
+      {
+        "label": "Game Handicap",
+        "value": "Game Handicap"
+      },
+      {
+        "label": "Total Games",
+        "value": "Total Games"
+      },
+      {
+        "label": "Set Handicap",
+        "value": "Set Handicap"
+      },
+      {
+        "label": "Total Sets",
+        "value": "Total Sets"
+      },
+      {
+        "label": "Total Tie Breaks",
+        "value": "Total Tie Breaks"
+      },
+      {
+        "label": "Player Aces",
+        "value": "Player Aces"
+      },
+      {
+        "label": "Player Double Faults",
+        "value": "Player Double Faults"
+      },
+      {
+        "label": "Player Aces + Double Faults",
+        "value": "Player Aces + Double Faults"
+      },
+      {
+        "label": "Player Breakpoints Won",
+        "value": "Player Breakpoints Won"
+      },
+      {
+        "label": "Player Games Won",
+        "value": "Player Games Won"
+      },
+      {
+        "label": "Player Sets Won",
+        "value": "Player Sets Won"
+      }
+    ],
+    "Soccer": [
+      {
+        "label": "Moneyline (3 way)",
+        "value": "Moneyline (3 way)"
+      },
+      {
+        "label": "Draw No Bet",
+        "value": "Draw No Bet"
+      },
+      {
+        "label": "Total Goals",
+        "value": "Total Goals"
+      },
+      {
+        "label": "Match Handicap",
+        "value": "Match Handicap"
+      },
+      {
+        "label": "Total Corners",
+        "value": "Total Corners"
+      },
+      {
+        "label": "Total Cards",
+        "value": "Total Cards"
+      },
+      {
+        "label": "Total Shots",
+        "value": "Total Shots"
+      },
+      {
+        "label": "Total Shots On Target",
+        "value": "Total Shots On Target"
+      },
+      {
+        "label": "Total Offsides",
+        "value": "Total Offsides"
+      },
+      {
+        "label": "Total Tackles",
+        "value": "Total Tackles"
+      },
+      {
+        "label": "To Move On",
+        "value": "To Move On"
+      },
+      {
+        "label": "Team Total Goals",
+        "value": "Team Total Goals"
+      },
+      {
+        "label": "Team Total Corners",
+        "value": "Team Total Corners"
+      },
+      {
+        "label": "Team Total Cards",
+        "value": "Team Total Cards"
+      },
+      {
+        "label": "Team Total Shots",
+        "value": "Team Total Shots"
+      },
+      {
+        "label": "Team Total Shots On Target",
+        "value": "Team Total Shots On Target"
+      },
+      {
+        "label": "Team Total Offsides",
+        "value": "Team Total Offsides"
+      },
+      {
+        "label": "Team Total Tackles",
+        "value": "Team Total Tackles"
+      },
+      {
+        "label": "Player Shots On Goal",
+        "value": "Player Shots On Goal"
+      },
+      {
+        "label": "Player Shots",
+        "value": "Player Shots"
+      },
+      {
+        "label": "Player Assists",
+        "value": "Player Assists"
+      },
+      {
+        "label": "Player Passes",
+        "value": "Player Passes"
+      },
+      {
+        "label": "Player Tackles",
+        "value": "Player Tackles"
+      },
+      {
+        "label": "Player Saves",
+        "value": "Player Saves"
+      },
+      {
+        "label": "Player Fouls",
+        "value": "Player Fouls"
+      },
+      {
+        "label": "Player Goals",
+        "value": "Player Goals"
+      },
+      {
+        "label": "Player Goals + Assists",
+        "value": "Player Goals + Assists"
+      },
+      {
+        "label": "Player Shots Assisted",
+        "value": "Player Shots Assisted"
+      },
+      {
+        "label": "Player Cards",
+        "value": "Player Cards"
+      },
+      {
+        "label": "Player Clearances",
+        "value": "Player Clearances"
+      },
+      {
+        "label": "Player Crosses",
+        "value": "Player Crosses"
+      },
+      {
+        "label": "Player Dribbles Attempted",
+        "value": "Player Dribbles Attempted"
+      },
+      {
+        "label": "Player Fouls Committed",
+        "value": "Player Fouls Committed"
+      },
+      {
+        "label": "Player Fouls Drawn",
+        "value": "Player Fouls Drawn"
+      },
+      {
+        "label": "Player Offsides",
+        "value": "Player Offsides"
+      },
+      {
+        "label": "Player Goals Allowed",
+        "value": "Player Goals Allowed"
+      }
+    ],
+    "UFC": [
+      {
+        "label": "Moneyline",
+        "value": "Moneyline"
+      },
+      {
+        "label": "Total Rounds",
+        "value": "Total Rounds"
+      },
+      {
+        "label": "To Go The Distance",
+        "value": "To Go The Distance"
+      },
+      {
+        "label": "Player Significant Strikes",
+        "value": "Player Significant Strikes"
+      },
+      {
+        "label": "Player Takedowns",
+        "value": "Player Takedowns"
+      },
+      {
+        "label": "Player Strikes",
+        "value": "Player Strikes"
+      },
+      {
+        "label": "Player Knockouts",
+        "value": "Player Knockouts"
+      },
+      {
+        "label": "Player Submissions",
+        "value": "Player Submissions"
+      }
+    ],
+    "PGA": [
+      {
+        "label": "Moneyline",
+        "value": "Moneyline"
+      },
+      {
+        "label": "Player To Make The Cut",
+        "value": "Player To Make The Cut"
+      },
+      {
+        "label": "Player Strokes",
+        "value": "Player Strokes"
+      },
+      {
+        "label": "Player Birdies",
+        "value": "Player Birdies"
+      },
+      {
+        "label": "Player Eagles",
+        "value": "Player Eagles"
+      },
+      {
+        "label": "Player Bogeys",
+        "value": "Player Bogeys"
+      },
+      {
+        "label": "Player Pars",
+        "value": "Player Pars"
+      },
+      {
+        "label": "Player Birdies Or Better",
+        "value": "Player Birdies Or Better"
+      },
+      {
+        "label": "Player Bogeys Or Worse",
+        "value": "Player Bogeys Or Worse"
+      },
+      {
+        "label": "Player Fairways Hit",
+        "value": "Player Fairways Hit"
+      },
+      {
+        "label": "Player Greens In Regulation",
+        "value": "Player Greens In Regulation"
+      }
+    ]
+  }
+}

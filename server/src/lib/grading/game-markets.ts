@@ -52,15 +52,21 @@ export function marginForSpread(
 /**
  * Win / loss / push for a game market.
  *
- * `value` is the combined score for a total, or the bet team's margin for a spread. For a spread
- * the comparison is against the negated handicap: taking +5.5 means the margin must beat -5.5.
+ * `value` is the combined score for a total, or the bet team's margin for a spread or moneyline.
+ * For a spread the comparison is against the negated handicap: taking +5.5 means the margin must
+ * beat -5.5. A moneyline is the same margin with no handicap to beat -- any positive margin wins,
+ * any negative margin loses, and an exact tie pushes rather than being called either way.
  */
 export function settleGameMarket(
-  marketType: "GAME_TOTAL" | "SPREAD",
+  marketType: "GAME_TOTAL" | "SPREAD" | "MONEYLINE",
   side: Side | null,
   line: number,
   value: number
 ): GradeResult {
+  if (marketType === "MONEYLINE") {
+    if (value === 0) return "PUSH";
+    return value > 0 ? "WIN" : "LOSS";
+  }
   if (marketType === "SPREAD") {
     const needed = -line;
     if (value === needed) return "PUSH";

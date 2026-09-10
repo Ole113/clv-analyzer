@@ -7,17 +7,19 @@ import type { ParsedRow } from "@clv/shared";
 describe("averageClosingLine", () => {
   it("averages only the books flagged for inclusion", () => {
     const { avg, count } = averageClosingLine([
-      { line: 90.5, includedInAverage: true },
-      { line: 91.5, includedInAverage: true },
-      { line: 62.5, includedInAverage: false }, // pick'em app
-      { line: null, includedInAverage: true }, // price-only column
+      { bookKey: "fanduel", line: 90.5, includedInAverage: true },
+      { bookKey: "pinnacle", line: 91.5, includedInAverage: true },
+      { bookKey: "prizepicks", line: 62.5, includedInAverage: false }, // pick'em app
+      { bookKey: "algo", line: null, includedInAverage: true }, // price-only column
     ]);
     expect(avg).toBe(91);
     expect(count).toBe(2);
   });
 
   it("returns null (not zero) when no book qualifies", () => {
-    expect(averageClosingLine([{ line: 12, includedInAverage: false }])).toEqual({
+    expect(
+      averageClosingLine([{ bookKey: "fanduel", line: 12, includedInAverage: false }])
+    ).toEqual({
       avg: null,
       count: 0,
     });
@@ -25,7 +27,37 @@ describe("averageClosingLine", () => {
   });
 
   it("handles a single book", () => {
-    expect(averageClosingLine([{ line: 24.5, includedInAverage: true }]).avg).toBe(24.5);
+    expect(
+      averageClosingLine([{ bookKey: "fanduel", line: 24.5, includedInAverage: true }]).avg
+    ).toBe(24.5);
+  });
+
+  it("weights a configured book and treats every unweighted book as equally weighted", () => {
+    const lines = [
+      { bookKey: "pinnacle", line: 90, includedInAverage: true },
+      { bookKey: "fanduel", line: 92, includedInAverage: true },
+      { bookKey: "caesars", line: 94, includedInAverage: true },
+    ];
+    // Pinnacle weighted 3x, FanDuel and Caesars left at the default weight of 1 each:
+    // (90*3 + 92*1 + 94*1) / 5 = 456/5 = 91.2
+    expect(averageClosingLine(lines, { pinnacle: 3 }).avg).toBeCloseTo(91.2);
+  });
+
+  it("falls back to a plain mean when no weights are given, even with the same inputs", () => {
+    const lines = [
+      { bookKey: "pinnacle", line: 90, includedInAverage: true },
+      { bookKey: "fanduel", line: 94, includedInAverage: true },
+    ];
+    expect(averageClosingLine(lines).avg).toBe(92);
+    expect(averageClosingLine(lines, {}).avg).toBe(92);
+  });
+
+  it("does not divide by zero when every configured weight is zero", () => {
+    const lines = [
+      { bookKey: "pinnacle", line: 90, includedInAverage: true },
+      { bookKey: "fanduel", line: 94, includedInAverage: true },
+    ];
+    expect(averageClosingLine(lines, { pinnacle: 0, fanduel: 0 }).avg).toBe(92);
   });
 });
 
@@ -122,6 +154,21 @@ describe("CLV direction by market type", () => {
     expect(computeClv("GAME_TOTAL", "OVER", 29.5, 29.5).beatClv).toBe(false);
     expect(computeClv("PLAYER_PROP", "OVER", 62.5, 62.5).beatClv).toBe(false);
   });
+
+  // Moneylines run the same taken-minus-close subtraction as a spread, over the raw American-odds
+  // price instead of a point number -- the sign works out the same way in both directions.
+  it("treats a moneyline like a spread, over price instead of points", () => {
+    // favourite: took -150, closed -165 -> the market later demanded more to back them, a better
+    // price held.
+    expect(computeClv("MONEYLINE", null, -150, -165)).toEqual({ edge: 15, beatClv: true });
+    // favourite: took -150, closed -135 -> the price got friendlier after capture, a worse price
+    // held.
+    expect(computeClv("MONEYLINE", null, -150, -135)).toEqual({ edge: -15, beatClv: false });
+    // underdog: took +130, closed +115 -> later bettors got paid less to take the same side.
+    expect(computeClv("MONEYLINE", null, 130, 115)).toEqual({ edge: 15, beatClv: true });
+    // underdog: took +130, closed +145 -> later bettors got paid more for the same side.
+    expect(computeClv("MONEYLINE", null, 130, 145)).toEqual({ edge: -15, beatClv: false });
+  });
 });
 
 describe("matching", () => {
@@ -186,7 +233,55 @@ describe("matching", () => {
     expect(findMatchingRow([row({ player: "Cooper Kupp" })], target)).toBeNull();
   });
 
-  it("keeps a stable match key as the line moves", () => {
+  it("re-finds a moneyline by team, since it has no side to key off", () => {
+    // A moneyline's side is always null, so the game-market branch has to key off subjectTeam
+    // (like SPREAD) instead of falling into the side-matching branch, which would require
+    // null === null on a field that never disambiguates a game market from any other.
+    const rows = [
+      row({
+        marketType: "MONEYLINE",
+        player: null,
+        side: null,
+        subjectTeam: "Seattle Seahawks",
+        statMarket: "Moneyline",
+        matchup: "Seattle Seahawks vs Los Angeles Rams",
+        takenLine: -165,
+      }),
+    ];
+    const target = {
+      marketType: "MONEYLINE" as const,
+      subjectTeam: "Seattle Seahawks",
+      matchup: "Seattle Seahawks vs Los Angeles Rams",
+      player: null,
+      statMarket: "Moneyline",
+      side: null,
+      externalPropId: null,
+    };
+    expect(findMatchingRow(rows, target)?.takenLine).toBe(-165);
+    expect(findMatchingRow(rows, { ...target, subjectTeam: "Los Angeles Rams" })).toBeNull();
+  });
+
+  it("is stable for the same capture and differs on the fields that identify the pick", () => {
+    const base = {
+      site: "ODDSJAM",
+      marketType: "PLAYER_PROP" as const,
+      subjectTeam: null,
+      fantasyBook: "prizepicks",
+      sport: "NFL",
+      player: "Aaron Rodgers",
+      statMarket: "Fantasy Score (PrizePicks)",
+      side: "OVER",
+      takenLine: 24.5,
+      gameStartTime: new Date("2026-09-13T17:00:00Z"),
+    };
+    expect(buildMatchKey(base)).toBe(buildMatchKey({ ...base }));
+    expect(buildMatchKey(base)).not.toBe(buildMatchKey({ ...base, side: "UNDER" }));
+  });
+
+  it("keys two Alt lines on the same player/stat/side separately", () => {
+    // Alt boards offer the same player/stat/side at several lines at once. Ticking both used to
+    // collide on one matchKey, so the second tick silently updated the first pick instead of
+    // tracking a second one.
     const base = {
       site: "ODDSJAM",
       marketType: "PLAYER_PROP" as const,
@@ -198,7 +293,8 @@ describe("matching", () => {
       side: "OVER",
       gameStartTime: new Date("2026-09-13T17:00:00Z"),
     };
-    expect(buildMatchKey(base)).toBe(buildMatchKey({ ...base }));
-    expect(buildMatchKey(base)).not.toBe(buildMatchKey({ ...base, side: "UNDER" }));
+    expect(buildMatchKey({ ...base, takenLine: 24.5 })).not.toBe(
+      buildMatchKey({ ...base, takenLine: 26.5 })
+    );
   });
 });

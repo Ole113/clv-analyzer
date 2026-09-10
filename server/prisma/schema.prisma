@@ -137,6 +137,28 @@ model OpenLine {
   @@index([betId])
 }
 
+/// A single global settings row (id is always "singleton"). One row rather than a key/value table
+/// because there is only ever one set of these -- a user, not a workspace -- and a single row is
+/// simpler to read and upsert than a table that must always contain exactly one entry.
+model AppSettings {
+  id String @id @default("singleton")
+
+  /// Comma-separated book keys (normalized, e.g. "fanduel,draftkings,pinnacle"), in the order the
+  /// open/close snapshot tables should render them. A book missing from this list renders after
+  /// the ones that are, in whatever order the board gave them.
+  bookOrder String @default("")
+
+  /// Off by default: the closing average is a plain mean, same as before this setting existed.
+  useWeightedAverage Boolean @default(false)
+  /// JSON object of bookKey -> weight (e.g. {"pinnacle":3,"fanduel":1}). SQLite has no Json
+  /// scalar (see the note at the top of this file), so it is stored as text and parsed in
+  /// src/lib/app-settings.ts. A book with no entry here defaults to weight 1 when weighting is
+  /// on, so every book not explicitly weighted is effectively averaged evenly among itself.
+  bookWeightsJson String @default("{}")
+
+  updatedAt DateTime @updatedAt
+}
+
 /// One sportsbook column as rendered in the row at market close.
 model CloseLine {
   id                String  @id @default(cuid())

@@ -218,14 +218,19 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
    * How far the result landed from what the bet needed.
    *
    * A spread is measured against the NEGATED handicap -- taking +5.5 needs a margin better than
-   * -5.5 -- so subtracting the raw line (as a prop does) would report a nonsense number.
+   * -5.5 -- so subtracting the raw line (as a prop does) would report a nonsense number. A
+   * moneyline is the same margin with no handicap to beat -- it needs better than 0 -- so the
+   * margin is the actual value itself; `takenLine` there holds the average price, not a margin,
+   * and subtracting it would be just as wrong.
    */
   const resultMargin =
     bet.actualValue === null
       ? null
       : bet.marketType === "SPREAD"
         ? bet.actualValue + bet.takenLine
-        : bet.actualValue - bet.takenLine;
+        : bet.marketType === "MONEYLINE"
+          ? bet.actualValue
+          : bet.actualValue - bet.takenLine;
 
   const resultSentence =
     bet.actualValue === null ? null : bet.marketType === "SPREAD" ? (
@@ -237,6 +242,15 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
         on the scoreboard against a {bet.takenLine > 0 ? `+${bet.takenLine}` : bet.takenLine}{" "}
         spread — {(resultMargin ?? 0) > 0 ? "covered by" : (resultMargin ?? 0) === 0 ? "landed exactly on" : "short by"}{" "}
         {Math.abs(resultMargin ?? 0)}.
+      </>
+    ) : bet.marketType === "MONEYLINE" ? (
+      <>
+        {bet.subjectTeam ?? "The team"} finished the game{" "}
+        <strong>
+          {bet.actualValue > 0 ? `up ${bet.actualValue}` : bet.actualValue < 0 ? `down ${Math.abs(bet.actualValue)}` : "level"}
+        </strong>{" "}
+        on the scoreboard —{" "}
+        {bet.actualValue > 0 ? "won outright." : bet.actualValue < 0 ? "lost outright." : "the game ended level."}
       </>
     ) : bet.marketType === "GAME_TOTAL" ? (
       <>
@@ -281,15 +295,15 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
         </a>
       </p>
       <p className="muted" style={{ fontSize: 12, marginTop: -8 }}>
-        {oddsScreenUrlFor(bet).prefilled ? (
+        {oddsScreenUrlFor(bet).filteredTo === "sport" ? (
           <>
-            The odds screen opens filtered to {bet.sport} / {bet.statMarket}; search it for the
-            player.
+            That link lands on the {bet.sport} odds page — neither site lets a market or a player be
+            set from a URL, so choose {bet.statMarket} there and search for the player.
           </>
         ) : (
           <>
             PropProfessor keeps its screen filters in memory rather than the URL, so they cannot be
-            pre-filled from a link — search the screen for the player instead.
+            pre-filled from a link — set them there and search for the player.
           </>
         )}{" "}
         {bet.player && <CopyButton value={bet.player} label="Copy player name" />}

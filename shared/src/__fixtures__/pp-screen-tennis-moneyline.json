@@ -1,0 +1,258 @@
+{
+  "_source": "PropProfessor POST https://backend.propprofessor.com/screen, captured 2026-09-10",
+  "_request": {
+    "market": "Moneyline",
+    "league": "Tennis",
+    "games": [],
+    "participants": [],
+    "books": [],
+    "is_live": false,
+    "userState": "ut"
+  },
+  "_note": "game_data trimmed to the rows used by tests; games/participants trimmed for size.",
+  "game_data": [
+    {
+      "id": "Tennis:GAME:Binda_&_Biryukov:Noguchi_&_Wang:1789032600:Binda & Biryukov",
+      "gameId": "Tennis:GAME:Binda_&_Biryukov:Noguchi_&_Wang:1789032600",
+      "start": "2026-09-10T09:30:00.000Z",
+      "league": "Tennis",
+      "leagueName": "",
+      "homeTeam": "Binda & Biryukov",
+      "awayTeam": "Noguchi & Wang",
+      "isLive": false,
+      "liveData": null,
+      "market": "Moneyline",
+      "participant": "",
+      "defaultKey": "null",
+      "selections": {
+        "null": {
+          "selection1": "Binda & Biryukov",
+          "participant1": "Binda & Biryukov",
+          "selectionType1": null,
+          "selection1Id": "Moneyline:Binda_&_Biryukov",
+          "line1": null,
+          "selection2": "Noguchi & Wang",
+          "participant2": "Noguchi & Wang",
+          "selectionType2": null,
+          "selection2Id": "Moneyline:Noguchi_&_Wang",
+          "line2": null,
+          "odds": {
+            "Polymarket": {
+              "book": "Polymarket",
+              "odds1": -646,
+              "odds2": -646,
+              "liquidity1": 20,
+              "liquidity2": 19
+            },
+            "BetMGM": {
+              "book": "BetMGM",
+              "odds1": -120,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Bovada": {
+              "book": "Bovada",
+              "odds1": -115,
+              "odds2": -115,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": -115,
+              "odds2": -115,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "SportZino": {
+              "book": "SportZino",
+              "odds1": -122,
+              "odds2": -122,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "Tennis:GAME:Butvilas:Tobon:1789023600:Butvilas",
+      "gameId": "Tennis:GAME:Butvilas:Tobon:1789023600",
+      "start": "2026-09-10T07:00:00.000Z",
+      "league": "Tennis",
+      "leagueName": "Challenger Istanbul",
+      "homeTeam": "Butvilas",
+      "awayTeam": "Tobon",
+      "isLive": false,
+      "liveData": null,
+      "market": "Moneyline",
+      "participant": "",
+      "defaultKey": "null",
+      "selections": {
+        "null": {
+          "selection1": "Butvilas",
+          "participant1": "Butvilas",
+          "selectionType1": null,
+          "selection1Id": "Moneyline:Butvilas",
+          "line1": null,
+          "selection2": "Tobon",
+          "participant2": "Tobon",
+          "selectionType2": null,
+          "selection2Id": "Moneyline:Tobon",
+          "line2": null,
+          "odds": {
+            "Bovada": {
+              "book": "Bovada",
+              "odds1": -375,
+              "odds2": 260,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": -350,
+              "odds2": 250,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "BetRivers": {
+              "book": "BetRivers",
+              "odds1": -315,
+              "odds2": 225,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "BetMGM": {
+              "book": "BetMGM",
+              "odds1": -425,
+              "odds2": 260,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "Kalshi": {
+              "book": "Kalshi",
+              "odds1": -360,
+              "odds2": 280,
+              "liquidity1": 5518,
+              "liquidity2": 2426
+            },
+            "theScore": {
+              "book": "theScore",
+              "odds1": -380,
+              "odds2": 260,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "BetOnline": {
+              "book": "BetOnline",
+              "odds1": -350,
+              "odds2": 249,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "BallyBet": {
+              "book": "BallyBet",
+              "odds1": -315,
+              "odds2": 225,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "OnyxOdds": {
+              "book": "OnyxOdds",
+              "odds1": -365,
+              "odds2": 258,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "PolymarketUS": {
+              "book": "PolymarketUS",
+              "odds1": -355,
+              "odds2": 282,
+              "liquidity1": 61709,
+              "liquidity2": 1028
+            },
+            "Pinnacle": {
+              "book": "Pinnacle",
+              "odds1": -357,
+              "odds2": 275,
+              "liquidity1": 1050,
+              "liquidity2": 1050
+            },
+            "Polymarket": {
+              "book": "Polymarket",
+              "odds1": -352,
+              "odds2": 301,
+              "liquidity1": 566,
+              "liquidity2": 386
+            },
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": -420,
+              "odds2": 280,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": -365,
+              "odds2": 258,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "SportZino": {
+              "book": "SportZino",
+              "odds1": -400,
+              "odds2": 233,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "Hardrock": {
+              "book": "Hardrock",
+              "odds1": -325,
+              "odds2": 225,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "BetParx": {
+              "book": "BetParx",
+              "odds1": -315,
+              "odds2": 225,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        }
+      }
+    }
+  ],
+  "games": [
+    "Tennis:GAME:(2004):Peliwo:1789007400",
+    "Tennis:GAME:2004):Peliwo:1789007400",
+    "Tennis:GAME:Aboian:Martinez:1789113600",
+    "Tennis:GAME:Acosta:Ofner:1789117200",
+    "Tennis:GAME:Akugue:Sobolieva:1789113600"
+  ],
+  "participants": [
+    "(2004)",
+    "2004)",
+    "Aboian",
+    "Acosta",
+    "Akugue",
+    "Alame & Frodin",
+    "Albot",
+    "Alkaya",
+    "Alkaya & Duran",
+    "Alvarez & Cozad",
+    "Arneodo & Blanchet",
+    "Ayeni & Chopra",
+    "Azam & Zhalgasbay",
+    "Azkara & Erel",
+    "Bagaric",
+    "Barrena",
+    "Barrientos & Kestelboim",
+    "Basing",
+    "Bayldon & Charlton",
+    "Behar & Romboli"
+  ]
+}

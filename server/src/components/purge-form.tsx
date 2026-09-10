@@ -19,8 +19,8 @@ export function PurgeForm({
   demoCount,
   purgeDemoAction,
 }: {
-  countAction?: (amount: number, unit: string) => Promise<number>;
-  purgeAction?: (amount: number, unit: string) => Promise<number>;
+  countAction?: (amount: number, unit: string, onlyTestData: boolean) => Promise<number>;
+  purgeAction?: (amount: number, unit: string, onlyTestData: boolean) => Promise<number>;
   demoOnly?: boolean;
   demoCount?: number;
   purgeDemoAction?: () => Promise<number>;
@@ -28,6 +28,7 @@ export function PurgeForm({
   const { push } = useToast();
   const [amount, setAmount] = useState(1);
   const [unit, setUnit] = useState("days");
+  const [onlyTestData, setOnlyTestData] = useState(false);
   const [staged, setStaged] = useState<number | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -35,7 +36,7 @@ export function PurgeForm({
   if (demoOnly) {
     return (
       <div className="purge">
-        <span className="muted">{demoCount} demo pick(s) from the seed script.</span>
+        <span className="muted">{demoCount} test data pick(s).</span>
         <span className="action-btn-wrap">
           <button
             type="button"
@@ -43,13 +44,13 @@ export function PurgeForm({
             disabled={pending}
             onClick={() => setConfirming(true)}
           >
-            {pending ? "Deleting..." : "Delete demo picks"}
+            {pending ? "Deleting..." : "Delete all test data"}
           </button>
         </span>
         <Modal
           open={confirming}
-          title="Delete the demo picks?"
-          body={`All ${demoCount} rows created by the seed script will be removed.`}
+          title="Delete all test data?"
+          body={`All ${demoCount} rows marked as test data will be removed. Real captured picks are untouched.`}
           confirmLabel="Delete them"
           danger
           onCancel={() => setConfirming(false)}
@@ -58,11 +59,11 @@ export function PurgeForm({
             startTransition(async () => {
               try {
                 const n = await purgeDemoAction!();
-                push("success", `Deleted ${n} demo pick${n === 1 ? "" : "s"}`);
+                push("success", `Deleted ${n} test data pick${n === 1 ? "" : "s"}`);
               } catch (error) {
                 push(
                   "error",
-                  "Could not delete the demo picks",
+                  "Could not delete the test data",
                   error instanceof Error ? error.message : null
                 );
               }
@@ -107,13 +108,26 @@ export function PurgeForm({
         <option value="years">years</option>
       </select>
 
+      <label className="muted" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <input
+          type="checkbox"
+          checked={onlyTestData}
+          onChange={(e) => {
+            setOnlyTestData(e.target.checked);
+            reset();
+          }}
+        />
+        Only test data
+      </label>
+
       {/* At a count of zero there is nothing to confirm or cancel, so neither button is offered --
           only the finding, plus the chance to check a different window. */}
       {staged === null || staged === 0 ? (
         <>
           {staged === 0 && (
             <span className="muted">
-              No picks were captured in that window — nothing to delete.
+              No {onlyTestData ? "test data " : ""}picks were captured in that window — nothing to
+              delete.
             </span>
           )}
           <span className="action-btn-wrap">
@@ -123,7 +137,7 @@ export function PurgeForm({
               onClick={() =>
                 startTransition(async () => {
                   try {
-                    setStaged(await countAction!(amount, unit));
+                    setStaged(await countAction!(amount, unit, onlyTestData));
                   } catch (error) {
                     push(
                       "error",
@@ -164,8 +178,9 @@ export function PurgeForm({
         title={`Delete ${staged} pick${staged === 1 ? "" : "s"}?`}
         body={
           <>
-            Every pick captured in the last {amount} {unit}, and both of its snapshots, will be
-            permanently removed. <strong>This cannot be undone.</strong>
+            Every {onlyTestData ? "test data " : ""}pick captured in the last {amount} {unit}, and
+            both of its snapshots, will be permanently removed.{" "}
+            <strong>This cannot be undone.</strong>
           </>
         }
         confirmLabel={`Delete ${staged} permanently`}
@@ -175,7 +190,7 @@ export function PurgeForm({
           setConfirming(false);
           startTransition(async () => {
             try {
-              const n = await purgeAction!(amount, unit);
+              const n = await purgeAction!(amount, unit, onlyTestData);
               setStaged(null);
               push("success", `Deleted ${n} pick${n === 1 ? "" : "s"}`);
             } catch (error) {

@@ -1,0 +1,386 @@
+{
+  "_source": "PropProfessor POST https://backend.propprofessor.com/screen, captured 2026-09-10",
+  "_request": {
+    "market": "Player Aces",
+    "league": "Tennis",
+    "games": [],
+    "participants": [],
+    "books": [],
+    "is_live": false,
+    "userState": "ut"
+  },
+  "_note": "game_data trimmed to the rows used by tests; games/participants trimmed for size.",
+  "game_data": [
+    {
+      "id": "Tennis:GAME:Shelton:Tiafoe:1789128000:Tiafoe",
+      "gameId": "Tennis:GAME:Shelton:Tiafoe:1789128000",
+      "start": "2026-09-11T12:00:00.000Z",
+      "league": "Tennis",
+      "leagueName": "US Open",
+      "homeTeam": "Shelton",
+      "awayTeam": "Tiafoe",
+      "isLive": false,
+      "liveData": null,
+      "market": "Player Aces",
+      "participant": "Tiafoe",
+      "defaultKey": "5.5",
+      "selections": {
+        "null": {
+          "selection1": "Tiafoe Over 5.5",
+          "participant1": "Tiafoe",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Tiafoe_Over_5.5",
+          "line1": null,
+          "selection2": "Tiafoe Under 5.5",
+          "participant2": "Tiafoe",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Tiafoe_Under_5.5",
+          "line2": null,
+          "odds": {
+            "BetMGM": {
+              "book": "BetMGM",
+              "odds1": -120,
+              "odds2": -120,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        },
+        "5.5": {
+          "selection1": "Tiafoe Over 5.5",
+          "participant1": "Tiafoe",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Tiafoe_Over_5.5",
+          "line1": 5.5,
+          "selection2": "Tiafoe Under 5.5",
+          "participant2": "Tiafoe",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Tiafoe_Under_5.5",
+          "line2": 5.5,
+          "odds": {
+            "Bovada": {
+              "book": "Bovada",
+              "odds1": -125,
+              "odds2": -105,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        },
+        "4.5": {
+          "selection1": "Tiafoe Over 4.5",
+          "participant1": "Tiafoe",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Tiafoe_Over_4.5",
+          "line1": 4.5,
+          "selection2": "Tiafoe Under 4.5",
+          "participant2": "Tiafoe",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Tiafoe_Under_4.5",
+          "line2": 4.5,
+          "odds": {
+            "OnyxOdds": {
+              "book": "OnyxOdds",
+              "odds1": -272,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "8.5": {
+          "selection1": "Tiafoe Over 8.5",
+          "participant1": "Tiafoe",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Tiafoe_Over_8.5",
+          "line1": 8.5,
+          "selection2": "Tiafoe Under 8.5",
+          "participant2": "Tiafoe",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Tiafoe_Under_8.5",
+          "line2": 8.5,
+          "odds": {
+            "OnyxOdds": {
+              "book": "OnyxOdds",
+              "odds1": 208,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": 174,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "6.5": {
+          "selection1": "Tiafoe Over 6.5",
+          "participant1": "Tiafoe",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Tiafoe_Over_6.5",
+          "line1": 6.5,
+          "selection2": "Tiafoe Under 6.5",
+          "participant2": "Tiafoe",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Tiafoe_Under_6.5",
+          "line2": 6.5,
+          "odds": {
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": -119,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "OnyxOdds": {
+              "book": "OnyxOdds",
+              "odds1": -110,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Underdog": {
+              "book": "Underdog",
+              "odds1": -107,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "Tennis:GAME:Shelton:Tiafoe:1789128000:Shelton",
+      "gameId": "Tennis:GAME:Shelton:Tiafoe:1789128000",
+      "start": "2026-09-11T12:00:00.000Z",
+      "league": "Tennis",
+      "leagueName": "US Open",
+      "homeTeam": "Shelton",
+      "awayTeam": "Tiafoe",
+      "isLive": false,
+      "liveData": null,
+      "market": "Player Aces",
+      "participant": "Shelton",
+      "defaultKey": "16.5",
+      "selections": {
+        "17": {
+          "selection1": "Shelton Over 17",
+          "participant1": "Shelton",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Shelton_Over_17",
+          "line1": 17,
+          "selection2": "Shelton Under 17",
+          "participant2": "Shelton",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Shelton_Under_17",
+          "line2": 17,
+          "odds": {
+            "PrizePicks": {
+              "book": "PrizePicks",
+              "odds1": -119,
+              "odds2": -119,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "Dabble": {
+              "book": "Dabble",
+              "odds1": -115,
+              "odds2": -115,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        },
+        "16.5": {
+          "selection1": "Shelton Over 16.5",
+          "participant1": "Shelton",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Shelton_Over_16.5",
+          "line1": 16.5,
+          "selection2": "Shelton Under 16.5",
+          "participant2": "Shelton",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Shelton_Under_16.5",
+          "line2": 16.5,
+          "odds": {
+            "Bovada": {
+              "book": "Bovada",
+              "odds1": -115,
+              "odds2": -115,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        },
+        "17.5": {
+          "selection1": "Shelton Over 17.5",
+          "participant1": "Shelton",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Shelton_Over_17.5",
+          "line1": 17.5,
+          "selection2": "Shelton Under 17.5",
+          "participant2": "Shelton",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Shelton_Under_17.5",
+          "line2": 17.5,
+          "odds": {
+            "Betr": {
+              "book": "Betr",
+              "odds1": -118,
+              "odds2": -118,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        },
+        "null": {
+          "selection1": "Shelton Over 17.5",
+          "participant1": "Shelton",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Shelton_Over_17.5",
+          "line1": null,
+          "selection2": "Shelton Under 17.5",
+          "participant2": "Shelton",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Shelton_Under_17.5",
+          "line2": null,
+          "odds": {
+            "BetMGM": {
+              "book": "BetMGM",
+              "odds1": -120,
+              "odds2": -120,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        },
+        "19.5": {
+          "selection1": "Shelton Over 19.5",
+          "participant1": "Shelton",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Shelton_Over_19.5",
+          "line1": 19.5,
+          "selection2": "Shelton Under 19.5",
+          "participant2": "Shelton",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Shelton_Under_19.5",
+          "line2": 19.5,
+          "odds": {
+            "OnyxOdds": {
+              "book": "OnyxOdds",
+              "odds1": 200,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Underdog (Alt)": {
+              "book": "Underdog (Alt)",
+              "odds1": 190,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "14.5": {
+          "selection1": "Shelton Over 14.5",
+          "participant1": "Shelton",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Shelton_Over_14.5",
+          "line1": 14.5,
+          "selection2": "Shelton Under 14.5",
+          "participant2": "Shelton",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Shelton_Under_14.5",
+          "line2": 14.5,
+          "odds": {
+            "OnyxOdds": {
+              "book": "OnyxOdds",
+              "odds1": -224,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": -312,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "Tennis:GAME:Bennemann:Buyukakcay:1789041600:Bennemann",
+      "gameId": "Tennis:GAME:Bennemann:Buyukakcay:1789041600",
+      "start": "2026-09-10T12:00:00.000Z",
+      "league": "Tennis",
+      "leagueName": "WTA 125 Antalya",
+      "homeTeam": "Bennemann",
+      "awayTeam": "Buyukakcay",
+      "isLive": false,
+      "liveData": null,
+      "market": "Player Aces",
+      "participant": "Bennemann",
+      "defaultKey": "1.5",
+      "selections": {
+        "1.5": {
+          "selection1": "Bennemann Over 1.5",
+          "participant1": "Bennemann",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Aces:Bennemann_Over_1.5",
+          "line1": 1.5,
+          "selection2": "Bennemann Under 1.5",
+          "participant2": "Bennemann",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Aces:Bennemann_Under_1.5",
+          "line2": 1.5,
+          "odds": {
+            "Underdog (Alt)": {
+              "book": "Underdog (Alt)",
+              "odds1": 126,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        }
+      }
+    }
+  ],
+  "games": [
+    "Tennis:GAME:(2004):Peliwo:1789007400",
+    "Tennis:GAME:2004):Peliwo:1789007400",
+    "Tennis:GAME:Aboian:Martinez:1789113600",
+    "Tennis:GAME:Acosta:Ofner:1789117200",
+    "Tennis:GAME:Akugue:Sobolieva:1789113600"
+  ],
+  "participants": [
+    "Bagaric",
+    "Bennemann",
+    "Buyukakcay",
+    "Carle",
+    "Dencheva",
+    "Escorihuela",
+    "Ferro",
+    "Gauff",
+    "Havlickova",
+    "Ibragimova",
+    "Jones",
+    "Linana",
+    "Olmo",
+    "Palicova",
+    "Papamichail",
+    "Pegula",
+    "Rybakina",
+    "Sabalenka",
+    "Shelton",
+    "Tiafoe"
+  ]
+}

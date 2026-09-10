@@ -1,5 +1,4 @@
 import {
-  parseOddsJamTable,
   parsePropProfessorTable,
   findMatchingRow,
   type MarketType,
@@ -39,19 +38,48 @@ export interface WorkItem {
   gameStartTime: string | null;
 }
 
-const BOARD_URL: Record<WorkItem["site"], (book: string) => string> = {
-  ODDSJAM: (book) => `https://fantasy.oddsjam.com/fantasy-odds/${book && book !== "unknown" ? book : "prizepicks"}`,
-  PROPPROFESSOR: () => "https://www.propprofessor.com/fantasy",
-};
+/**
+ * The only host this worker is ever allowed to open or fetch.
+ *
+ * OddsJam is deliberately absent and must stay absent. That subscription is paid a year up front,
+ * so a ban is unrecoverable, whereas the PropProfessor account is replaceable. Reading the DOM of
+ * an OddsJam page the user opened themselves is fine and still happens at capture time -- it sends
+ * no requests to them. What is forbidden is this worker *initiating* contact on a timer.
+ *
+ * There is a test asserting no closing-path module mentions oddsjam.com, because "don't automate
+ * that host" is exactly the kind of rule a later refactor undoes without noticing.
+ */
+const PROPPROFESSOR_BOARD_URL = "https://www.propprofessor.com/fantasy";
 
 const MAX_SCROLL_PASSES = 12;
 const LOAD_TIMEOUT_MS = 60_000;
 /** The boards arrive over a websocket well after document load, so rows need their own wait. */
 const BOARD_READY_TIMEOUT_MS = 45_000;
 
-function boardUrlFor(item: WorkItem): string {
-  const url = item.pageUrl && /^https?:\/\//.test(item.pageUrl) ? item.pageUrl : null;
-  return url ?? BOARD_URL[item.site](item.fantasyBook);
+export interface UnplannableRead {
+  reason: string;
+}
+
+/**
+ * Where to read this pick's closing line, or why it cannot be read yet.
+ *
+ * `item.pageUrl` is deliberately ignored. It holds the board the pick was *captured* on, which for
+ * an OddsJam pick is an oddsjam.com URL -- and because it used to take precedence over the board
+ * map, dropping OddsJam from that map alone would not have stopped the traffic. Provenance and
+ * read-target are now separate concerns: `pageUrl` stays a link for the dashboard, nothing more.
+ *
+ * OddsJam-captured picks are skipped rather than read from the wrong board. They stay queued and
+ * unread, which is honest; the PropProfessor screen reader that will serve them is the next phase.
+ */
+export function planBoardRead(item: WorkItem): { url: string } | UnplannableRead {
+  if (item.site !== "PROPPROFESSOR") {
+    return {
+      reason:
+        `${item.site} closing reads are disabled: this worker never sends automated traffic to ` +
+        `that host. Waiting on the PropProfessor screen reader, which can price this pick instead.`,
+    };
+  }
+  return { url: PROPPROFESSOR_BOARD_URL };
 }
 
 function waitForTabLoad(tabId: number): Promise<void> {
@@ -118,10 +146,11 @@ async function findOrOpenTab(url: string): Promise<{ tabId: number; opened: bool
   return { tabId: tab.id, opened: true };
 }
 
-async function parseBoard(tabId: number, site: WorkItem["site"]): Promise<ParseResult> {
+/** Only ever runs against PropProfessor now -- see planBoardRead for why there is no site branch. */
+async function parseBoard(tabId: number): Promise<ParseResult> {
   const [injection] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: site === "ODDSJAM" ? parseOddsJamTable : parsePropProfessorTable,
+    func: parsePropProfessorTable,
   });
   return (injection?.result as ParseResult) ?? { ok: false, reason: "no result", headers: [], rows: [] };
 }
@@ -138,7 +167,11 @@ export interface BoardReadResult {
  * what is on screen), and returns the matching row.
  */
 export async function readClosingBoard(item: WorkItem): Promise<BoardReadResult> {
-  const url = boardUrlFor(item);
+  const planned = planBoardRead(item);
+  if ("reason" in planned) {
+    return { row: null, parseOk: false, boardRowCount: 0, reason: planned.reason };
+  }
+  const url = planned.url;
   let tabId: number | null = null;
   let opened = false;
 
@@ -152,7 +185,7 @@ export async function readClosingBoard(item: WorkItem): Promise<BoardReadResult>
     const deadline = Date.now() + BOARD_READY_TIMEOUT_MS;
     let ready: ParseResult | null = null;
     while (Date.now() < deadline) {
-      const result = await parseBoard(tabId, item.site);
+      const result = await parseBoard(tabId);
       if (result.ok && result.rows.length > 0) {
         ready = result;
         break;
@@ -205,7 +238,7 @@ export async function readClosingBoard(item: WorkItem): Promise<BoardReadResult>
       const before = seen.size;
       await chrome.scripting.executeScript({ target: { tabId }, func: scrollBoard });
       await sleep(900);
-      absorb(await parseBoard(tabId, item.site));
+      absorb(await parseBoard(tabId));
       match = findMatchingRow([...seen.values()], target);
       // Only stop once the board has actually produced rows and stopped producing more.
       if (!match && seen.size === before && seen.size > 0 && pass > 0) break;
@@ -230,8 +263,27 @@ export async function readClosingBoard(item: WorkItem): Promise<BoardReadResult>
   }
 }
 
+/**
+ * Guards against the 60s alarm re-entering a run that is still going.
+ *
+ * A single read can take 45s waiting for the board plus twelve scroll passes, and the queue serves
+ * ten picks at a time, so overlapping runs were routine -- two tabs on the same board, both
+ * reporting, and the same pick read twice.
+ */
+let inFlight = false;
+
 /** Asks the server what is due, reads each board, and reports back. Returns how many it handled. */
 export async function runClosingWork(): Promise<number> {
+  if (inFlight) return 0;
+  inFlight = true;
+  try {
+    return await runClosingWorkInner();
+  } finally {
+    inFlight = false;
+  }
+}
+
+async function runClosingWorkInner(): Promise<number> {
   const settings = await loadSettings();
   if (!settings.backendUrl || !settings.apiKey) return 0;
 
@@ -250,6 +302,15 @@ export async function runClosingWork(): Promise<number> {
   let handled = 0;
   // One tab at a time: this runs in the background while the user is working.
   for (const item of work) {
+    // Skipped without reporting, deliberately. Reporting would land in apply-closing's failure
+    // branch, burning a fetchAttempt each minute until the pick was written off as FETCH_FAILED --
+    // but nothing failed. The pick simply has no reader yet, so it stays queued and untouched.
+    const planned = planBoardRead(item);
+    if ("reason" in planned) {
+      console.info(`[CLV Analyzer] skipping ${item.id}: ${planned.reason}`);
+      continue;
+    }
+
     const read = await readClosingBoard(item);
     try {
       await fetch(apiUrl(settings.backendUrl, "/api/closing-snapshots"), {

@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
-import { OPEN_STATUSES, SETTLED_STATUSES, type MarketType, type Status } from "./constants";
+import { CLV_STATUSES, OPEN_STATUSES, SETTLED_STATUSES, type MarketType, type Status } from "./constants";
+import { getAppSettings, sortByBookOrder } from "./app-settings";
 
 export interface BetFilters {
   group?: "open" | "settled" | "all";
@@ -43,7 +44,7 @@ export function parseBetFilters(params: URLSearchParams): BetFilters {
     statMarket: clean("stat"),
     side: clean("side"),
     live: (["live", "prematch"] as const).find((v) => v === clean("live")),
-    marketType: (["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "OTHER"] as const).find(
+    marketType: (["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "MONEYLINE", "OTHER"] as const).find(
       (v) => v === clean("market")
     ),
     q: clean("q"),
@@ -83,7 +84,9 @@ function whereFrom(filters: BetFilters) {
   if (filters.verdict) {
     // CLV verdicts only exist on picks whose closing line was captured, so this narrows the
     // status set rather than replacing whatever was already there.
-    where.status = statuses ? { in: statuses.filter((s) => s === "CLOSED") } : "CLOSED";
+    where.status = statuses
+      ? { in: statuses.filter((s) => (CLV_STATUSES as string[]).includes(s)) }
+      : { in: CLV_STATUSES };
     where.beatClv = filters.verdict === "beat";
   }
 
@@ -127,14 +130,24 @@ export async function listBets(filters: BetFilters) {
 }
 
 export async function getBetDetail(id: string) {
-  const bet = await prisma.bet.findUnique({
-    where: { id },
-    include: {
-      openLines: { orderBy: { bookKey: "asc" } },
-      closeLines: { orderBy: { bookKey: "asc" } },
-    },
-  });
-  return bet;
+  const [bet, settings] = await Promise.all([
+    prisma.bet.findUnique({
+      where: { id },
+      include: {
+        openLines: { orderBy: { bookKey: "asc" } },
+        closeLines: { orderBy: { bookKey: "asc" } },
+      },
+    }),
+    getAppSettings(),
+  ]);
+  if (!bet) return bet;
+  // The alphabetical DB order is just a stable tiebreaker; the configured book order (Settings ->
+  // Books) is what actually decides display order here.
+  return {
+    ...bet,
+    openLines: sortByBookOrder(bet.openLines, settings.bookOrder),
+    closeLines: sortByBookOrder(bet.closeLines, settings.bookOrder),
+  };
 }
 
 export interface Breakdown {
@@ -185,7 +198,7 @@ export async function getOverviewStats(filters: BetFilters) {
     take: 5000,
   });
 
-  const closed = bets.filter((b) => b.status === "CLOSED");
+  const closed = bets.filter((b) => (CLV_STATUSES as string[]).includes(b.status));
   const overall = summarize(closed);
 
   const byKey = (pick: (b: (typeof bets)[number]) => string | null): Breakdown[] => {
@@ -268,42 +281,42 @@ const ODDSJAM_SPORT_SLUG: Record<string, string> = {
   mlb: "mlb",
   nhl: "nhl",
   ncaab: "ncaab",
+  // The boards label tennis by tour; OddsJam files them all under one path.
+  atp: "tennis",
+  wta: "tennis",
+  tennis: "tennis",
 };
 
 /**
- * Link to the site's own odds screen for this prop.
+ * Link to the site's own odds page for this pick, for looking a number up by hand.
  *
- * OddsJam encodes sport and market in the path, so the screen opens already filtered:
- * /nfl/screen/player-passing-yards renders "Sportsbook Screen - NFL - Player-passing-yards"
- * (verified against the live site). The player is not part of any supported URL, so the last hop
- * is the site's own search.
+ * This used to build /<sport>/screen/<market> URLs, on the strength of them opening already
+ * filtered. They need a subscription tier this account does not have, so every one of these links
+ * was dead -- and the "opens already filtered to X" copy beside them promised something the user
+ * could not even reach. /<sport>/odds is reachable; the market and player are then the site's own
+ * dropdown and search.
  *
  * PropProfessor's screen keeps all of its filter state in memory: changing a dropdown never
  * changes the URL, and loading /screen?sport=NFL still shows MLB (both verified). So there is no
- * honest way to pre-fill it, and the link goes to the plain screen.
+ * honest way to pre-fill that one either.
+ *
+ * This is a link a human clicks, which is ordinary browsing. It is unrelated to -- and must not be
+ * confused with -- the closing read, which never contacts OddsJam automatically. See
+ * extension/src/background/closing-worker.ts.
  */
-export function oddsScreenUrlFor(bet: {
-  site: string;
-  sport: string | null;
-  statMarket: string;
-}): { url: string; prefilled: boolean } {
+export function oddsScreenUrlFor(bet: { site: string; sport: string | null }): {
+  url: string;
+  /** What the link genuinely lands on, so the copy beside it cannot overclaim again. */
+  filteredTo: "sport" | "nothing";
+} {
   if (bet.site !== "ODDSJAM") {
-    return { url: "https://www.propprofessor.com/screen", prefilled: false };
+    return { url: "https://www.propprofessor.com/screen", filteredTo: "nothing" };
   }
 
   const sportSlug = ODDSJAM_SPORT_SLUG[(bet.sport ?? "").trim().toLowerCase()];
-  if (!sportSlug) return { url: "https://oddsjam.com/betting-tools", prefilled: false };
+  if (!sportSlug) return { url: "https://oddsjam.com/betting-tools", filteredTo: "nothing" };
 
-  // "Fantasy Score (PrizePicks)" -> "fantasy-score": the book qualifier is not part of the market.
-  const marketSlug = bet.statMarket
-    .replace(/\([^)]*\)/g, " ")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  if (!marketSlug) return { url: `https://oddsjam.com/${sportSlug}/screen/moneyline`, prefilled: false };
-  return { url: `https://oddsjam.com/${sportSlug}/screen/${marketSlug}`, prefilled: true };
+  return { url: `https://oddsjam.com/${sportSlug}/odds`, filteredTo: "sport" };
 }
 
 /** The public board this pick came from, for the "open on site" links. */
@@ -362,7 +375,9 @@ export async function getTimeSeries(days = 45): Promise<SeriesPoint[]> {
   return [...buckets.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, rows]) => {
-      const settled = rows.filter((r) => r.status === "CLOSED" && r.edge !== null);
+      const settled = rows.filter(
+        (r) => (CLV_STATUSES as string[]).includes(r.status) && r.edge !== null
+      );
       const evs = rows.map((r) => r.closeEvPercent).filter((v): v is number => v !== null);
       const edgeSum = settled.reduce((s, r) => s + (r.edge as number), 0);
       cumulative += edgeSum;

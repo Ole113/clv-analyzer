@@ -309,11 +309,39 @@ export const parseOddsJamTable = (): ParseResult => {
           marketType = "SPREAD";
           subjectTeam = spread[1].trim();
           takenLine = parseFloat(spread[2]);
+        } else {
+          // "Seattle Seahawks" -- no total/prop/spread number attached. A straight moneyline
+          // pick names one of the game's two teams with nothing else added; free text that
+          // doesn't ("Anytime Goal Scorer", correct-score, parlays, ...) is left as OTHER, since
+          // there is no line or price on the row to measure it against.
+          const lower = (s: string) => s.toLowerCase().trim();
+          const named = [team, opponent].find((t) => t && lower(t) === lower(betName));
+          if (named) {
+            marketType = "MONEYLINE";
+            subjectTeam = betName;
+            // There is no number in the bet name to take as the line -- moneyline prices move,
+            // not points. The comparison books quote a price per column same as any other game
+            // market; that price is copied into `line` just below so the existing line-based
+            // closing average works unchanged, and takenLine is the same-row average of it.
+          }
         }
       }
 
       const evText = cellText(cells, evCol);
       const evMatch = evText.match(/(-?\d+(?:\.\d+)?)\s*%/);
+
+      let bookLines = readBooks(cells, side);
+      if (marketType === "MONEYLINE") {
+        // Moneyline columns quote a price only -- `line` comes back null from parseBookCell.
+        // Copying price into line here lets every downstream consumer (closing average,
+        // includedInAverage, CLV) use the same line-based machinery unchanged; the sign works out
+        // the same way a spread's line does (see MARKET_TYPES in server/src/lib/constants.ts).
+        bookLines = bookLines.map((b) => (b.line === null ? { ...b, line: b.price } : b));
+        const usable = bookLines.map((b) => b.line).filter((l): l is number => l !== null);
+        if (usable.length > 0) {
+          takenLine = Math.round((usable.reduce((sum, l) => sum + l, 0) / usable.length) * 100) / 100;
+        }
+      }
 
       rows.push({
         rowIndex,
@@ -336,7 +364,7 @@ export const parseOddsJamTable = (): ParseResult => {
         gameStartTimeIso: resolveIso(timeText),
         externalPropId: rowId(rowEl),
         externalPlayerId: null,
-        bookLines: readBooks(cells, side),
+        bookLines,
         rawText: norm((rowEl as HTMLElement).innerText ?? rowEl.textContent),
       });
       return;

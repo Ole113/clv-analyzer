@@ -32,12 +32,15 @@ export const STYLE_ID = "clv-analyzer-styles";
 
 const STYLES = `
 :root { --clva-accent: ${DEFAULT_CHECKBOX_COLOR}; }
-.clva-cell { text-align: center; vertical-align: middle; white-space: nowrap; }
+/* padding, not the box's own margin, is what gives the checkbox its left/right breathing room --
+   see the .clva-lane sizing comment in propprofessor/index.ts for why both boards need to agree
+   on this number rather than each picking their own. */
+.clva-cell { text-align: center; vertical-align: middle; white-space: nowrap; padding: 0 4px; }
 .clva-head { color: var(--clva-accent) !important; font-weight: 700; letter-spacing: 0.04em; }
 .clva-box {
   appearance: none; width: 16px; height: 16px; border-radius: 4px; cursor: pointer;
   border: 2px solid var(--clva-accent); background: transparent; position: relative;
-  vertical-align: middle; flex: 0 0 auto; margin: 0 3px;
+  vertical-align: middle; flex: 0 0 auto; margin: 0;
   transition: background 120ms ease, border-color 120ms ease;
 }
 .clva-box:hover { background: color-mix(in srgb, var(--clva-accent) 25%, transparent); }
@@ -230,7 +233,7 @@ async function capture(adapter: SiteAdapter, key: string | null, box: HTMLInputE
     fail(
       box,
       "This bet has no line to track",
-      "Moneylines and other markets without a number cannot be measured for closing line value."
+      "No sportsbook is quoting a price or line for this market, so it cannot be measured for closing line value."
     );
     return;
   }
@@ -240,6 +243,10 @@ async function capture(adapter: SiteAdapter, key: string | null, box: HTMLInputE
   }
   if (row.marketType === "SPREAD" && !row.subjectTeam) {
     fail(box, "This spread has no team attached", "The board may have changed layout.");
+    return;
+  }
+  if (row.marketType === "MONEYLINE" && !row.subjectTeam) {
+    fail(box, "This moneyline has no team attached", "The board may have changed layout.");
     return;
   }
 

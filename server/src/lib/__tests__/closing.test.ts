@@ -62,6 +62,13 @@ describe("buildClosingVerdict", () => {
     expect(verdict.edge).toBeCloseTo(-4.95, 5);
   });
 
+  it("uses a weighted average when book weights are passed in", () => {
+    // DraftKings 18.4, Caesars 19.5 -- weighting Caesars 3x pulls the average toward it.
+    // (18.4*1 + 19.5*3) / 4 = 76.9/4 = 19.225
+    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 14, oddsJamRow(), { caesars: 3 });
+    expect(verdict.avgClosingLine).toBeCloseTo(19.225, 5);
+  });
+
   it("reports UNAVAILABLE rather than guessing when no book still quotes a line", () => {
     const row = oddsJamRow({
       bookLines: [

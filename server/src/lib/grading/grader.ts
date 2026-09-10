@@ -86,9 +86,9 @@ export async function gradeBet(betId: string): Promise<{ result: string; reason?
     return { result: exhausted ? "GRADE_FAILED" : "RETRY", reason };
   };
 
-  // --- game markets (spreads, totals) --------------------------------------
+  // --- game markets (spreads, totals, moneylines) ---------------------------
   // These carry no player, so they are settled from the final scoreboard rather than a box score.
-  if (bet.marketType === "SPREAD" || bet.marketType === "GAME_TOTAL") {
+  if (bet.marketType === "SPREAD" || bet.marketType === "GAME_TOTAL" || bet.marketType === "MONEYLINE") {
     const found = await espnSource.findGame(subject);
     if ("reason" in found) return markRetryable(found.reason);
 
@@ -115,8 +115,12 @@ export async function gradeBet(betId: string): Promise<{ result: string; reason?
     }));
 
     let value: number | null;
-    if (bet.marketType === "SPREAD") {
-      if (!bet.subjectTeam) return markTerminal("This spread has no team recorded, so it cannot be settled.");
+    if (bet.marketType === "SPREAD" || bet.marketType === "MONEYLINE") {
+      if (!bet.subjectTeam) {
+        return markTerminal(
+          `This ${bet.marketType === "SPREAD" ? "spread" : "moneyline"} has no team recorded, so it cannot be settled.`
+        );
+      }
       value = marginForSpread(sides, bet.subjectTeam, matchesTeam);
       if (value === null) {
         return markRetryable(
@@ -128,7 +132,7 @@ export async function gradeBet(betId: string): Promise<{ result: string; reason?
     }
 
     const result = settleGameMarket(
-      bet.marketType as "SPREAD" | "GAME_TOTAL",
+      bet.marketType as "SPREAD" | "GAME_TOTAL" | "MONEYLINE",
       bet.side as Side | null,
       bet.takenLine,
       value

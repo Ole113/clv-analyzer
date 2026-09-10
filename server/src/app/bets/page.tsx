@@ -116,10 +116,17 @@ export default async function BetsPage({
                   ) : (
                     <>
                       {b.actualValue}
-                      {/* A spread's actual is the bet team's margin, which is measured against
-                          the negated handicap -- showing the raw line here would misread. */}
+                      {/* A spread's actual is the bet team's margin, measured against the negated
+                          handicap. A moneyline's actual is also a margin, but with no handicap --
+                          it settles against 0, not the taken price -- so showing takenLine (a
+                          price, not a margin) here would misread just as badly. */}
                       <span className="muted" style={{ fontSize: 11 }}>
-                        {" "}/ {b.marketType === "SPREAD" ? -b.takenLine : b.takenLine}
+                        {" "}/{" "}
+                        {b.marketType === "SPREAD"
+                          ? -b.takenLine
+                          : b.marketType === "MONEYLINE"
+                            ? 0
+                            : b.takenLine}
                       </span>
                     </>
                   )}
@@ -142,9 +149,9 @@ export default async function BetsPage({
                       target="_blank"
                       rel="noopener noreferrer"
                       title={
-                        oddsScreenUrlFor(b).prefilled
-                          ? `Odds screen, already filtered to ${b.sport} / ${b.statMarket}`
-                          : "Odds screen (this site does not support pre-filled filters)"
+                        oddsScreenUrlFor(b).filteredTo === "sport"
+                          ? `${b.sport} odds — pick the market there, then search for the player`
+                          : "Odds screen — set the filters there, then search for the player"
                       }
                     >
                       odds ↗

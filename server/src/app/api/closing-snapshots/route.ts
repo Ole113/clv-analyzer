@@ -16,7 +16,7 @@ const bookLineSchema = z.object({
 const rowSchema = z.object({
   rowIndex: z.number(),
   marketType: z
-    .enum(["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "OTHER"])
+    .enum(["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "MONEYLINE", "OTHER"])
     .optional()
     .default("PLAYER_PROP"),
   player: z.string().nullable(),

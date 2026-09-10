@@ -63,3 +63,22 @@ describe("spreads", () => {
     expect(settleGameMarket("SPREAD", null, -4, 4)).toBe("PUSH");
   });
 });
+
+describe("moneylines", () => {
+  it("wins on any positive margin and loses on any negative one, regardless of the taken price", () => {
+    // Seahawks lost 20-24: the moneyline loses no matter what price was taken.
+    expect(settleGameMarket("MONEYLINE", null, -150, -4)).toBe("LOSS");
+    // Rams won 24-20: their moneyline wins no matter what price was taken.
+    expect(settleGameMarket("MONEYLINE", null, -150, 4)).toBe("WIN");
+    expect(settleGameMarket("MONEYLINE", null, 130, 4)).toBe("WIN");
+  });
+
+  it("pushes on an exact tie", () => {
+    expect(settleGameMarket("MONEYLINE", null, -150, 0)).toBe("PUSH");
+  });
+
+  it("reuses the spread's margin computation, since a moneyline is just a spread with no handicap", () => {
+    expect(marginForSpread([seahawks, rams], "Seattle Seahawks", matches)).toBe(-4);
+    expect(settleGameMarket("MONEYLINE", null, -150, -4)).toBe("LOSS");
+  });
+});

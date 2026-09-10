@@ -64,12 +64,17 @@ export function MathBreakdown({ bet }: { bet: MathBet }) {
   const decimal = decimalFromAmerican(effectivePrice);
 
   const spread = bet.marketType === "SPREAD";
+  const moneyline = bet.marketType === "MONEYLINE";
+  // Line for everything else, price for a moneyline -- same taken-minus-close subtraction either
+  // way (see MARKET_TYPES in server/src/lib/constants.ts for why the sign works out the same).
+  const unit = moneyline ? "price" : "line";
   const under = bet.side === "UNDER";
-  const edgeFormula = spread
-    ? "edge = line you took − average closing line"
-    : under
-      ? "edge = line you took − average closing line"
-      : "edge = average closing line − line you took";
+  const edgeFormula =
+    spread || moneyline
+      ? `edge = ${unit} you took − average closing ${unit}`
+      : under
+        ? "edge = line you took − average closing line"
+        : "edge = average closing line − line you took";
 
   return (
     <details className="math">
@@ -81,17 +86,17 @@ export function MathBreakdown({ bet }: { bet: MathBet }) {
       <div className="math-body">
         {/* --- average close --- */}
         <section>
-          <h4>Average closing line</h4>
+          <h4>Average closing {unit}</h4>
           {bet.avgClosingLine === null ? (
             <p className="muted">
-              No closing line was recorded, so there is no average to show.
+              No closing {unit} was recorded, so there is no average to show.
             </p>
           ) : averaged.length > 0 ? (
             <>
               <p className="muted">
-                Only real sportsbooks quoting a line count. Pick&apos;em apps and derived columns
-                are stored but excluded, because their number is a fixed payout threshold rather
-                than a market price.
+                {moneyline
+                  ? "Only real sportsbooks quoting a price count. Pick’em apps and derived columns are stored but excluded, same as any other market."
+                  : "Only real sportsbooks quoting a line count. Pick’em apps and derived columns are stored but excluded, because their number is a fixed payout threshold rather than a market price."}
               </p>
               <table className="math-table">
                 <tbody>
@@ -104,8 +109,8 @@ export function MathBreakdown({ bet }: { bet: MathBet }) {
                 </tbody>
               </table>
               <Step
-                label="Mean of the books above"
-                formula="avg = sum of lines ÷ number of books"
+                label={`Mean of the ${unit}s above`}
+                formula={`avg = sum of ${unit}s ÷ number of books`}
                 substituted={`(${averaged.map((l) => l.line).join(" + ")}) ÷ ${averaged.length}`}
                 result={bet.avgClosingLine.toFixed(4)}
               />
@@ -134,15 +139,17 @@ export function MathBreakdown({ bet }: { bet: MathBet }) {
               <p className="muted">
                 {spread
                   ? "On a spread, holding more points than the close is the win — the opposite direction to a total."
-                  : under
-                    ? "An Under beats the close when the number moves down: you needed fewer than the market later demanded."
-                    : "An Over beats the close when the number moves up: you needed fewer than the market later demanded."}
+                  : moneyline
+                    ? "On a moneyline, the price moving further in the pick's favour after capture is the win: a shorter favourite price or a bigger underdog price both mean the close demanded worse odds than you got."
+                    : under
+                      ? "An Under beats the close when the number moves down: you needed fewer than the market later demanded."
+                      : "An Over beats the close when the number moves up: you needed fewer than the market later demanded."}
               </p>
               <Step
-                label={`${spread ? "Spread" : sideLabel(bet.side) || "Over"} edge`}
+                label={`${spread ? "Spread" : moneyline ? "Moneyline" : sideLabel(bet.side) || "Over"} edge`}
                 formula={edgeFormula}
                 substituted={
-                  spread || under
+                  spread || moneyline || under
                     ? `${bet.takenLine} − ${bet.avgClosingLine.toFixed(4)}`
                     : `${bet.avgClosingLine.toFixed(4)} − ${bet.takenLine}`
                 }

@@ -88,7 +88,7 @@ async function seedRealGames() {
         matchKey: buildMatchKey({
           site: "ODDSJAM", fantasyBook: "prizepicks", sport: g.sport, player: g.player,
           marketType: "PLAYER_PROP", subjectTeam: null,
-          statMarket: g.stat, side: g.side, gameStartTime,
+          statMarket: g.stat, side: g.side, takenLine: g.taken, gameStartTime,
         }),
         pageUrl: "https://fantasy.oddsjam.com/fantasy-odds/prizepicks",
         sourceDevice: DEVICE, takenLine: g.taken, openFairProb: 0.55, fantasyPrice: -119,
@@ -212,6 +212,7 @@ async function main() {
           player: spec.player,
           statMarket: spec.statMarket,
           side: spec.side,
+          takenLine: spec.taken,
           gameStartTime,
         }),
         pageUrl: "https://fantasy.oddsjam.com/fantasy-odds/prizepicks",

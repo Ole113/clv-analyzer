@@ -84,7 +84,8 @@ export function findMatchingRow(rows: ParsedRow[], target: MatchTarget): ParsedR
       if (s === null) continue;
       score += s;
 
-      if (target.marketType === "SPREAD") {
+      if (target.marketType === "SPREAD" || target.marketType === "MONEYLINE") {
+        // Moneylines have no side either -- like a spread, the team carries the identity.
         if (!row.subjectTeam || !teamsOverlap(row.subjectTeam, target.subjectTeam)) continue;
         score += 5;
       } else {
@@ -107,8 +108,13 @@ export function findMatchingRow(rows: ParsedRow[], target: MatchTarget): ParsedR
  * server so the board can ask "is this row already tracked?" without the extension knowing
  * anything about the database.
  *
- * Deliberately excludes the line: the same pick keeps its key as the market moves, which is what
- * lets the closing capture find it again.
+ * Includes the taken line. It used to be excluded on the theory that the closing capture needed a
+ * line-stable key to re-find the pick -- but the closing read actually re-finds picks with
+ * findMatchingRow(), a scored search over player/stat/side/matchup that never looks at matchKey.
+ * Nothing needs this key to survive a line change, and leaving the line out actively broke Alt
+ * boards: the same player/stat/side offered at two different lines produced the same key, so
+ * ticking the second one was silently treated as an update of the first instead of a separate
+ * pick.
  *
  * The subject is the player for a player prop and the team for a spread; a game total has no
  * subject, so its market label plus side carries the identity. marketType is part of the key so a
@@ -123,6 +129,7 @@ export function buildMatchKey(input: {
   subjectTeam: string | null;
   statMarket: string | null;
   side: string | null;
+  takenLine: number | null;
   gameStartTime: Date | string | null;
 }): string {
   const start =
@@ -140,6 +147,7 @@ export function buildMatchKey(input: {
     normalizeName(input.player ?? input.subjectTeam),
     normalizeName(input.statMarket),
     input.side ?? "-",
+    input.takenLine ?? "-",
     start,
   ].join("|");
 }
@@ -159,6 +167,7 @@ export function matchKeyForRow(
     subjectTeam: row.subjectTeam,
     statMarket: row.statMarket,
     side: row.side,
+    takenLine: row.takenLine,
     gameStartTime: row.gameStartTimeIso,
   });
 }

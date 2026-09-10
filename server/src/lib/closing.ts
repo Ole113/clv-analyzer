@@ -27,13 +27,15 @@ export interface ClosingVerdict {
 
 /**
  * Turns a freshly parsed closing row into the verdict to persist. Pure so the CLV rules can be
- * tested against real board data without launching a browser.
+ * tested against real board data without launching a browser -- weighting is passed in rather
+ * than read from the database here, for the same reason.
  */
 export function buildClosingVerdict(
   marketType: MarketType,
   side: Side | null,
   takenLine: number,
-  row: ParsedRow
+  row: ParsedRow,
+  bookWeights?: Record<string, number> | null
 ): ClosingVerdict {
   const closeLines: ClosingLineRecord[] = row.bookLines.map((b) => ({
     bookKey: b.bookKey,
@@ -45,7 +47,7 @@ export function buildClosingVerdict(
     includedInAverage: isSportsbookForAverage(b.bookKey, b.label, typeof b.line === "number"),
   }));
 
-  const { avg, count } = averageClosingLine(closeLines);
+  const { avg, count } = averageClosingLine(closeLines, bookWeights);
 
   // Player props: the books each quote their own line, so the close is their consensus.
   //

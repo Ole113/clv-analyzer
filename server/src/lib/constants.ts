@@ -10,12 +10,17 @@ export type Side = (typeof SIDES)[number];
  * PLAYER_PROP  a player's stat line (every PrizePicks/Underdog-style board)
  * GAME_TOTAL   combined-score total, e.g. "Total Points Over 29.5"
  * SPREAD       handicap on one team, e.g. "Seattle Seahawks +5.5"
- * OTHER        a market we can store and show but cannot price or grade (moneylines, exotics)
+ * MONEYLINE    straight pick on one team to win, e.g. "Seattle Seahawks" -- there is no point
+ *              number to key off, so the "line" tracked for CLV is the average American-odds
+ *              price across the comparison sportsbooks instead, using the exact same
+ *              subtraction (taken - close) as SPREAD: a price drifting further in the pick's
+ *              favour after capture is a worse number for a later bettor, same as a spread doing so.
+ * OTHER        a market we can store and show but cannot price or grade (parlays, exotics)
  *
  * The OddsJam rebet/fliff boards are whole-game markets rather than player props, so CLV
  * direction, matching and grading all branch on this.
  */
-export const MARKET_TYPES = ["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "OTHER"] as const;
+export const MARKET_TYPES = ["PLAYER_PROP", "GAME_TOTAL", "SPREAD", "MONEYLINE", "OTHER"] as const;
 export type MarketType = (typeof MARKET_TYPES)[number];
 
 /**

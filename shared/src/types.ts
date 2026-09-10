@@ -2,7 +2,7 @@ export type SiteId = "ODDSJAM" | "PROPPROFESSOR";
 export type PickSide = "OVER" | "UNDER";
 
 /** See MARKET_TYPES in the server's constants for what each one means. */
-export type MarketType = "PLAYER_PROP" | "GAME_TOTAL" | "SPREAD" | "OTHER";
+export type MarketType = "PLAYER_PROP" | "GAME_TOTAL" | "SPREAD" | "MONEYLINE" | "OTHER";
 
 /** One sportsbook (or fantasy book) cell as rendered in a row. */
 export interface BookLine {

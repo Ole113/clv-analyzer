@@ -3,9 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { config } from "@/lib/constants";
 import { DEFAULT_PICKEM_PRICE } from "@/lib/ev";
 import { PurgeForm } from "@/components/purge-form";
+import { TestDataForm } from "@/components/test-data-form";
+import { BookSettingsForm } from "@/components/book-settings-form";
 import { ActionButton, type ActionResult } from "@/components/action-button";
 import { runDueGrades } from "@/lib/grading/grader";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
+import { generateTestData, TEST_DATA_SOURCE_DEVICES, MAX_TEST_DATA_PER_REQUEST } from "@/lib/test-data";
+import { getAppSettings, knownBooks, saveBookOrder, saveBookWeights } from "@/lib/app-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -17,27 +21,56 @@ const UNIT_HOURS: Record<string, number> = {
 };
 
 export default async function SettingsPage() {
-  const [total, oldest, newest, demo] = await Promise.all([
+  const [total, oldest, newest, demo, books, bookSettings] = await Promise.all([
     prisma.bet.count(),
     prisma.bet.findFirst({ orderBy: { openCapturedAt: "asc" }, select: { openCapturedAt: true } }),
     prisma.bet.findFirst({ orderBy: { openCapturedAt: "desc" }, select: { openCapturedAt: true } }),
-    prisma.bet.count({ where: { sourceDevice: "demo-seed" } }),
+    prisma.bet.count({ where: { sourceDevice: { in: TEST_DATA_SOURCE_DEVICES } } }),
+    knownBooks(),
+    getAppSettings(),
   ]);
+  // Every known book, ordered by the saved preference, with anything not yet ordered tacked on
+  // the end -- so a newly-seen book still gets a row instead of vanishing from the list.
+  const orderedBookKeys = [
+    ...bookSettings.bookOrder.filter((k) => books.some((b) => b.bookKey === k)),
+    ...books.map((b) => b.bookKey).filter((k) => !bookSettings.bookOrder.includes(k)),
+  ];
+
+  async function saveBookSettingsAction(
+    order: string[],
+    weights: Record<string, number>,
+    useWeightedAverage: boolean
+  ): Promise<void> {
+    "use server";
+    await Promise.all([saveBookOrder(order), saveBookWeights(weights, useWeightedAverage)]);
+    revalidatePath("/settings");
+    revalidatePath("/bets");
+  }
 
   /** Counts what a purge would remove, so the confirmation can name a real number. */
-  async function countPurge(amount: number, unit: string): Promise<number> {
+  async function countPurge(amount: number, unit: string, onlyTestData: boolean): Promise<number> {
     "use server";
     const hours = (UNIT_HOURS[unit] ?? 24) * amount;
     const cutoff = new Date(Date.now() - hours * 3600_000);
-    return prisma.bet.count({ where: { openCapturedAt: { gte: cutoff } } });
+    return prisma.bet.count({
+      where: {
+        openCapturedAt: { gte: cutoff },
+        ...(onlyTestData ? { sourceDevice: { in: TEST_DATA_SOURCE_DEVICES } } : {}),
+      },
+    });
   }
 
   /** Deletes picks captured within the last N days/weeks/months/years. Snapshots cascade. */
-  async function purgeRecent(amount: number, unit: string): Promise<number> {
+  async function purgeRecent(amount: number, unit: string, onlyTestData: boolean): Promise<number> {
     "use server";
     const hours = (UNIT_HOURS[unit] ?? 24) * amount;
     const cutoff = new Date(Date.now() - hours * 3600_000);
-    const { count } = await prisma.bet.deleteMany({ where: { openCapturedAt: { gte: cutoff } } });
+    const { count } = await prisma.bet.deleteMany({
+      where: {
+        openCapturedAt: { gte: cutoff },
+        ...(onlyTestData ? { sourceDevice: { in: TEST_DATA_SOURCE_DEVICES } } : {}),
+      },
+    });
     revalidatePath("/settings");
     revalidatePath("/bets");
     revalidatePath("/analysis");
@@ -47,10 +80,25 @@ export default async function SettingsPage() {
 
   async function purgeDemo(): Promise<number> {
     "use server";
-    const { count } = await prisma.bet.deleteMany({ where: { sourceDevice: "demo-seed" } });
+    const { count } = await prisma.bet.deleteMany({
+      where: { sourceDevice: { in: TEST_DATA_SOURCE_DEVICES } },
+    });
     revalidatePath("/settings");
     revalidatePath("/bets");
+    revalidatePath("/analysis");
+    revalidatePath("/");
     return count;
+  }
+
+  /** Loads N fake picks tagged as test data, so the UI can be tried out without real captures. */
+  async function generateTestDataAction(amount: number): Promise<number> {
+    "use server";
+    const n = await generateTestData(amount);
+    revalidatePath("/settings");
+    revalidatePath("/bets");
+    revalidatePath("/analysis");
+    revalidatePath("/");
+    return n;
   }
 
   async function runGrader(): Promise<ActionResult> {
@@ -84,16 +132,36 @@ export default async function SettingsPage() {
               , captured between {fmt(oldest?.openCapturedAt)} and {fmt(newest?.openCapturedAt)}
             </>
           )}
-          {demo > 0 && <> · {demo} are demo rows</>}
+          {demo > 0 && <> · {demo} are test data</>}
         </p>
 
         <PurgeForm countAction={countPurge} purgeAction={purgeRecent} />
+
+        <div style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+          <TestDataForm max={MAX_TEST_DATA_PER_REQUEST} generateAction={generateTestDataAction} />
+        </div>
 
         {demo > 0 && (
           <div style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
             <PurgeForm demoOnly demoCount={demo} purgeDemoAction={purgeDemo} />
           </div>
         )}
+      </section>
+
+      <section className="chart-card">
+        <h3>Books</h3>
+        <p className="lede">
+          Controls the book order shown in the &quot;When you took it&quot; / &quot;At market
+          close&quot; tables on a pick, and optionally how much each book counts toward the
+          closing average used for CLV.
+        </p>
+        <BookSettingsForm
+          initialOrder={orderedBookKeys}
+          books={books}
+          initialWeights={bookSettings.bookWeights}
+          initialUseWeighted={bookSettings.useWeightedAverage}
+          saveAction={saveBookSettingsAction}
+        />
       </section>
 
       <section className="chart-card">

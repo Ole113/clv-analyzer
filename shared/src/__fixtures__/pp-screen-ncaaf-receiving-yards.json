@@ -1,0 +1,837 @@
+{
+  "_source": "PropProfessor POST https://backend.propprofessor.com/screen, captured 2026-09-10",
+  "_request": {
+    "market": "Player Receiving Yards",
+    "league": "NCAAF",
+    "games": [],
+    "participants": [],
+    "books": [],
+    "is_live": false,
+    "userState": "ut"
+  },
+  "_note": "game_data trimmed to the rows used by tests; games/participants trimmed for size.",
+  "game_data": [
+    {
+      "id": "NCAAF:GAME:Boston_College:Rutgers:1789169400:Johnathan Montague",
+      "gameId": "NCAAF:GAME:Boston_College:Rutgers:1789169400",
+      "start": "2026-09-11T23:30:00.000Z",
+      "league": "NCAAF",
+      "leagueName": "",
+      "homeTeam": "Boston College",
+      "awayTeam": "Rutgers",
+      "isLive": false,
+      "liveData": null,
+      "market": "Player Receiving Yards",
+      "participant": "Johnathan Montague",
+      "defaultKey": "27.5",
+      "selections": {
+        "39.5": {
+          "selection1": "Johnathan Montague Over 39.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_39.5",
+          "line1": 39.5,
+          "selection2": "Johnathan Montague Under 39.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_39.5",
+          "line2": 39.5,
+          "odds": {
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": 139,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": 175,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": 165,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings6 (Alt)": {
+              "book": "DraftKings6 (Alt)",
+              "odds1": 141,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Hardrock": {
+              "book": "Hardrock",
+              "odds1": 170,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BetRivers": {
+              "book": "BetRivers",
+              "odds1": 128,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BallyBet": {
+              "book": "BallyBet",
+              "odds1": 128,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 138,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "27.5": {
+          "selection1": "Johnathan Montague Over 27.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_27.5",
+          "line1": 27.5,
+          "selection2": "Johnathan Montague Under 27.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_27.5",
+          "line2": 27.5,
+          "odds": {
+            "Chalkboard": {
+              "book": "Chalkboard",
+              "odds1": -128,
+              "odds2": -130,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "Fliff": {
+              "book": "Fliff",
+              "odds1": -125,
+              "odds2": -125,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "SportZino": {
+              "book": "SportZino",
+              "odds1": -120,
+              "odds2": -130,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "Hardrock": {
+              "book": "Hardrock",
+              "odds1": -115,
+              "odds2": -115,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": -116,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings6": {
+              "book": "DraftKings6",
+              "odds1": -138,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Underdog": {
+              "book": "Underdog",
+              "odds1": -107,
+              "odds2": -107,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "Dabble": {
+              "book": "Dabble",
+              "odds1": -115,
+              "odds2": -115,
+              "liquidity1": 0,
+              "liquidity2": 0
+            }
+          }
+        },
+        "109.5": {
+          "selection1": "Johnathan Montague Over 109.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_109.5",
+          "line1": 109.5,
+          "selection2": "Johnathan Montague Under 109.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_109.5",
+          "line2": 109.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 1260,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "124.5": {
+          "selection1": "Johnathan Montague Over 124.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_124.5",
+          "line1": 124.5,
+          "selection2": "Johnathan Montague Under 124.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_124.5",
+          "line2": 124.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 1700,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "64.5": {
+          "selection1": "Johnathan Montague Over 64.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_64.5",
+          "line1": 64.5,
+          "selection2": "Johnathan Montague Under 64.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_64.5",
+          "line2": 64.5,
+          "odds": {
+            "Hardrock": {
+              "book": "Hardrock",
+              "odds1": 500,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "9.5": {
+          "selection1": "Johnathan Montague Over 9.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_9.5",
+          "line1": 9.5,
+          "selection2": "Johnathan Montague Under 9.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_9.5",
+          "line2": 9.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": -470,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "32.5": {
+          "selection1": "Johnathan Montague Over 32.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_32.5",
+          "line1": 32.5,
+          "selection2": "Johnathan Montague Under 32.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_32.5",
+          "line2": 32.5,
+          "odds": {
+            "BetRivers": {
+              "book": "BetRivers",
+              "odds1": -118,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BallyBet": {
+              "book": "BallyBet",
+              "odds1": -117,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "59.5": {
+          "selection1": "Johnathan Montague Over 59.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_59.5",
+          "line1": 59.5,
+          "selection2": "Johnathan Montague Under 59.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_59.5",
+          "line2": 59.5,
+          "odds": {
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": 370,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings6 (Alt)": {
+              "book": "DraftKings6 (Alt)",
+              "odds1": 417,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BetRivers": {
+              "book": "BetRivers",
+              "odds1": 310,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BallyBet": {
+              "book": "BallyBet",
+              "odds1": 310,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 290,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": 464,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": 276,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "69.5": {
+          "selection1": "Johnathan Montague Over 69.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_69.5",
+          "line1": 69.5,
+          "selection2": "Johnathan Montague Under 69.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_69.5",
+          "line2": 69.5,
+          "odds": {
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": 403,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Betr (Alt)": {
+              "book": "Betr (Alt)",
+              "odds1": 433,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": 525,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings6 (Alt)": {
+              "book": "DraftKings6 (Alt)",
+              "odds1": 659,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 400,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": 700,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "99.5": {
+          "selection1": "Johnathan Montague Over 99.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_99.5",
+          "line1": 99.5,
+          "selection2": "Johnathan Montague Under 99.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_99.5",
+          "line2": 99.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 920,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Hardrock": {
+              "book": "Hardrock",
+              "odds1": 2500,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "89.5": {
+          "selection1": "Johnathan Montague Over 89.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_89.5",
+          "line1": 89.5,
+          "selection2": "Johnathan Montague Under 89.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_89.5",
+          "line2": 89.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 750,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "49.5": {
+          "selection1": "Johnathan Montague Over 49.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_49.5",
+          "line1": 49.5,
+          "selection2": "Johnathan Montague Under 49.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_49.5",
+          "line2": 49.5,
+          "odds": {
+            "BetRivers": {
+              "book": "BetRivers",
+              "odds1": 205,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Hardrock": {
+              "book": "Hardrock",
+              "odds1": 275,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Betr (Alt)": {
+              "book": "Betr (Alt)",
+              "odds1": 256,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings6 (Alt)": {
+              "book": "DraftKings6 (Alt)",
+              "odds1": 245,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": 250,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BallyBet": {
+              "book": "BallyBet",
+              "odds1": 205,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 200,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": 290,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": 204,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "29.5": {
+          "selection1": "Johnathan Montague Over 29.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_29.5",
+          "line1": 29.5,
+          "selection2": "Johnathan Montague Under 29.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_29.5",
+          "line2": 29.5,
+          "odds": {
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": 100,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": -118,
+              "odds2": -112,
+              "liquidity1": 0,
+              "liquidity2": 0
+            },
+            "BetRivers": {
+              "book": "BetRivers",
+              "odds1": -137,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BallyBet": {
+              "book": "BallyBet",
+              "odds1": -137,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "4.5": {
+          "selection1": "Johnathan Montague Over 4.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_4.5",
+          "line1": 4.5,
+          "selection2": "Johnathan Montague Under 4.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_4.5",
+          "line2": 4.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": -900,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "19.5": {
+          "selection1": "Johnathan Montague Over 19.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_19.5",
+          "line1": 19.5,
+          "selection2": "Johnathan Montague Under 19.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_19.5",
+          "line2": 19.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": -215,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": -180,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": -323,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BetRivers": {
+              "book": "BetRivers",
+              "odds1": -286,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "BallyBet": {
+              "book": "BallyBet",
+              "odds1": -286,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Betr (Alt)": {
+              "book": "Betr (Alt)",
+              "odds1": -251,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "14.5": {
+          "selection1": "Johnathan Montague Over 14.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_14.5",
+          "line1": 14.5,
+          "selection2": "Johnathan Montague Under 14.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_14.5",
+          "line2": 14.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": -310,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": -329,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": -500,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Betr (Alt)": {
+              "book": "Betr (Alt)",
+              "odds1": -642,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings6 (Alt)": {
+              "book": "DraftKings6 (Alt)",
+              "odds1": -2888,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "24.5": {
+          "selection1": "Johnathan Montague Over 24.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_24.5",
+          "line1": 24.5,
+          "selection2": "Johnathan Montague Under 24.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_24.5",
+          "line2": 24.5,
+          "odds": {
+            "Betr (Alt)": {
+              "book": "Betr (Alt)",
+              "odds1": -153,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings6 (Alt)": {
+              "book": "DraftKings6 (Alt)",
+              "odds1": -181,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": -158,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Hardrock": {
+              "book": "Hardrock",
+              "odds1": -135,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": -143,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "ParlayPlay": {
+              "book": "ParlayPlay",
+              "odds1": -172,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        },
+        "79.5": {
+          "selection1": "Johnathan Montague Over 79.5",
+          "participant1": "Johnathan Montague",
+          "selectionType1": "Over",
+          "selection1Id": "Player_Receiving_Yards:Johnathan_Montague_Over_79.5",
+          "line1": 79.5,
+          "selection2": "Johnathan Montague Under 79.5",
+          "participant2": "Johnathan Montague",
+          "selectionType2": "Under",
+          "selection2Id": "Player_Receiving_Yards:Johnathan_Montague_Under_79.5",
+          "line2": 79.5,
+          "odds": {
+            "FanDuel": {
+              "book": "FanDuel",
+              "odds1": 580,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Hardrock": {
+              "book": "Hardrock",
+              "odds1": 1000,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings": {
+              "book": "DraftKings",
+              "odds1": 1060,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Betr (Alt)": {
+              "book": "Betr (Alt)",
+              "odds1": 687,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "Fanatics": {
+              "book": "Fanatics",
+              "odds1": 700,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            },
+            "DraftKings6 (Alt)": {
+              "book": "DraftKings6 (Alt)",
+              "odds1": 1021,
+              "odds2": null,
+              "liquidity1": 0,
+              "liquidity2": null
+            }
+          }
+        }
+      }
+    }
+  ],
+  "games": [
+    "NCAAF:GAME:Abilene_Christian:Idaho:1789848000",
+    "NCAAF:GAME:Abilene_Christian:Stephen_F._Austin:1789257600",
+    "NCAAF:GAME:Air_Force:North_Dakota_State:1789264800",
+    "NCAAF:GAME:Akron:Minnesota:1789833600",
+    "NCAAF:GAME:Akron:Robert_Morris:1789241400"
+  ],
+  "participants": [
+    "2295861 Sowell",
+    "Adam Mohammed",
+    "Aidan Laughery",
+    "Amareon Blue",
+    "Andrew Marsh",
+    "Andrew Rappleyea",
+    "Anthony Evans",
+    "Anthony Evans Iii",
+    "Anthony Woods",
+    "Antonio Meeks",
+    "Antwan Raymond",
+    "Arhmad Branch",
+    "Asaad Waseem",
+    "Ashton Hollins",
+    "Austyn Dendy",
+    "Ayden Greene",
+    "Ben Black",
+    "Benjamin Brahmer",
+    "Blue Hicks",
+    "Bo Jackson"
+  ]
+}

@@ -3,6 +3,7 @@ import { prisma } from "./prisma";
 import type { MarketType, Side } from "./constants";
 import { buildClosingVerdict } from "./closing";
 import { evPercent, fantasyPriceFrom } from "./ev";
+import { getAppSettings } from "./app-settings";
 
 export interface ClosingReport {
   betId: string;
@@ -55,11 +56,13 @@ export async function applyClosingReport(report: ClosingReport) {
     return { ok: true as const, status: updated.status };
   }
 
+  const settings = await getAppSettings();
   const verdict = buildClosingVerdict(
     bet.marketType as MarketType,
     bet.side as Side | null,
     bet.takenLine,
-    report.row
+    report.row,
+    settings.useWeightedAverage ? settings.bookWeights : null
   );
 
   await prisma.closeLine.deleteMany({ where: { betId: bet.id } });
