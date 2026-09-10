@@ -42,12 +42,23 @@ export function BookSettingsForm({
   const [useWeighted, setUseWeighted] = useState(initialUseWeighted);
   const [useLiquidity, setUseLiquidity] = useState(initialUseLiquidity);
   const [pending, startTransition] = useTransition();
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const move = (index: number, dir: -1 | 1) => {
     const next = [...order];
     const swap = index + dir;
     if (swap < 0 || swap >= next.length) return;
     [next[index], next[swap]] = [next[swap], next[index]];
+    setOrder(next);
+  };
+
+  /** Moves the dragged row to sit where the drop target is, shifting everything between. */
+  const reorder = (from: number, to: number) => {
+    if (from === to) return;
+    const next = [...order];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
     setOrder(next);
   };
 
@@ -93,8 +104,34 @@ export function BookSettingsForm({
       <table className="math-table">
         <tbody>
           {order.map((key, i) => (
-            <tr key={key}>
+            <tr
+              key={key}
+              draggable
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragOverIndex !== i) setDragOverIndex(i);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragIndex !== null) reorder(dragIndex, i);
+                setDragIndex(null);
+                setDragOverIndex(null);
+              }}
+              onDragEnd={() => {
+                setDragIndex(null);
+                setDragOverIndex(null);
+              }}
+              className={
+                [dragIndex === i && "book-row-dragging", dragOverIndex === i && dragIndex !== i && "book-row-drop-target"]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
+            >
               <td style={{ width: 1, whiteSpace: "nowrap" }}>
+                <span className="drag-handle" title="Drag to reorder" aria-hidden="true">
+                  ⠿
+                </span>{" "}
                 <button type="button" disabled={i === 0} onClick={() => move(i, -1)} title="Move up">
                   ↑
                 </button>{" "}

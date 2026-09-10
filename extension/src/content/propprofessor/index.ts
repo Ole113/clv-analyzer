@@ -59,11 +59,20 @@ const LANE_STYLES = `
   border-right: 1px solid rgba(255, 255, 255, 0.16);
 }
 .clva-lane + * { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; }
-/* Boards with no pinned actions column (plain Dabble) get the lane inside their first cell, which
-   is not a fixed-width pinned cell -- so it must not be stretched, only given room. */
+/* Boards with no pinned actions column (plain Dabble) get the lane inside their first cell. That
+   cell is a plain block box (not a flex container), so a width:auto lane -- correct for a flex
+   parent, where flex-basis governs sizing -- instead becomes a full-width block box that stacks
+   above the cell's own content rather than sitting beside it, hiding the game text and whatever
+   native control follows it. Forcing the host cell into a flex row (mirroring the actions-column
+   case above) is what makes ".clva-lane + *" on line 61 actually take effect here too. */
+[role="cell"]:not([col-id="actions"]):has(> .clva-lane),
+[role="gridcell"]:not([col-id="actions"]):has(> .clva-lane) {
+  display: flex !important;
+  align-items: center;
+}
 [role="cell"]:not([col-id="actions"]) > .clva-lane,
 [role="gridcell"]:not([col-id="actions"]) > .clva-lane {
-  border-right: none; width: auto; flex: 0 0 auto; padding: 0 4px;
+  border-right: none; width: ${LANE}px; flex: 0 0 ${LANE}px; padding: 0 4px;
 }
 `;
 

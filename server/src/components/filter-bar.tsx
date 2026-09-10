@@ -192,6 +192,10 @@ export function FilterBar({
 
       {hasFilters && (
         <div className="field actions">
+          {/* An invisible label matching every other field's so this button's own height is
+              pushed down to line up with the row's inputs, not the row's labels -- the .filters
+              container bottom-aligns fields by default, so matching that structure is enough. */}
+          <span aria-hidden="true">&nbsp;</span>
           <a href={action} className="reset">
             Clear filters
           </a>

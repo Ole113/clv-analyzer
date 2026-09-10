@@ -13,10 +13,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <ToastProvider>
-          <div className="wrap">
-            <header className="top">
+          <header className="top">
+            <div className="header-inner">
               <h1>
                 <a href="/" className="brand">
+                  <img src="/icon.svg" alt="" width={20} height={20} className="brand-icon" />
                   CLV Analyzer
                 </a>
               </h1>
@@ -27,7 +28,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <a href="/exclusions">Exclusions</a>
                 <a href="/settings">Settings</a>
               </nav>
-            </header>
+            </div>
+          </header>
+          <div className="header-spacer" aria-hidden="true" />
+          <div className="wrap">
             {children}
             <Footer />
           </div>

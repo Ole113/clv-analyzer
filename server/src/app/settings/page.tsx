@@ -11,6 +11,7 @@ import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { generateTestData, TEST_DATA_SOURCE_DEVICES, MAX_TEST_DATA_PER_REQUEST } from "@/lib/test-data";
 import { getAppSettings, knownBooks, saveBookOrder, saveBookWeights } from "@/lib/app-settings";
 import { getRecentIngestFailures, countIngestFailures, clearIngestFailures } from "@/lib/ingest-log";
+import { SettingsNav } from "@/components/settings-nav";
 
 const SECTIONS = [
   { id: "database", label: "Database" },
@@ -155,13 +156,7 @@ export default async function SettingsPage() {
       <h2 style={{ marginTop: 0 }}>Settings</h2>
 
       <div className="settings-layout">
-        <nav className="settings-nav" aria-label="Settings sections">
-          {SECTIONS.map((s) => (
-            <a key={s.id} href={`#${s.id}`}>
-              {s.label}
-            </a>
-          ))}
-        </nav>
+        <SettingsNav sections={SECTIONS} />
 
         <div className="settings-content">
 

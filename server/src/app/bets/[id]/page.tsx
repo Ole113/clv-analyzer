@@ -415,9 +415,7 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
           {bet.openFairProb !== null ? (
             <>
               {bet.site === "ODDSJAM" ? "OddsJam" : "PropProfessor"} put the chance to hit at{" "}
-              <strong>{(bet.openFairProb * 100).toFixed(1)}%</strong> when you took it
-              {bet.fantasyPrice !== null && <> at a payout of {fmtOdds(bet.fantasyPrice)}</>}
-              .
+              <strong>{(bet.openFairProb * 100).toFixed(1)}%</strong> when you took it.
               {bet.closeFairProb !== null && (
                 <>
                   {" "}By close it was <strong>{(bet.closeFairProb * 100).toFixed(1)}%</strong> (

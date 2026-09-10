@@ -43,7 +43,8 @@ const LICENSE_URL = "https://github.com/Ole113/clv-analyzer/blob/main/LICENSE";
 export function Footer() {
   return (
     <footer className="site-footer">
-      <div>
+      <div className="footer-brand">
+        <img src="/icon.svg" alt="" width={18} height={18} className="brand-icon" />
         <strong>CLV Analyzer</strong>
         <span className="muted">
           {" "}
