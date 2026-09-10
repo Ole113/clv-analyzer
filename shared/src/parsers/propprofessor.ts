@@ -1,4 +1,4 @@
-import type { ParseResult, ParsedRow, BookLine, PickSide } from "../types";
+import type { ParseResult, ParsedRow, BookLine, MarketType, PickSide } from "../types";
 
 /**
  * Parses the PropProfessor Fantasy Optimizer grid (propprofessor.com/fantasy).
@@ -219,7 +219,11 @@ export const parsePropProfessorTable = (): ParseResult => {
   const rows: ParsedRow[] = [];
   const unslug = (s: string | undefined | null): string | null =>
     s ? s.replace(/_/g, " ").trim() || null : null;
-  const PICK_RE = /^(.*?)\s+(Over|Under)\s+(-?\d+(?:\.\d+)?)\s*$/i;
+  // The name before "Over"/"Under" is optional: game/team totals (e.g. tennis "Total Games") have
+  // no player and the selection cell reads simply "Over 19.5". `\s+` between the groups would
+  // never match that (nothing to put whitespace after), silently dropping takenLine for every
+  // such market -- `\s*` lets the name group come back empty instead.
+  const PICK_RE = /^(.*?)\s*(Over|Under)\s+(-?\d+(?:\.\d+)?)\s*$/i;
 
   order.forEach((rowId, rowIndex) => {
     const parts = partsByRowId.get(rowId) ?? [];
@@ -274,12 +278,19 @@ export const parsePropProfessorTable = (): ParseResult => {
     let player: string | null = null;
     let side: PickSide | null = null;
     let takenLine: number | null = null;
+    // Most rows here are player props, but a market like tennis "Total Games" has no player --
+    // just "Over 19.5" -- and matching.ts's matchKeyForRow keys those by market+side instead, so
+    // `player` has to stay null rather than fall back to the pick text (which would collide with
+    // an actual, differently-worded player prop on the same market).
+    let marketType: MarketType = "PLAYER_PROP";
     if (pickLine) {
       const m = pickLine.match(PICK_RE);
       if (m) {
-        player = m[1].trim();
+        const name = m[1].trim();
         side = /over/i.test(m[2]) ? "OVER" : "UNDER";
         takenLine = parseFloat(m[3]);
+        if (name) player = name;
+        else marketType = "GAME_TOTAL";
       } else {
         player = pickLine;
       }
@@ -326,9 +337,7 @@ export const parsePropProfessorTable = (): ParseResult => {
 
     rows.push({
       rowIndex,
-      // Every PropProfessor fantasy board is player props; the game markets live on OddsJam's
-      // rebet/fliff boards.
-      marketType: "PLAYER_PROP",
+      marketType,
       player,
       selectionName: pickLine ?? null,
       subjectTeam: null,

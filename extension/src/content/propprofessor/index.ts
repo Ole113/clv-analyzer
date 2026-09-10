@@ -95,8 +95,16 @@ function hasActionsColumn(): boolean {
  *
  * Most boards pin an "actions" column and the lane goes there. The plain Dabble board has no
  * actions column at all -- its columns start at "game" -- so requiring one meant no checkbox was
- * ever created on that board. Falling back to the row's first cell puts the lane in the same
- * visual position without depending on a column that may not exist.
+ * ever created on that board. Falling back to the "game" cell puts the lane in the same visual
+ * position without depending on a column that may not exist.
+ *
+ * That fallback used to grab the row's first `[role="cell"]` in DOM order. "Game" is unpinned on
+ * this board, so it sits in AG Grid's horizontally-scrolled centre container, which recycles cell
+ * DOM nodes for column virtualization as the grid scrolls sideways -- shift+wheel being the usual
+ * way to trigger that scroll on Windows. DOM order among recycled cells doesn't track visual
+ * column order, so "first cell" would drift to whatever column happened to render first, stranding
+ * the checkbox (and the mark it carries) on a random sportsbook cell instead of "game". Targeting
+ * `col-id="game"` directly sidesteps DOM order entirely.
  */
 function mountCell(row: Element): HTMLElement | null {
   const actions = row.querySelector<HTMLElement>('[col-id="actions"]');
@@ -105,8 +113,7 @@ function mountCell(row: Element): HTMLElement | null {
   // pinned-left half, not yet rendered for this row-id), that's a transient gap to wait out --
   // not a cue to plant the checkbox in whatever cell happens to be first here instead.
   if (hasActionsColumn()) return null;
-  const first = row.querySelector<HTMLElement>('[role="cell"], [role="gridcell"]');
-  return first ?? null;
+  return row.querySelector<HTMLElement>('[col-id="game"]');
 }
 
 const adapter: SiteAdapter = {
