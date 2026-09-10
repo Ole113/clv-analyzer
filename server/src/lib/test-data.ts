@@ -45,6 +45,22 @@ function row(over: Partial<ParsedRow>): ParsedRow {
   };
 }
 
+/**
+ * Real book icons, keyed the same way `BOOK_LABELS` is, so generated rows render the same
+ * "logo next to the book" treatment as a real capture instead of leaving the cell blank. Routed
+ * through Google's favicon proxy rather than guessing at each book's own CDN path, since that path
+ * is scraped from the live DOM on a real capture and nothing in this repo has a stable copy of it.
+ */
+const BOOK_LOGOS: Record<string, string> = {
+  prizepicks: "https://www.google.com/s2/favicons?sz=64&domain=prizepicks.com",
+  fanduel: "https://www.google.com/s2/favicons?sz=64&domain=fanduel.com",
+  draftkings: "https://www.google.com/s2/favicons?sz=64&domain=draftkings.com",
+  pinnacle: "https://www.google.com/s2/favicons?sz=64&domain=pinnacle.com",
+  caesars: "https://www.google.com/s2/favicons?sz=64&domain=caesars.com",
+  betmgm: "https://www.google.com/s2/favicons?sz=64&domain=betmgm.com",
+  fanatics: "https://www.google.com/s2/favicons?sz=64&domain=fanatics.com",
+};
+
 const book = (
   bookKey: string,
   label: string,
@@ -58,11 +74,22 @@ const book = (
   label,
   line,
   price,
-  logoUrl: null,
+  logoUrl: BOOK_LOGOS[bookKey] ?? null,
   liquidity,
   fairProbability: otherPrice === null ? null : devigTwoWay(price, otherPrice),
   rawText: `${line ?? ""} ${price}`.trim(),
 });
+
+/**
+ * Every real sportsbook line on a totals-style market (a stat threshold, a spread) sits on a half
+ * point -- never a whole number -- specifically so the market can never push. Snapping every
+ * generated line here is also what keeps a stat's decimal sane: a made-up "12.2 rebounds" line
+ * (a whole-number-only stat wandering off its .5 grid) doesn't happen on a real book, and it isn't
+ * a case worth reproducing in test data either.
+ */
+function toHalfLine(value: number): number {
+  return Math.floor(value) + 0.5;
+}
 
 /** A plausible opposite-side American-odds price, for de-vigging a moneyline book's own price. */
 function oppositeMoneylinePrice(price: number): number {
@@ -82,23 +109,29 @@ const LEAD_HOURS = [0.4, 2, 5, 12, 40, 100];
  * Player-prop templates, spread across every sport that has a real PropProfessor market alias
  * (see `shared/src/markets.ts`) so the generated set exercises more than football and basketball.
  */
+/**
+ * `prob` is each template's own "% chance to hit" as OddsJam/PropProfessor would display it at
+ * capture time -- real captures cluster tightly between 54.8% and 57%, so the generated set is
+ * held to that band too rather than spanning the much wider range a devigged probability could
+ * theoretically take.
+ */
 const TEMPLATES = [
-  { sport: "NFL", stat: "Player Receiving Yards", player: "Test Player Rec A", taken: 62.5, drift: 4.5, prob: 0.58 },
-  { sport: "NFL", stat: "Player Receiving Yards", player: "Test Player Rec B", taken: 71.5, drift: 2.0, prob: 0.56 },
-  { sport: "NFL", stat: "Player Rushing Yards", player: "Test Player Rush A", taken: 58.5, drift: -3.5, prob: 0.52 },
-  { sport: "NFL", stat: "Player Rushing Yards", player: "Test Player Rush B", taken: 74.5, drift: -5.0, prob: 0.51 },
-  { sport: "NFL", stat: "Player Passing Yards", player: "Test Player Pass A", taken: 244.5, drift: 6.0, prob: 0.59 },
-  { sport: "NFL", stat: "Player Passing Yards", player: "Test Player Pass B", taken: 219.5, drift: -8.0, prob: 0.5 },
-  { sport: "NBA", stat: "Player Points", player: "Test Player Points A", taken: 26.5, drift: 1.5, prob: 0.57 },
-  { sport: "NBA", stat: "Player Points", player: "Test Player Points B", taken: 24.5, drift: 2.5, prob: 0.6 },
-  { sport: "NBA", stat: "Player Rebounds", player: "Test Player Reb A", taken: 12.5, drift: -1.1, prob: 0.49 },
-  { sport: "NBA", stat: "Player Three Pointers Made", player: "Test Player 3PM A", taken: 3.5, drift: 0.6, prob: 0.54 },
-  { sport: "MLB", stat: "Hits + Runs + RBIs", player: "Test Player HRR A", taken: 1.5, drift: -0.4, prob: 0.48 },
-  { sport: "MLB", stat: "Player Strikeouts", player: "Test Pitcher A", taken: 6.5, drift: 1.2, prob: 0.55 },
-  { sport: "NHL", stat: "Player Shots On Goal", player: "Test Player Shots A", taken: 3.5, drift: 0.4, prob: 0.54 },
-  { sport: "NHL", stat: "Player Saves", player: "Test Goalie A", taken: 27.5, drift: -1.8, prob: 0.5 },
-  { sport: "Tennis", stat: "Player Aces", player: "Test Server A", taken: 8.5, drift: 1.5, prob: 0.56 },
-  { sport: "Tennis", stat: "Player Breakpoints Won", player: "Test Returner A", taken: 3.5, drift: -0.7, prob: 0.47 },
+  { sport: "NFL", stat: "Player Receiving Yards", player: "Test Player Rec A", taken: 62.5, drift: 4.5, prob: 0.549 },
+  { sport: "NFL", stat: "Player Receiving Yards", player: "Test Player Rec B", taken: 71.5, drift: 2.0, prob: 0.553 },
+  { sport: "NFL", stat: "Player Rushing Yards", player: "Test Player Rush A", taken: 58.5, drift: -3.5, prob: 0.557 },
+  { sport: "NFL", stat: "Player Rushing Yards", player: "Test Player Rush B", taken: 74.5, drift: -5.0, prob: 0.561 },
+  { sport: "NFL", stat: "Player Passing Yards", player: "Test Player Pass A", taken: 244.5, drift: 6.0, prob: 0.565 },
+  { sport: "NFL", stat: "Player Passing Yards", player: "Test Player Pass B", taken: 219.5, drift: -8.0, prob: 0.569 },
+  { sport: "NBA", stat: "Player Points", player: "Test Player Points A", taken: 26.5, drift: 1.5, prob: 0.55 },
+  { sport: "NBA", stat: "Player Points", player: "Test Player Points B", taken: 24.5, drift: 2.5, prob: 0.554 },
+  { sport: "NBA", stat: "Player Rebounds", player: "Test Player Reb A", taken: 12.5, drift: -1.5, prob: 0.558 },
+  { sport: "NBA", stat: "Player Three Pointers Made", player: "Test Player 3PM A", taken: 3.5, drift: 0.5, prob: 0.562 },
+  { sport: "MLB", stat: "Hits + Runs + RBIs", player: "Test Player HRR A", taken: 1.5, drift: -0.5, prob: 0.566 },
+  { sport: "MLB", stat: "Player Strikeouts", player: "Test Pitcher A", taken: 6.5, drift: 1.5, prob: 0.548 },
+  { sport: "NHL", stat: "Player Shots On Goal", player: "Test Player Shots A", taken: 3.5, drift: 0.5, prob: 0.556 },
+  { sport: "NHL", stat: "Player Saves", player: "Test Goalie A", taken: 27.5, drift: -2.0, prob: 0.56 },
+  { sport: "Tennis", stat: "Player Aces", player: "Test Server A", taken: 8.5, drift: 1.5, prob: 0.564 },
+  { sport: "Tennis", stat: "Player Breakpoints Won", player: "Test Returner A", taken: 3.5, drift: -0.5, prob: 0.568 },
 ] as const;
 
 /**
@@ -108,14 +141,16 @@ const TEMPLATES = [
  * closing read for a market that, on a real screen, could never produce one.
  */
 const FANTASY_ONLY_TEMPLATES = [
-  { sport: "NFL", stat: "Fantasy Score (PrizePicks)", player: "Test Player Fantasy A", taken: 22, prob: 0.55 },
-  { sport: "NFL", stat: "Fantasy Score (PrizePicks)", player: "Test Player Fantasy B", taken: 17.5, prob: 0.53 },
+  { sport: "NFL", stat: "Fantasy Score (PrizePicks)", player: "Test Player Fantasy A", taken: 22, prob: 0.552 },
+  { sport: "NFL", stat: "Fantasy Score (PrizePicks)", player: "Test Player Fantasy B", taken: 17.5, prob: 0.567 },
 ] as const;
 
 /** Whole-game markets: no player, a team (or nothing, for totals) carries the identity instead. */
 const GAME_TEMPLATES = [
   { sport: "NFL", marketType: "SPREAD" as const, team: "Test Chiefs", opponent: "Test Bills", taken: -5.5, drift: -1.5 },
-  { sport: "NBA", marketType: "SPREAD" as const, team: "Test Celtics", opponent: "Test Knicks", taken: 3.5, drift: -2.0 },
+  // Positive here (unlike the Chiefs line above) so the spread/moneyline generated set has both a
+  // "beat" and an "against" case rather than always drifting the same direction.
+  { sport: "NBA", marketType: "SPREAD" as const, team: "Test Celtics", opponent: "Test Knicks", taken: 3.5, drift: 2.0 },
   { sport: "NFL", marketType: "MONEYLINE" as const, team: "Test Ravens", opponent: "Test Steelers", taken: -145, drift: -25 },
   { sport: "NHL", marketType: "MONEYLINE" as const, team: "Test Oilers", opponent: "Test Jets", taken: 128, drift: 40 },
   { sport: "NBA", marketType: "GAME_TOTAL" as const, team: "Test Suns", opponent: "Test Nuggets", taken: 224.5, drift: 4.5 },
@@ -150,6 +185,12 @@ interface PickSpec {
   matchup: string;
   side: "OVER" | "UNDER" | null;
   takenLine: number;
+  /**
+   * Signed movement (in line units, or price units for a moneyline) from the template, carried
+   * through to the close so a pick's outcome reflects the direction the template actually chose --
+   * not a fixed per-market-type formula, which would put every pick's edge on the same side.
+   */
+  drift: number;
   fairProbability: number;
   fantasyPrice: number;
   gameStartTime: Date;
@@ -185,13 +226,14 @@ function playerPropSpec(
     matchup,
     side,
     takenLine: t.taken,
+    drift: t.drift,
     fairProbability: t.prob,
     fantasyPrice: -119,
     gameStartTime,
     openBooks: [
       book("prizepicks", "PrizePicks", null, -119),
-      book("fanduel", "FanDuel", Math.round((t.taken + t.drift * 0.3) * 10) / 10, -114),
-      book("pinnacle", "Pinnacle", Math.round((t.taken + t.drift * 0.4) * 10) / 10, -112),
+      book("fanduel", "FanDuel", toHalfLine(t.taken + t.drift * 0.3), -114),
+      book("pinnacle", "Pinnacle", toHalfLine(t.taken + t.drift * 0.4), -112),
     ],
   };
 }
@@ -211,7 +253,7 @@ function gameMarketSpec(
       ? `Total ${side === "UNDER" ? "Under" : "Over"} ${t.taken}`
       : `${t.team} ${t.taken > 0 ? "+" : ""}${t.taken}`;
 
-  const openLine = isMoneyline ? t.taken + 15 : Math.round((t.taken + t.drift * 0.3) * 10) / 10;
+  const openLine = isMoneyline ? t.taken + 15 : toHalfLine(t.taken + t.drift * 0.3);
   const openOther = isMoneyline ? oppositeMoneylinePrice(openLine) : -110;
 
   return {
@@ -228,7 +270,8 @@ function gameMarketSpec(
     matchup,
     side: isTotal ? side : null,
     takenLine: t.taken,
-    fairProbability: 0.52,
+    drift: t.drift,
+    fairProbability: 0.56,
     fantasyPrice: -119,
     gameStartTime,
     openBooks: [
@@ -253,7 +296,7 @@ function closingBooksFor(
 
   return [
     ...Object.entries(BOOK_BIAS).map(([key, bias], b) => {
-      const line = Math.round((consensus + bias) * 10) / 10;
+      const line = isMoneyline ? Math.round(consensus + bias * 20) : toHalfLine(consensus + bias);
       const price = isMoneyline ? line : -112;
       // Two-sided on most books but not all, mirroring a real screen read where only some books
       // price the side taken -- which is what makes fairBookCount < closingBookCount.
@@ -264,7 +307,14 @@ function closingBooksFor(
       ? // Proportional, not a fixed offset: the outlier band has a floor at 10% of the line, so
         // what counts as "far from the field" is a different number on a 1.5-strikeout prop and a
         // 244.5-passing-yards prop.
-        [book("fanatics", "Fanatics", Math.round(consensus * 19) / 10, isMoneyline ? -900 : -900)]
+        [
+          book(
+            "fanatics",
+            "Fanatics",
+            isMoneyline ? Math.round(consensus * 1.9) : toHalfLine(consensus * 1.9),
+            -900
+          ),
+        ]
       : []),
   ];
 }
@@ -285,8 +335,10 @@ async function createPick(spec: PickSpec, i: number, leaveOpen: boolean): Promis
     bookLines: spec.openBooks,
   });
 
-  const drift = spec.marketType === "MONEYLINE" ? spec.takenLine * -0.15 : spec.takenLine * 0.07;
-  const consensus = spec.takenLine + drift;
+  // Signed by the template, not derived from the taken line's magnitude -- that would move every
+  // closing consensus the same direction and make every pick's edge come out the same sign, which
+  // is exactly the "every prop reads Against You" bug this replaced.
+  const consensus = spec.takenLine + spec.drift;
   const closeBooks = leaveOpen ? null : closingBooksFor(spec, i, consensus);
 
   const verdict = closeBooks
