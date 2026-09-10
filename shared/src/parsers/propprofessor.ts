@@ -189,6 +189,11 @@ export const parsePropProfessorTable = (): ParseResult => {
     "ev",
     "odds",
     "novigodds",
+    // Boards with no pinned actions column (see propprofessor/index.ts's mountCell fallback)
+    // spell out participant/market/line separately instead of folding them into "selection".
+    "participant",
+    "line",
+    "selectiontype",
   ]);
   const isBookCol = (colId: string): boolean => {
     if (reserved.has(colId.toLowerCase())) return false;

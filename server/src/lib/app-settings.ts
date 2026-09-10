@@ -87,6 +87,15 @@ function titleCase(key: string): string {
 }
 
 /**
+ * PropProfessor grid columns the parser now excludes from book detection (shared/src/parsers/
+ * propprofessor.ts's `reserved` set) -- kept as a second, small copy here rather than imported,
+ * since that file must stay self-contained for `Function.prototype.toString()` serialization at
+ * closing time. Rows already captured under one of these keys, from before that fix landed,
+ * would otherwise keep showing up as orderable/weightable "books" forever.
+ */
+const NON_BOOK_KEYS = new Set(["participant", "line", "selectiontype"]);
+
+/**
  * Every distinct book key ever seen, on top of the built-in defaults -- so a book the boards
  * started quoting after the defaults were written still gets an orderable, weightable row. Each
  * one carries a human label, preferring whatever the board itself supplied over the bare key.
@@ -109,7 +118,9 @@ export async function knownBooks(): Promise<{ bookKey: string; label: string }[]
     if (row.label && !labels.has(row.bookKey)) labels.set(row.bookKey, row.label);
   }
   const seen = new Set<string>(DEFAULT_BOOK_ORDER);
-  for (const row of [...open, ...close]) seen.add(row.bookKey);
+  for (const row of [...open, ...close]) {
+    if (!NON_BOOK_KEYS.has(row.bookKey.toLowerCase())) seen.add(row.bookKey);
+  }
   return [...seen].map((bookKey) => ({ bookKey, label: labels.get(bookKey) ?? titleCase(bookKey) }));
 }
 
