@@ -12,7 +12,9 @@ import { normalizeName } from "@clv/shared";
  */
 
 export type EspnPart = { category: string; label: string; transform?: "madeOf" };
-export type MlbPart = { group: "batting" | "pitching"; field: string };
+/** `weight` defaults to 1; -1 subtracts the field, for stats with no direct box-score field of
+ *  their own (a single is hits minus every extra-base hit -- MLB's own API has no "singles"). */
+export type MlbPart = { group: "batting" | "pitching"; field: string; weight?: 1 | -1 };
 
 export interface EspnMapping {
   source: "espn";
@@ -121,11 +123,30 @@ const MARKETS: Record<string, StatMapping> = {
   "player home runs": mlb({ group: "batting", field: "homeRuns" }),
   "player walks": mlb({ group: "batting", field: "baseOnBalls" }),
   "player stolen bases": mlb({ group: "batting", field: "stolenBases" }),
+  "player runs rbis": mlb({ group: "batting", field: "runs" }, { group: "batting", field: "rbi" }),
+  "runs rbis": mlb({ group: "batting", field: "runs" }, { group: "batting", field: "rbi" }),
+  "player doubles": mlb({ group: "batting", field: "doubles" }),
+  "player triples": mlb({ group: "batting", field: "triples" }),
+  // MLB's API has no "singles" field of its own -- a single is a hit that wasn't an extra-base hit.
+  "player singles": mlb(
+    { group: "batting", field: "hits" },
+    { group: "batting", field: "doubles", weight: -1 },
+    { group: "batting", field: "triples", weight: -1 },
+    { group: "batting", field: "homeRuns", weight: -1 }
+  ),
   outs: mlb({ group: "pitching", field: "outs" }),
   "pitcher outs": mlb({ group: "pitching", field: "outs" }),
+  "pitcher outs recorded": mlb({ group: "pitching", field: "outs" }),
   "player strikeouts": mlb({ group: "pitching", field: "strikeOuts" }),
   strikeouts: mlb({ group: "pitching", field: "strikeOuts" }),
+  "pitcher strikeouts": mlb({ group: "pitching", field: "strikeOuts" }),
   "player earned runs": mlb({ group: "pitching", field: "earnedRuns" }),
+  "pitcher earned runs allowed": mlb({ group: "pitching", field: "earnedRuns" }),
+  "pitcher runs allowed": mlb({ group: "pitching", field: "runs" }),
+  "pitcher hits allowed": mlb({ group: "pitching", field: "hits" }),
+  "pitcher home runs allowed": mlb({ group: "pitching", field: "homeRuns" }),
+  "pitcher walks allowed": mlb({ group: "pitching", field: "baseOnBalls" }),
+  "pitcher pitches thrown": mlb({ group: "pitching", field: "numberOfPitches" }),
 };
 
 /** Markets we knowingly cannot settle, with the reason surfaced to the dashboard. */

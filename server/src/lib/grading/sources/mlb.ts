@@ -127,7 +127,7 @@ export const mlbSource: StatsSource = {
     for (const part of mlbMapping.parts) {
       // A missing field means the player did not record that stat, which is a real zero here:
       // the player is confirmed present in the box score.
-      total += Number(player.stats?.[part.group]?.[part.field] ?? 0);
+      total += (part.weight ?? 1) * Number(player.stats?.[part.group]?.[part.field] ?? 0);
     }
 
     return {
