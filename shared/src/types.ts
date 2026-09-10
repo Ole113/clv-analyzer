@@ -59,6 +59,35 @@ export interface ParsedRow {
   rawText: string;
 }
 
+/**
+ * One pick the server has decided is due for a closing read.
+ *
+ * Lives here rather than in the extension because the server's `select` in
+ * /api/closing-work and the worker's expectations are the same contract, and they used to be two
+ * hand-maintained copies that drifted. Adding a field now means adding it once.
+ */
+export interface ClosingWorkItem {
+  id: string;
+  /** Where the pick was *captured*. Not where it is read at close -- see planScreenRead. */
+  site: SiteId;
+  fantasyBook: string;
+  marketType: MarketType;
+  /** Null on game markets (spreads, totals, moneylines). */
+  player: string | null;
+  /** Spreads and moneylines: the team the pick belongs to. */
+  subjectTeam: string | null;
+  matchup: string | null;
+  statMarket: string;
+  /** Null on spreads and moneylines, where the team carries the direction. */
+  side: PickSide | null;
+  externalPropId: string | null;
+  /** Provenance only: the board this was ticked on. Never used as a read target. */
+  pageUrl: string | null;
+  gameStartTime: string | null;
+  sport: string | null;
+  takenLine: number | null;
+}
+
 /** Wire payload sent from the extension to POST /api/snapshots. */
 export interface SnapshotPayload {
   site: SiteId;
@@ -76,3 +105,39 @@ export interface ParseResult {
   headers: string[];
   rows: ParsedRow[];
 }
+
+/** Which screen, and for what, so a recorded verdict can always be traced back to its source. */
+export interface ClosingSourceInfo {
+  site: "PROPPROFESSOR_SCREEN";
+  url: string;
+  league: string;
+  market: string;
+}
+
+/**
+ * What a closing read actually found.
+ *
+ * The old result type could not tell "this selection is not offered" from "the page never loaded",
+ * and that collapse *is* the bug this redesign exists to fix: a pick whose market had simply moved
+ * past it was recorded as UNAVAILABLE and dropped from every aggregate, which is exactly what
+ * happens to the picks that were most right.
+ *
+ * Each kind maps to a different status and, crucially, a different retry policy -- only genuine
+ * failures may burn a fetch attempt.
+ */
+export type ClosingReadOutcome =
+  /** Found it. */
+  | { kind: "MATCHED"; row: ParsedRow; source: ClosingSourceInfo }
+  /** The market is listed; this player or team is not in it (scratched, pulled). Terminal. */
+  | {
+      kind: "SELECTION_ABSENT";
+      source: ClosingSourceInfo;
+      candidateCount: number;
+      sampleNames: string[];
+    }
+  /** The market itself came back empty. Retryable while the window is open. */
+  | { kind: "MARKET_NOT_OFFERED"; source: ClosingSourceInfo; availableMarkets: string[] }
+  /** No sportsbook prices this market at all, so no close can ever exist. Terminal, blameless. */
+  | { kind: "NO_CLOSING_MARKET"; reason: string }
+  /** The read broke, or we have no alias for this market yet. Retryable and loud. */
+  | { kind: "READ_FAILED"; reason: string };

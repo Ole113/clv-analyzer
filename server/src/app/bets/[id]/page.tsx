@@ -5,7 +5,7 @@ import { CopyButton } from "@/components/copy-button";
 import { ActionButton, type ActionResult } from "@/components/action-button";
 import { ActionForm } from "@/components/action-form";
 import { prisma } from "@/lib/prisma";
-import { config } from "@/lib/constants";
+import { config, scheduledFetchAtFor, CLOSING_WINDOW_DESCRIPTION} from "@/lib/constants";
 import { VerdictBadge, ResultBadge, fmtDateTime, fmtEdge, betTitle, sideLabel } from "@/components/ui";
 import { gradeBet, gradeManually } from "@/lib/grading/grader";
 import { Signed } from "@/components/value";
@@ -118,7 +118,7 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
       where: { id },
       data: {
         gameStartTime: start,
-        scheduledFetchAt: new Date(start.getTime() + config.closingBufferMinutes * 60_000),
+        scheduledFetchAt: scheduledFetchAtFor(start),
         gradeScheduledAt: new Date(start.getTime() + config.gradeDelayHours * 3600_000),
         status: "PENDING",
         fetchAttempts: 0,
@@ -209,6 +209,11 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
   const lagMinutes =
     bet.closingCaptureLagSeconds !== null ? Math.round(bet.closingCaptureLagSeconds / 60) : null;
   const lateBy = lagMinutes !== null && lagMinutes > config.staleCaptureMinutes ? lagMinutes : null;
+  // A negative lag is the *good* case now that reads happen before kickoff, so it is only worth
+  // mentioning when the read landed before the window should even have opened -- which means the
+  // number predates the last of the pre-kickoff steam.
+  const earlyBy =
+    lagMinutes !== null && -lagMinutes > config.closingReadOpensMinutesBefore ? -lagMinutes : null;
 
   const provenance = bet.gradeRawJson
     ? (JSON.parse(bet.gradeRawJson) as { webUrl?: string | null })
@@ -445,17 +450,25 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
             (bet.status === "LIVE_NO_CLV"
               ? "Taken in-play, so there is no closing line to measure against — the line was already mid-game. EV% is still recorded and the pick is graded normally."
               : bet.status === "UNAVAILABLE"
-              ? "No sportsbook was still quoting this prop when the market closed, so there is no closing line to compare against."
+              ? "The market was still listed at close, but this selection was not in it — usually a scratch or a pulled prop."
+              : bet.status === "NO_CLOSING_MARKET"
+              ? "No sportsbook prices this market, so a closing line cannot exist for it. Nothing went wrong, and this pick is left out of CLV rates rather than counted against them."
               : bet.status === "NEEDS_GAME_TIME"
                 ? "Captured without a kickoff time, so the closing fetch could not be scheduled. Set one below."
                 : bet.status === "FETCH_FAILED"
                   ? "The closing fetch did not complete."
-                  : `Waiting for kickoff. The closing board is read ${config.closingBufferMinutes} minutes after the game starts, by the extension in your browser.`)}
+                  : `Waiting for kickoff. The closing lines are read ${CLOSING_WINDOW_DESCRIPTION}, by the extension in your browser.`)}
         </div>
         {lateBy !== null && (
           <p className="err">
             Read {lateBy} min after kickoff — Chrome was probably not running at the time, so these
             are post-game lines rather than closing lines.
+          </p>
+        )}
+        {earlyBy !== null && (
+          <p className="muted">
+            Read {earlyBy} min before kickoff, earlier than the usual window — this may not reflect
+            late line movement.
           </p>
         )}
         {bet.lastFetchError && <p className="err">{bet.lastFetchError}</p>}

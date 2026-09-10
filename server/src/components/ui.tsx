@@ -7,12 +7,16 @@ export function StatusBadge({ status }: { status: string }) {
     DUE: "warn",
     NEEDS_GAME_TIME: "warn",
     UNAVAILABLE: "warn",
+    // Neutral, not a warning: no sportsbook prices this market, which is a fact about the market
+    // rather than anything that went wrong or that the user could act on.
+    NO_CLOSING_MARKET: "neutral",
     FETCH_FAILED: "bad",
     LIVE_NO_CLV: "neutral",
   };
   const label: Record<string, string> = {
     NEEDS_GAME_TIME: "NEEDS TIME",
     FETCH_FAILED: "FAILED",
+    NO_CLOSING_MARKET: "NO MARKET",
     // Reads as a state, not an enum: this pick gets no CLV verdict by design.
     LIVE_NO_CLV: "IN-PLAY",
   };

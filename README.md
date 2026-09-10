@@ -4,33 +4,93 @@ Takes a snapshot of a line when it is played and calculates the CLV automaticall
 ends. Displays CLV statistics.
 
 Tick a checkbox on the **OddsJam** or **PropProfessor** Fantasy Optimizer and the whole row is
-snapshotted — every sportsbook line and price showing at that moment. A couple of minutes after
-kickoff the server re-opens that board on its own, reads the same prop's closing lines, averages
-the real sportsbooks, and records whether the pick beat closing line value.
+snapshotted — every sportsbook line and price showing at that moment. Shortly *before* kickoff the
+extension reads the same market off **PropProfessor's odds screen**, rebuilds each sportsbook's
+main line, averages them, and records whether the pick beat closing line value.
+
+### Two invariants worth knowing up front
+
+**No automated traffic to OddsJam, ever.** That subscription is paid a year up front, so a ban is
+unrecoverable; the PropProfessor account is replaceable. Ticking picks on an OddsJam board is
+still fine — the content script reads the DOM of a page you opened yourself and sends OddsJam
+nothing — and dashboard links to OddsJam are fine, because a human clicking a link is ordinary
+browsing. What is forbidden is any background tab, fetch or timer touching that host. This used to
+happen: the closing worker opened `fantasy.oddsjam.com` every 60 seconds. It is enforced now by
+`server/src/lib/__tests__/oddsjam-automation-guard.test.ts`, not by memory.
+
+**Closing lines never come from an optimizer.** An optimizer only lists props that *still have
+edge*, so a genuinely +EV pick has moved off it by kickoff. Reading the close there meant the best
+picks came back "not found" and were dropped from every aggregate — the tool discarded its own best
+evidence. The odds screen lists every market whether or not any edge is left.
 
 ## How it fits together
 
 | Piece | What it does |
 | --- | --- |
-| `extension/` | Manifest V3 Chrome extension. Injects the CLV checkbox column and POSTs snapshots. |
+| `extension/` | Manifest V3 Chrome extension. Injects the CLV checkbox column, POSTs snapshots, and reads closing lines. |
 | `server/` | Next.js app: ingest API, the schedule of what is due, and the dashboard. |
-| `shared/` | The row parsers and prop matching. The **same** code runs at capture time and at close time, so both reads of the board are identical. |
+| `shared/` | Row parsers, prop matching, the market alias table, and the odds-screen reader. |
+
+Capture and close are **different** code paths, deliberately. Capture parses a board's DOM;
+the close reads a JSON endpoint. The seam between them is `ParsedRow[]`, so everything downstream
+of matching is shared and identical.
 
 Picks are captured on any machine (work laptop, home desktop) and all land in one SQLite database
 on the always-on Mac, reached over Tailscale.
 
 ### Why the closing read happens in your browser
 
-Both sites sit behind Cloudflare's bot check plus a paid login, so an automated browser cannot
-load these boards — it gets stuck on "Verify you are human". Your own Chrome is already signed in
-and has already cleared that check, so that is where the reading happens.
+The capture boards sit behind Cloudflare's bot check plus a paid login, so an automated browser
+cannot load them. Your own Chrome is already signed in and past that check.
+
+The closing read needs no *scraping* — it is a plain `fetch` to a JSON endpoint — but it does need
+the site's own bearer token. `POST backend.propprofessor.com/screen` requires
+`Authorization: Bearer <JWT>`, and that token is not in a readable cookie and not in the NextAuth
+session payload; the app holds it in memory. So:
+
+* A tiny page-context content script (`world: "MAIN"`) **observes** the Authorization header on
+  requests the site's own app already makes, and forwards it to the background worker.
+* The worker caches it in `chrome.storage.session` — memory only, never written to disk — and
+  attaches it to its own screen requests.
+* On a 401 it refreshes once by loading the screen in a background tab, then retries. That happens
+  about once per token lifetime, not once per pick, and only ever on propprofessor.com.
+
+The bridge only ever reads a header off a request that was happening anyway. It mints nothing,
+sends nothing, and stores nothing itself. If PropProfessor drops the requirement or exposes the
+token somewhere readable, `token-bridge.ts` and its manifest entry can be deleted outright.
 
 The split is:
 
-* **The server owns the schedule.** It knows a 5:30 game is due at 5:32 and keeps that in SQLite,
-  so a restart loses nothing.
-* **The extension does the reading.** Once a minute it asks the server "anything due?", and if so
-  opens the board in a background tab, reads the same prop's current lines, and reports back.
+* **The server owns the schedule.** It knows when each game starts and keeps that in SQLite, so a
+  restart loses nothing. Picks handed out are *leased* for five minutes so the same pick is not
+  read twice by overlapping polls.
+* **The extension does the reading.** Once a minute it asks the server "anything due?", fetches
+  one screen response per (league, market) — so a single read prices every pick on that market —
+  and reports back.
+
+### When the closing read happens
+
+A **window before kickoff**, not a single shot after it:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `CLOSING_READ_OPENS_MINUTES_BEFORE` | 8 | Window opens at T−8. |
+| `CLOSING_READ_TARGET_MINUTES_BEFORE` | 3 | Where the read ideally lands. |
+| `CLOSING_READ_CLOSES_MINUTES_AFTER` | 5 | Kept slightly past kickoff so a read in flight can land. |
+
+This is not a preference. A game that has started is **no longer listed on the odds screen at
+all**, so the old "kickoff + 2 minutes" schedule would have found nothing 100% of the time. Serving
+a window also means a failed read at T−8 simply retries at T−7 rather than burning the pick's only
+chance.
+
+The trade-off, stated plainly: reading at T−3 misses the last three minutes of steam, where late
+scratch news lands. That biases measured CLV slightly *downward* on exactly the picks that moved
+hardest. Reading after kickoff risks measuring nothing at all — a small known bias beats a large
+unknown one.
+
+Because reads are pre-kickoff, `closingCaptureLagSeconds` is normally **negative**. That is the
+healthy case. Large positive values still mean the browser was not running at kickoff, and are
+flagged as late.
 
 **This means Chrome needs to be running near kickoff.** The natural home for that is the
 always-on Mac: install Chrome there, sign into both sites, load the extension, and it becomes the
@@ -65,12 +125,74 @@ Line-number-only, per book consensus:
 * A perfectly flat line does **not** count as beating the close.
 
 Only real sportsbooks quoting a line feed the average. Pick'em apps (PrizePicks, Underdog, Betr,
-Sleeper, ParlayPlay…) and derived columns (OddsJam's "Algo Odds") are stored and displayed but
-excluded — their number is a fixed-payout threshold, not a market price. Edit
-`shared/src/books.ts` to change that.
+Sleeper, ParlayPlay…) and derived columns are stored and displayed but excluded — their number is a
+fixed-payout threshold, not a market price. Edit `shared/src/books.ts` to change that.
 
-If no sportsbook is still quoting the prop at close, the pick is marked **UNAVAILABLE** rather
-than scored against a guess.
+The screen path uses an **allowlist** (`isSportsbookForClose`) where the capture path uses a
+denylist. On an optimizer, DFS and algo columns are price-only, so the "has a line?" test filtered
+them out whatever they were called. On an odds screen essentially every column carries a line, so a
+denylist admits anything it has not been told about yet — including whatever derived column the site
+adds next. The allowlist fails the other way: a genuine new book is left out until named, which is
+visible and fixable, rather than silently averaged in.
+
+Sweepstakes books (Fliff, Rebet, SportZino, OnyxOdds) **are** counted. They quote a real two-sided
+market rather than a fixed-payout pick threshold, which is the line that actually matters here.
+
+One caveat worth knowing: some books mirror each other's prices exactly. In the captured data
+OnyxOdds' entire ladder is identical to DraftKings', and BetRivers / BallyBet / BetParx are
+identical to one another (all Kambi skins). A plain mean therefore counts a shared opinion more than
+once. That is pre-existing rather than new, and the per-book weights in `/settings` are the lever if
+you want to correct for it.
+
+#### Rebuilding each book's main line
+
+The optimizer showed every book's line side by side in one row. The screen instead splits a market
+into one *selection* per line, with a different set of books under each — passing yards might list
+60, 62 and 65 separately. Reading any single selection therefore sees only a fraction of the field.
+
+So each book's own main line is reconstructed across all selections: the selection where that
+book's price is **least lopsided**, because that is what separates a real market from an alt (a
+book hanging Over 9.5 at −400 is not quoting 9.5, it is selling a near-certainty). Those
+per-book lines are then averaged, which keeps `edge` in line units and leaves every direction
+convention untouched. Alt lines a book also quoted are recorded on the row rather than discarded.
+
+A book is kept whenever it quotes the market at all, even if the side you took has no price: the
+line belongs to the market, not to one side of it. In the captured Xavier Robinson market only 10
+of 18 books price the Under, and demanding one would drop DraftKings, Fanatics and theScore.
+
+#### Discounting outliers
+
+Two separate defences, because bad quotes arrive in two different shapes.
+
+**A price nobody would take.** If a book's best selection is still priced outside roughly ±400
+(20–80% implied), it is not a line anyone is really offering — typically one resting order on an
+exchange. Its *line* often looks perfectly ordinary, so a consensus check would never catch it; the
+giveaway is the price. Dropped before averaging. Never applied to moneylines, where −1000 is an
+ordinary price for a heavy favourite.
+
+**A line far from the field.** Books whose reconstructed line sits outside a median-absolute-
+deviation band around the consensus are excluded and named in the verdict note. Feeds go stale: in
+the captured Robinson market, Fanatics' entire ladder is offset from everyone else's, and averaging
+it in moves the close from 22.6 to 25.9 — cutting the measured edge by more than half.
+
+Two details matter in that second test:
+
+* **Moneylines are compared as probabilities, not American odds.** For a moneyline the tracked line
+  *is* the price, and American odds are a terrible scale for arithmetic — discontinuous at ±100 and
+  wildly non-linear. −105 and +105 are nearly the same bet but sit 210 apart; −1000 and −5000 are
+  4000 apart and differ by four points of probability. Comparing implied probability is the only way
+  −1000 against a field of −150 reads as an outlier without also flagging every book near pick'em.
+* **Exchanges don't define the consensus.** On Novig, Prophet X, Kalshi and Polymarket the price is
+  whatever order is resting, so several being off-market at once is not evidence the market moved.
+  They are excluded from the reference median whenever at least three traditional books remain, and
+  are then held to a tolerance twice as tight. A rejected exchange never drags the sportsbooks out
+  with it.
+
+The band needs at least three books to act at all, and it will never reject half or more of the
+traditional books — if it would, the field has no consensus and everything is kept.
+
+If the market is listed but the selection is gone, the pick is **UNAVAILABLE**. If no book prices
+that market at all, it is **NO_CLOSING_MARKET**. Neither is scored against a guess.
 
 ## Setup
 
@@ -178,10 +300,25 @@ server was unreachable (it retries automatically), and **red** on a real error �
 | --- | --- |
 | `PENDING` | Waiting for kickoff. |
 | `NEEDS_GAME_TIME` | Captured with no kickoff time; set one on the detail page to schedule it. |
-| `DUE` | Queued, waiting for a browser with the extension to read the board. |
+| `DUE` | Queued and leased, waiting for a browser with the extension to read it. |
 | `CLOSED` | Closing lines captured, verdict recorded. |
-| `UNAVAILABLE` | Ran, but no sportsbook was still quoting the prop. Not counted as a loss. |
-| `FETCH_FAILED` | The board could not be read (signed out, Cloudflare challenge, layout change). Retried, then left for you. |
+| `UNAVAILABLE` | The market was listed at close but this selection was not in it — a scratch or a pulled prop. Terminal, not counted as a loss, and does **not** burn a retry. |
+| `NO_CLOSING_MARKET` | No sportsbook prices this market at all (DFS-only composites like "Fantasy Score", period-qualified props). A fact about the market, not a failure. Decided from the alias table before any read is attempted. |
+| `FETCH_FAILED` | The read genuinely broke, **or** we have no alias for this market yet. Retried, then left for you. |
+
+`UNAVAILABLE` and `NO_CLOSING_MARKET` are split on purpose. Folding "can never be closed" into
+"was not found" is precisely the collapse that hid the original bug, and it also kept unpriceable
+picks burning fetch attempts forever.
+
+## Adding a market
+
+The alias table is the one permanent maintenance cost of this design, and it is deliberately loud:
+an unmapped market becomes `FETCH_FAILED` with a message naming it, never a quiet `UNAVAILABLE`.
+
+Markets live in `shared/src/markets.ts`. The names PropProfessor accepts are in
+`shared/src/__fixtures__/pp-screen-vocabulary.json` (extracted from its page bundle — there is no
+endpoint that lists them). Use the `value`, not the `label`: they differ occasionally, e.g.
+"Player Pass + Rush + Rec Touchdowns" is sent as "Player Passing + Rushing + Receiving Touchdowns".
 
 ## Testing
 
@@ -193,15 +330,32 @@ npx tsx src/scripts/seed-demo.ts --clear # remove them
 
 To exercise the full pipeline without waiting for a real kickoff, capture any pick and press
 **Queue closing read now** on its detail page. The next time the extension polls (within a
-minute) it will open the board, read the prop, and fill in the verdict.
+minute) it will read the screen and fill in the verdict.
+
+The closing path has fixture tests that need no browser at all — `pp-screen-source.test.ts` runs
+saved screen responses through normalization, matching and the verdict builder, including two of
+the real picks in the database.
 
 ## Maintenance notes
 
-Both sites are third-party UIs that will change. The parsers are structural (they key off header
-text, `img alt` book names, and AG Grid's `col-id`/`row-id`) rather than off styling classes, so
+The capture boards are third-party UIs that will change. The parsers are structural (they key off
+header text, `img alt` book names, and AG Grid's `col-id`/`row-id`) rather than styling classes, so
 they tolerate cosmetic churn — but a real redesign will need
 `shared/src/parsers/{oddsjam,propprofessor}.ts` revisited. Both were verified against the live
 boards in September 2026.
+
+The closing path depends on an undocumented endpoint (`POST backend.propprofessor.com/screen`) whose
+shape could change without notice. The fixtures under `shared/src/__fixtures__/` pin the shape that
+was observed, so a break shows up as a failing test rather than as silently wrong CLV. Two real
+traps are encoded there and should not be "simplified" away: a selection key of `"null"` can still
+carry a real line (recorded only in the selection text), and `line1`/`line2` are equal on props but
+deliberately opposite on spreads.
+
+### Comparing old and new verdicts
+
+The screen shows more books than the optimizer did, so the closing average for the same pick is not
+the same number under both methods. Every verdict records `closingSourceSite`; rows measured the old
+way are stamped `OPTIMIZER_LEGACY`. Do not mix the two in a historical beat-rate without saying so.
 
 If picks start piling up as `FETCH_FAILED`, check the obvious things first: is Chrome running and
 still signed into both sites, and can it load the board manually without a Cloudflare challenge?

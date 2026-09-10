@@ -3,7 +3,7 @@ import { isSportsbookForAverage } from "@clv/shared";
 import { evPercent, fantasyPriceFrom } from "./ev";
 import { prisma } from "./prisma";
 import { buildMatchKey } from "./matching";
-import { config } from "./constants";
+import { config, scheduledFetchAtFor} from "./constants";
 
 const bookLineSchema = z.object({
   bookKey: z.string().min(1),
@@ -88,9 +88,7 @@ export async function ingestSnapshot(input: SnapshotInput) {
 
   // Without a start time there is nothing to schedule against. The pick is still stored -- it is
   // flagged NEEDS_GAME_TIME so it can be fixed from the dashboard rather than silently guessed.
-  const scheduledFetchAt = validStart
-    ? new Date(validStart.getTime() + config.closingBufferMinutes * 60_000)
-    : null;
+  const scheduledFetchAt = validStart ? scheduledFetchAtFor(validStart) : null;
   // First grading attempt a few hours after kickoff, once the box score is posted.
   const gradeScheduledAt = validStart
     ? new Date(validStart.getTime() + config.gradeDelayHours * 3600_000)

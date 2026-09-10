@@ -40,13 +40,47 @@ const rowSchema = z.object({
   rawText: z.string(),
 });
 
-const reportSchema = z.object({
-  betId: z.string().min(1),
-  row: rowSchema.nullable(),
-  parseOk: z.boolean(),
-  boardRowCount: z.number(),
-  reason: z.string().nullable().optional(),
+const sourceSchema = z.object({
+  site: z.literal("PROPPROFESSOR_SCREEN"),
+  url: z.string(),
+  league: z.string(),
+  market: z.string(),
 });
+
+const outcomeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("MATCHED"), row: rowSchema, source: sourceSchema }),
+  z.object({
+    kind: z.literal("SELECTION_ABSENT"),
+    source: sourceSchema,
+    candidateCount: z.number(),
+    sampleNames: z.array(z.string()).default([]),
+  }),
+  z.object({
+    kind: z.literal("MARKET_NOT_OFFERED"),
+    source: sourceSchema,
+    availableMarkets: z.array(z.string()).default([]),
+  }),
+  z.object({ kind: z.literal("NO_CLOSING_MARKET"), reason: z.string() }),
+  z.object({ kind: z.literal("READ_FAILED"), reason: z.string() }),
+]);
+
+/**
+ * The legacy fields stay optional for one release so an extension that has not been reloaded yet
+ * keeps reporting instead of 422ing every minute -- the extension has to be reloaded by hand in
+ * each browser, so the two versions genuinely do overlap in the wild.
+ */
+const reportSchema = z
+  .object({
+    betId: z.string().min(1),
+    outcome: outcomeSchema.optional(),
+    row: rowSchema.nullable().optional(),
+    parseOk: z.boolean().optional(),
+    boardRowCount: z.number().optional(),
+    reason: z.string().nullable().optional(),
+  })
+  .refine((r) => r.outcome !== undefined || r.parseOk !== undefined, {
+    message: "expected either an outcome or the legacy parseOk/row fields",
+  });
 
 /** Receives a closing board read performed by the extension in the user's own browser. */
 export async function POST(request: Request) {

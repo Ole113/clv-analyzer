@@ -28,7 +28,12 @@ export type MarketType = (typeof MARKET_TYPES)[number];
  * NEEDS_GAME_TIME  captured without a usable start time -- cannot be scheduled until set
  * DUE              kickoff + buffer has passed, closing fetch in flight
  * CLOSED           closing lines captured, verdict computed
- * UNAVAILABLE      fetch ran but no sportsbook was still quoting the prop
+ * UNAVAILABLE      the market was listed but this selection was not in it (scratched, pulled)
+ * NO_CLOSING_MARKET no sportsbook prices this market at all, so no close can ever exist -- DFS-only
+ *                  composites (PrizePicks "Fantasy Score") and period-qualified props. The closing
+ *                  analogue of grading's UNGRADEABLE: a statement about the market, not a failure.
+ *                  Folding this into UNAVAILABLE is precisely the collapse that hid the original
+ *                  bug, and it also kept these picks burning fetch attempts forever.
  * FETCH_FAILED     fetch errored (auth expired, selector broke); retried up to MAX_FETCH_ATTEMPTS
  * LIVE_NO_CLV      captured from a Live board; no closing read is scheduled because the line was
  *                  already taken mid-game, so there is no "close" to measure against
@@ -39,13 +44,20 @@ export const STATUSES = [
   "DUE",
   "CLOSED",
   "UNAVAILABLE",
+  "NO_CLOSING_MARKET",
   "FETCH_FAILED",
   "LIVE_NO_CLV",
 ] as const;
 export type Status = (typeof STATUSES)[number];
 
 export const OPEN_STATUSES: Status[] = ["PENDING", "NEEDS_GAME_TIME", "DUE"];
-export const SETTLED_STATUSES: Status[] = ["CLOSED", "UNAVAILABLE", "FETCH_FAILED", "LIVE_NO_CLV"];
+export const SETTLED_STATUSES: Status[] = [
+  "CLOSED",
+  "UNAVAILABLE",
+  "NO_CLOSING_MARKET",
+  "FETCH_FAILED",
+  "LIVE_NO_CLV",
+];
 
 /** Statuses that carry a real CLV verdict. Everything else must be left out of CLV aggregates. */
 export const CLV_STATUSES: Status[] = ["CLOSED"];
@@ -77,7 +89,27 @@ export const HIT_RESULTS = ["WIN", "LOSS"] as const;
 export type GradeSource = (typeof GRADE_SOURCES)[number];
 
 export const config = {
-  closingBufferMinutes: Number(process.env.CLOSING_BUFFER_MINUTES ?? 2),
+  /**
+   * The closing read is a *window before* kickoff, not a single shot after it.
+   *
+   * It used to fire once at kickoff + 2 minutes. That cannot work on an odds screen: a game which
+   * has started is no longer listed there at all, so the read found nothing 100% of the time --
+   * the same "gone by the time we look" bug as the optimizer, in a new costume.
+   *
+   * Serving the whole window means a failed read at T-8 simply retries at T-7, T-6 and so on
+   * instead of burning the pick's only chance.
+   *
+   * The trade-off, plainly: reading at T-3 misses the last three minutes of steam, where late
+   * scratch news lands -- which biases measured CLV slightly *downward* on exactly the picks that
+   * moved hardest. Reading after kickoff risks measuring nothing at all. A small known bias beats
+   * a large unknown one.
+   */
+  closingReadOpensMinutesBefore: Number(process.env.CLOSING_READ_OPENS_MINUTES_BEFORE ?? 8),
+  closingReadTargetMinutesBefore: Number(process.env.CLOSING_READ_TARGET_MINUTES_BEFORE ?? 3),
+  /** Kept slightly past kickoff only so a read already in flight can still land. */
+  closingReadClosesMinutesAfter: Number(process.env.CLOSING_READ_CLOSES_MINUTES_AFTER ?? 5),
+  /** How long a pick handed to an extension is not handed to anyone else. */
+  closingLeaseMinutes: Number(process.env.CLOSING_LEASE_MINUTES ?? 5),
   maxFetchAttempts: Number(process.env.MAX_FETCH_ATTEMPTS ?? 6),
   /**
    * A closing line read this long after kickoff is no longer really a closing line. The pick is
@@ -90,3 +122,24 @@ export const config = {
   /** How often the server checks its own database for picks due to grade. */
   gradePollMinutes: Number(process.env.GRADE_POLL_MINUTES ?? 15),
 };
+
+/**
+ * When a pick first becomes readable.
+ *
+ * Clamped to `now` so a pick ticked four minutes before kickoff -- inside its own read window --
+ * is servable immediately instead of being scheduled into the past and waiting for the next poll.
+ */
+export function scheduledFetchAtFor(gameStartTime: Date, now: Date = new Date()): Date {
+  const opens = new Date(gameStartTime.getTime() - config.closingReadOpensMinutesBefore * 60_000);
+  return opens.getTime() < now.getTime() ? now : opens;
+}
+
+/** The last instant a pick is still worth reading. */
+export function closingWindowEndsAt(gameStartTime: Date): Date {
+  return new Date(gameStartTime.getTime() + config.closingReadClosesMinutesAfter * 60_000);
+}
+
+/** Human-readable description of the read window, for the settings and detail pages. */
+export const CLOSING_WINDOW_DESCRIPTION =
+  `${config.closingReadOpensMinutesBefore}-${config.closingReadTargetMinutesBefore} min ` +
+  `before kickoff`;

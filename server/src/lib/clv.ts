@@ -1,3 +1,4 @@
+import { isExchange } from "@clv/shared";
 import type { MarketType, Side } from "./constants";
 
 export interface LineLike {
@@ -40,6 +41,91 @@ export function averageClosingLine(
     return { avg: sum / usable.length, count: usable.length };
   }
   return { avg: weightedSum / weightTotal, count: usable.length };
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/** American odds as a 0-1 probability, vig included. */
+function impliedProbability(price: number): number {
+  return price > 0 ? 100 / (price + 100) : Math.abs(price) / (Math.abs(price) + 100);
+}
+
+/**
+ * Books whose number is too far from the rest of the field to be believed.
+ *
+ * Needed because the odds screen lists every book that has *any* number up, including ones that are
+ * stale, mis-mapped, or -- on an exchange -- just one person's bad resting order. A single such
+ * quote moves the closing average a long way. Observed on a real captured market: for Xavier
+ * Robinson's rushing yards, seven books cluster at 20.5-24.5 while Fanatics' entire ladder sits far
+ * above (Over 19.5 at -950, where DraftKings has -144). Averaging Fanatics in pulls the close from
+ * 22.6 to 25.9 and cuts the measured edge by more than half.
+ *
+ * Median absolute deviation rather than a mean/standard-deviation test, because the mean is exactly
+ * what the outlier corrupts. The band has a floor so that a tight field (where MAD collapses to 0)
+ * does not start rejecting ordinary half-point disagreement.
+ *
+ * Two things this gets right that a naive version does not:
+ *
+ * **Moneylines are compared as probabilities, not as American odds.** For a moneyline the tracked
+ * "line" IS the price, and American odds are a terrible scale to do arithmetic on: they are
+ * discontinuous at ±100 and wildly non-linear. -105 and +105 are nearly the same bet but sit 210
+ * apart numerically, while -1000 and -5000 are 4000 apart and differ by four points of probability.
+ * Measuring deviation in implied probability is the only way -1000 against a field of -150 reads as
+ * the outlier it is, without also flagging every book that crosses the pick'em line.
+ *
+ * **Exchanges do not get to define the consensus.** Prices on Novig, Prophet X, Kalshi and
+ * Polymarket are set by whoever has an order resting, so several of them being off-market at once
+ * is not evidence that the market has moved. They are excluded from the reference median whenever
+ * enough traditional books remain to form one, and are then held to a tighter tolerance.
+ */
+export function findLineOutliers(
+  lines: LineLike[],
+  marketType: MarketType = "PLAYER_PROP"
+): Set<string> {
+  const usable = lines.filter(
+    (l): l is LineLike & { line: number } => l.includedInAverage && typeof l.line === "number"
+  );
+  // Below three there is nothing that could be called a field, and discarding a real quote is
+  // worse than keeping a doubtful one.
+  if (usable.length < 3) return new Set();
+
+  const scale = (line: number) =>
+    marketType === "MONEYLINE" ? impliedProbability(line) : line;
+
+  const anchors = usable.filter((l) => !isExchange(l.bookKey));
+  // Fall back to the whole field only when the traditional books are too few to speak for it.
+  const reference = anchors.length >= 3 ? anchors : usable;
+
+  const mid = median(reference.map((l) => scale(l.line)));
+  const mad = median(reference.map((l) => Math.abs(scale(l.line) - mid)));
+
+  // Probabilities live on 0-1, so the line-unit floor would swallow the entire scale.
+  // The floor only bites when the field agrees almost exactly and MAD collapses toward zero; it is
+  // kept modest so that it does not, in that case, widen the band past the point of catching
+  // anything -- at 15% of the line a tight prop field tolerated a book five yards off the market.
+  const floor = marketType === "MONEYLINE" ? 0.04 : Math.max(Math.abs(mid) * 0.1, 1);
+  // 1.4826 rescales MAD to be comparable to a standard deviation for normal data.
+  const band = Math.max(1.4826 * mad, floor);
+
+  const outliers = new Set<string>();
+  for (const l of usable) {
+    const tolerance = (isExchange(l.bookKey) ? 2 : 3) * band;
+    if (Math.abs(scale(l.line) - mid) > tolerance) outliers.add(l.bookKey);
+  }
+
+  // Never throw away the majority of the traditional books: if the test would reject half of them
+  // or more, the field has no consensus to be an outlier from, and keeping everything is honest.
+  // Exchange rejections are not protected by this -- an exchange disagreeing with the sportsbooks
+  // is the case this exists to catch, not a sign that the sportsbooks are wrong.
+  const rejectedAnchors = anchors.filter((l) => outliers.has(l.bookKey)).length;
+  if (anchors.length > 0 && rejectedAnchors * 2 >= anchors.length) {
+    for (const l of anchors) outliers.delete(l.bookKey);
+  }
+  return outliers;
 }
 
 /**

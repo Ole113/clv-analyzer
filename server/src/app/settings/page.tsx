@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { config } from "@/lib/constants";
+import { config, CLOSING_WINDOW_DESCRIPTION} from "@/lib/constants";
 import { DEFAULT_PICKEM_PRICE } from "@/lib/ev";
 import { PurgeForm } from "@/components/purge-form";
 import { TestDataForm } from "@/components/test-data-form";
@@ -207,8 +207,8 @@ export default async function SettingsPage() {
         <table>
           <tbody>
             <tr>
-              <td>Closing buffer</td>
-              <td className="num">{config.closingBufferMinutes} min after kickoff</td>
+              <td>Closing read window</td>
+              <td className="num">{CLOSING_WINDOW_DESCRIPTION}</td>
             </tr>
             <tr>
               <td>Late-read threshold</td>

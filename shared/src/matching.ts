@@ -40,6 +40,69 @@ function teamsOverlap(a: string | null, b: string | null): boolean {
   return x === y || x.includes(y) || y.includes(x);
 }
 
+/** Splits "Boston College vs. Rutgers" / "Rutgers @ Boston College" into its two sides. */
+function matchupSides(matchup: string | null): string[] {
+  if (!matchup) return [];
+  return matchup
+    .split(/\s+(?:vs\.?|v\.?|@|at)\s+/i)
+    .map((s) => normalizeName(s))
+    .filter(Boolean);
+}
+
+/**
+ * Whether two fixture strings name the same game, regardless of which team is written first.
+ *
+ * Home/away order is not agreed between sources: the same game reads "Rutgers vs Boston College" on
+ * OddsJam and "Boston College vs. Rutgers" on PropProfessor -- different separator *and* reversed
+ * order. Comparing the raw strings, as a plain substring test does, calls that a different game.
+ */
+function matchupsOverlap(a: string | null, b: string | null): boolean {
+  const left = matchupSides(a);
+  const right = matchupSides(b);
+  if (left.length === 0 || right.length === 0) return true; // nothing to contradict
+  // Every side of the shorter list must find a partner in the other, in either order.
+  return left.every((l) => right.some((r) => l === r || l.includes(r) || r.includes(l)));
+}
+
+/**
+ * How well two player names agree, or null when they cannot be the same person.
+ *
+ * Exact agreement is the normal case and the only one the optimizer ever needed. Surname-only
+ * agreement has to be allowed because the odds screen writes tennis players as bare surnames
+ * ("Tiafoe", "Shelton") while picks are captured with full names ("Alexander Zverev") -- an exact
+ * test would fail to price every tennis pick ever taken.
+ *
+ * It scores lower than an exact match, which matters: two players sharing a surname in the same
+ * market both score the same, and the caller rejects ties rather than guessing between them.
+ */
+function playerScore(rowPlayer: string | null, targetPlayer: string | null): number | null {
+  const row = normalizeName(rowPlayer);
+  const want = normalizeName(targetPlayer);
+  if (!row || !want) return null;
+  if (row === want) return 10;
+
+  const rowTokens = row.split(" ");
+  const wantTokens = want.split(" ");
+  const rowLast = rowTokens[rowTokens.length - 1];
+  const wantLast = wantTokens[wantTokens.length - 1];
+  if (rowLast !== wantLast) return null;
+
+  // Only when one side genuinely is a bare surname. "Alex Smith" vs "John Smith" share a last name
+  // and must not match; "Smith" vs "Alex Smith" is the abbreviation the screen actually uses.
+  if (rowTokens.length === 1 || wantTokens.length === 1) return 6;
+
+  return rowTokens[0][0] === wantTokens[0][0] ? 6 : null;
+}
+
+/**
+ * Below this a match is not trustworthy enough to record a verdict from.
+ *
+ * A guard rail rather than the main protection -- the hard filters above already reject anything
+ * that disagrees on identity, so nothing currently scores under it. It exists so that a later
+ * loosening of those filters fails closed instead of silently admitting weak matches.
+ */
+const MIN_MATCH_SCORE = 20;
+
 function statScore(rowStat: string | null, wantStat: string): number | null {
   const stat = normalizeName(rowStat);
   if (stat === wantStat) return 10;
@@ -64,6 +127,7 @@ export function findMatchingRow(rows: ParsedRow[], target: MatchTarget): ParsedR
   const wantIdPrefix = stripTrailingLine(target.externalPropId);
 
   let best: { row: ParsedRow; score: number } | null = null;
+  let runnerUp: { row: ParsedRow; score: number } | null = null;
 
   for (const row of rows) {
     if (row.marketType !== target.marketType) continue;
@@ -73,13 +137,15 @@ export function findMatchingRow(rows: ParsedRow[], target: MatchTarget): ParsedR
     if (target.marketType === "PLAYER_PROP") {
       if (!row.player || !row.side) continue;
       if (row.side !== target.side) continue;
-      if (normalizeName(row.player) !== normalizeName(target.player)) continue;
+      const p = playerScore(row.player, target.player);
+      if (p === null) continue;
+      score += p;
       const s = statScore(row.statMarket, wantStat);
       if (s === null) continue; // same player, different market -- not our prop
       score += s;
     } else {
       // Game markets: the fixture has to agree, or "Over 14.5" would match another game entirely.
-      if (!teamsOverlap(row.matchup, target.matchup)) continue;
+      if (!matchupsOverlap(row.matchup, target.matchup)) continue;
       const s = statScore(row.statMarket, wantStat);
       if (s === null) continue;
       score += s;
@@ -97,10 +163,36 @@ export function findMatchingRow(rows: ParsedRow[], target: MatchTarget): ParsedR
     const rowIdPrefix = stripTrailingLine(row.externalPropId);
     if (wantIdPrefix && rowIdPrefix && rowIdPrefix === wantIdPrefix) score += 20;
 
-    if (!best || score > best.score) best = { row, score };
+    if (!best || score > best.score) {
+      runnerUp = best;
+      best = { row, score };
+    } else if (!runnerUp || score > runnerUp.score) {
+      runnerUp = { row, score };
+    }
   }
 
-  return best?.row ?? null;
+  if (!best || best.score < MIN_MATCH_SCORE) return null;
+
+  // A tie between two rows that name *different people or teams* is unresolvable, and picking the
+  // first one silently produces a plausible verdict for the wrong pick -- worse than reporting no
+  // match, because nothing downstream would ever flag it. This became reachable when the candidate
+  // pool grew from "a handful of props that still have edge" to "every player in the market".
+  //
+  // Ties between rows of the same identity are left alone: those are one pick offered at several
+  // lines (Alt boards), where the previous behaviour of taking the top scorer is still correct.
+  if (runnerUp && runnerUp.score === best.score && !sameSubject(best.row, runnerUp.row)) {
+    return null;
+  }
+
+  return best.row;
+}
+
+/** Whether two candidate rows are about the same player or team, ignoring the line. */
+function sameSubject(a: ParsedRow, b: ParsedRow): boolean {
+  return (
+    normalizeName(a.player) === normalizeName(b.player) &&
+    normalizeName(a.subjectTeam) === normalizeName(b.subjectTeam)
+  );
 }
 
 /**

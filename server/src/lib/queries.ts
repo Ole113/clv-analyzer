@@ -236,6 +236,8 @@ export async function getOverviewStats(filters: BetFilters) {
       due: bets.filter((b) => b.status === "DUE").length,
       closed: closed.length,
       unavailable: bets.filter((b) => b.status === "UNAVAILABLE").length,
+      /** Picks no sportsbook prices. Counted separately so they never read as a problem. */
+      noClosingMarket: bets.filter((b) => b.status === "NO_CLOSING_MARKET").length,
       failed: bets.filter((b) => b.status === "FETCH_FAILED").length,
       /** In-play picks, which carry EV% but never a CLV verdict. */
       live: bets.filter((b) => b.status === "LIVE_NO_CLV").length,

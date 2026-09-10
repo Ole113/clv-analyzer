@@ -69,6 +69,10 @@ model Bet {
   fetchAttempts    Int       @default(0)
   lastFetchError   String?
   lastFetchAt      DateTime?
+  /// Held while an extension is reading this pick's close. Without it the 60s poll re-serves a
+  /// DUE pick every minute while the previous read is still in flight, so the same pick gets read
+  /// several times over and reported several times. Expired leases are simply re-servable.
+  leasedUntil      DateTime?
 
   // --- close snapshot --------------------------------------------------------
   status               String    @default("PENDING")
@@ -87,6 +91,14 @@ model Bet {
   closingCaptureLagSeconds Int?
   edge             Float?
   beatClv          Boolean?
+  /// How the closing number was obtained. PROPPROFESSOR_SCREEN reads the full odds screen, which
+  /// lists every market whether or not it still has edge; OPTIMIZER_LEGACY is the old read off the
+  /// edge-filtered Fantasy Optimizer, which could only ever find picks whose edge had NOT gone.
+  /// The screen shows more books, so the two are not directly comparable and must stay separable.
+  closingSourceSite String?
+  closingSourceUrl  String?
+  /// BOOK_CONSENSUS | BOARD_LINE
+  closingMethod     String?
 
   // --- grading -----------------------------------------------------------------
   // Deliberately separate from `status`, which tracks only the closing-line capture: a pick can

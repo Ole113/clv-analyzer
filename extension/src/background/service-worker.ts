@@ -7,8 +7,10 @@ import type {
   TrackedLookupResponse,
   UntrackMessage,
   UntrackResponse,
+  PpTokenMessage,
 } from "../content/shared/messages";
 import { runClosingWork } from "./closing-worker";
+import { storeToken } from "./pp-token";
 
 const QUEUE_KEY = "clv:queue";
 const ALARM = "clv:flush";
@@ -93,7 +95,17 @@ async function configured(): Promise<{ backendUrl: string; apiKey: string } | nu
   return { backendUrl: settings.backendUrl, apiKey: settings.apiKey };
 }
 
-chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }, sender, sendResponse) => {
+  if (message?.type === "clv:pp-token") {
+    // Only from a content script actually running on PropProfessor. A message claiming to carry
+    // their token from anywhere else has no business being trusted.
+    const from = sender.url ?? "";
+    if (/^https:\/\/www\.propprofessor\.com\//.test(from)) {
+      void storeToken((message as PpTokenMessage).token);
+    }
+    return false;
+  }
+
   if (message?.type === "clv:capture") {
     const payload = (message as CaptureMessage).payload;
     (async () => {

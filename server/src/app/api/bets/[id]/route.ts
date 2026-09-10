@@ -1,7 +1,7 @@
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getBetDetail } from "@/lib/queries";
-import { config } from "@/lib/constants";
+import { config, scheduledFetchAtFor} from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +38,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     where: { id },
     data: {
       gameStartTime: start,
-      scheduledFetchAt: new Date(start.getTime() + config.closingBufferMinutes * 60_000),
+      scheduledFetchAt: scheduledFetchAtFor(start),
       gradeScheduledAt: new Date(start.getTime() + config.gradeDelayHours * 3600_000),
       status: "PENDING",
       fetchAttempts: 0,

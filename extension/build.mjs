@@ -18,6 +18,10 @@ const options = {
   entryPoints: {
     "content/oddsjam": "src/content/oddsjam/index.ts",
     "content/propprofessor": "src/content/propprofessor/index.ts",
+    // Runs in the page's own JS world to observe the odds-screen bearer token, plus the
+    // isolated-world half that can actually talk to the background worker.
+    "content/pp-token-bridge": "src/content/propprofessor/token-bridge.ts",
+    "content/pp-token-relay": "src/content/propprofessor/token-relay.ts",
     "background/service-worker": "src/background/service-worker.ts",
     "options/options": "src/options/options.ts",
   },

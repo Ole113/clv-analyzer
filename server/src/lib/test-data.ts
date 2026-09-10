@@ -3,6 +3,7 @@ import { prisma } from "./prisma";
 import { buildMatchKey } from "./matching";
 import { buildClosingVerdict } from "./closing";
 import { evPercent } from "./ev";
+import { scheduledFetchAtFor } from "./constants";
 
 /**
  * Tags synthetic rows so they can be told apart from real captures and deleted on their own.
@@ -160,7 +161,7 @@ export async function generateTestData(count: number): Promise<number> {
         openEvPercent: evPercent(t.prob, -119),
         openRawSnapshotJson: JSON.stringify(openRow),
         openCapturedAt: new Date(gameStartTime.getTime() - 5 * 3600_000),
-        scheduledFetchAt: new Date(gameStartTime.getTime() + 2 * 60_000),
+        scheduledFetchAt: scheduledFetchAtFor(gameStartTime),
         openLines: { create: openBooks.map((b) => ({ ...b, includedInAverage: true })) },
         ...(verdict
           ? {

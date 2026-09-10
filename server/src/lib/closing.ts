@@ -1,7 +1,16 @@
 import type { ParsedRow } from "@clv/shared";
-import { isSportsbookForAverage } from "@clv/shared";
-import { averageClosingLine, computeClv } from "./clv";
+import { isSportsbookForAverage, isSportsbookForClose } from "@clv/shared";
+import { averageClosingLine, computeClv, findLineOutliers } from "./clv";
 import type { MarketType, Side } from "./constants";
+
+/**
+ * Where the closing numbers came from, which decides how they are filtered.
+ *
+ * OPTIMIZER is the legacy read off the edge-filtered Fantasy Optimizer. PP_SCREEN is the odds
+ * screen, which lists every market whether or not any edge is left -- the whole point of the
+ * redesign -- but in exchange shows far more columns, most of which are not sportsbooks.
+ */
+export type ClosingSourceSite = "OPTIMIZER" | "PP_SCREEN";
 
 export interface ClosingLineRecord {
   bookKey: string;
@@ -35,8 +44,14 @@ export function buildClosingVerdict(
   side: Side | null,
   takenLine: number,
   row: ParsedRow,
-  bookWeights?: Record<string, number> | null
+  bookWeights?: Record<string, number> | null,
+  sourceSite: ClosingSourceSite = "OPTIMIZER"
 ): ClosingVerdict {
+  // The screen needs an allowlist: on the optimizer the `hasLine` test did most of the filtering,
+  // because DFS and algo columns there are price-only. On an odds screen essentially every column
+  // carries a line, so a denylist admits anything it has not been told about yet.
+  const classify = sourceSite === "PP_SCREEN" ? isSportsbookForClose : isSportsbookForAverage;
+
   const closeLines: ClosingLineRecord[] = row.bookLines.map((b) => ({
     bookKey: b.bookKey,
     label: b.label,
@@ -44,8 +59,16 @@ export function buildClosingVerdict(
     price: b.price,
     logoUrl: b.logoUrl,
     rawText: b.rawText,
-    includedInAverage: isSportsbookForAverage(b.bookKey, b.label, typeof b.line === "number"),
+    includedInAverage: classify(b.bookKey, b.label, typeof b.line === "number"),
   }));
+
+  // Only on the screen path: it is the one that surfaces stale and mis-mapped books, and the
+  // optimizer path must not silently change its numbers.
+  const outliers =
+    sourceSite === "PP_SCREEN" ? findLineOutliers(closeLines, marketType) : new Set<string>();
+  for (const line of closeLines) {
+    if (outliers.has(line.bookKey)) line.includedInAverage = false;
+  }
 
   const { avg, count } = averageClosingLine(closeLines, bookWeights);
 
@@ -86,7 +109,12 @@ export function buildClosingVerdict(
     closingBookCount: useBoardLine ? 1 : count,
     edge,
     beatClv,
-    note: null,
+    // Surfaced rather than silent: a dropped book is a judgement call, and the one place it would
+    // do real damage is if it were wrong and nobody could see it had happened.
+    note:
+      outliers.size > 0
+        ? `Excluded ${[...outliers].join(", ")} from the average: too far from the rest of the field`
+        : null,
     closingSource,
   };
 }

@@ -39,3 +39,12 @@ export interface UntrackResponse {
 export interface TestConnectionMessage {
   type: "clv:test-connection";
 }
+
+/**
+ * Carries the odds-screen bearer token from the page-context bridge to the background worker.
+ * Sent by the isolated-world relay, never by the page itself.
+ */
+export interface PpTokenMessage {
+  type: "clv:pp-token";
+  token: string;
+}

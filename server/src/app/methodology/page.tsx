@@ -5,10 +5,16 @@ export default function MethodologyPage() {
     <main className="prose">
       <h2 style={{ marginTop: 0 }}>Methodology</h2>
       <p>
-        Every number on this dashboard comes from two snapshots of the same prop: the board as it
-        looked when you ticked the pick, and the board a couple of minutes after kickoff. Nothing
-        is modelled or estimated — if a number cannot be derived from those two reads, it is left
-        blank rather than filled in with a guess.
+        Every number on this dashboard comes from two reads of the same prop: the board as it looked
+        when you ticked the pick, and PropProfessor&apos;s odds screen shortly before kickoff.
+        Nothing is modelled or estimated — if a number cannot be derived from those two reads, it is
+        left blank rather than filled in with a guess.
+      </p>
+      <p className="muted">
+        The close is deliberately <em>not</em> read from the optimizer the pick was taken on. An
+        optimizer only lists props that still have edge, so a pick whose line genuinely moved — the
+        ones most worth measuring — would be missing from it by kickoff and get recorded as
+        unavailable. The odds screen lists every market whether or not any edge is left.
       </p>
 
       <h3 id="clv">Closing line value (CLV)</h3>
@@ -47,10 +53,45 @@ export default function MethodologyPage() {
           computed price rather than a book quoting a market.
         </li>
       </ul>
+      <ul>
+        <li>
+          <strong>Prices nobody would take</strong>. A quote priced far from even money on a prop is
+          not a line anyone is really offering — usually a single resting order on an exchange,
+          where anyone can set the price. Its line often looks ordinary, so the giveaway is the
+          price rather than the number.
+        </li>
+        <li>
+          <strong>Books far from the rest of the field</strong>. Feeds go stale, and one bad quote
+          moves an average a long way. A book whose line sits outside a median-absolute-deviation
+          band around the others is dropped and named in the note on the pick&apos;s detail page.
+          Moneylines are compared as implied probabilities rather than American odds, which are far
+          too non-linear to average or measure distance on. Exchanges (Novig, Prophet X, Kalshi,
+          Polymarket) are held to a tighter tolerance and are never allowed to define the consensus
+          they are judged against.
+        </li>
+      </ul>
       <p>
         Every column is still stored and shown on the pick&apos;s detail page, greyed and marked
-        &quot;not averaged&quot;. If no sportsbook is still quoting the prop at close, the pick is
-        marked <code>UNAVAILABLE</code> and excluded from all rates — it is never counted as a loss.
+        &quot;not averaged&quot;.
+      </p>
+      <p>
+        Because the screen lists one selection per line rather than one column per book, each
+        book&apos;s own main line is rebuilt across all of a market&apos;s selections: the line where
+        that book&apos;s price is least lopsided, which is what distinguishes its real number from
+        an alt. Other lines it quoted are recorded alongside rather than discarded.
+      </p>
+      <p>
+        If the market is listed at close but this selection is not in it — a scratch, or a pulled
+        prop — the pick is marked <code>UNAVAILABLE</code>. If no sportsbook prices that market at
+        all, such as a DFS-only fantasy-score composite, it is marked{" "}
+        <code>NO_CLOSING_MARKET</code>. Both are excluded from all rates and neither is ever counted
+        as a loss; they are kept apart because one is a missing selection and the other is a
+        statement about the market itself.
+      </p>
+      <p className="muted">
+        Verdicts recorded before September 2026 were measured against the optimizer, which showed
+        fewer books, and are stamped <code>OPTIMIZER_LEGACY</code>. The two methods produce
+        different closing averages for the same pick and are not directly comparable.
       </p>
 
       <h3 id="ev">Expected value (EV%)</h3>
