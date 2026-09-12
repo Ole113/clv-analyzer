@@ -1,5 +1,6 @@
-import { parsePropProfessorTable } from "@clv/shared";
+import { marketFilterKey, parsePropProfessorTable } from "@clv/shared";
 import { startCapture, type SiteAdapter } from "../shared/inject";
+import type { MarketOption } from "../shared/market-filter";
 
 /**
  * PropProfessor renders AG Grid, which virtualizes both axes: it recycles cell DOM nodes as the
@@ -34,6 +35,8 @@ const KNOWN_BOOKS = [
 /** Width of the reserved strip beside the grid the checkboxes live in. */
 const LANE = 24;
 const OVERLAY_ID = "clva-pp-overlay";
+/** Marks a hidden row that the user has asked to peek at. See the hide-markets section below. */
+const DIM_ATTR = "data-clv-dim";
 
 function grid(): Element | null {
   return document.querySelector('[role="grid"], [role="table"]');
@@ -114,6 +117,7 @@ function reposition(): void {
     const slot = slots.get(key);
     if (slot) positionSlot(slot, el, gridRect);
   }
+  markRevealed(g);
   for (const [key, slot] of slots) {
     if (!seen.has(key)) {
       slot.remove();
@@ -146,7 +150,81 @@ const OVERLAY_STYLES = `
    If this still happens after reloading the extension, the fix likely needs to stop reserving
    space this way entirely rather than adjusting the offset -- flag it with a screenshot. */
 [role="grid"] { margin-left: ${LANE}px; }
+/* Revealed-but-hidden rows, while the user is peeking at what the filter removed. */
+[role="row"][${DIM_ATTR}] { opacity: 0.4; }
 `;
+
+/* --- hiding markets ---------------------------------------------------------
+   The hiding itself is not done here. AG Grid virtualizes rows and sizes its scroll container from
+   the unfiltered row count, so a CSS hide in this world leaves a gap and a scrollbar measuring rows
+   nobody can see; the grid's own external filter does it correctly but is only reachable from the
+   page's JS context. `grid-bridge.ts` runs there and does exactly that much, and this half talks to
+   it -- the same isolated/MAIN split, for the same reason, as the odds-screen token bridge. */
+
+const FILTER_OUT = "clv:pp-grid-filter";
+const FILTER_IN = "clv:pp-grid-state";
+
+/** Last vocabulary the bridge reported. Empty until the grid's first filter pass lands. */
+let vocabulary: MarketOption[] = [];
+/** What the bridge was last told to hide, and whether the user is currently peeking at it. */
+let hiddenKeys = new Set<string>();
+let revealing = false;
+let lastSent = "";
+let lastSentAt = 0;
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  if (event.origin !== window.location.origin) return;
+  const data = event.data as { source?: unknown; markets?: unknown } | null;
+  if (!data || data.source !== FILTER_IN || !Array.isArray(data.markets)) return;
+  vocabulary = data.markets.filter(
+    (m): m is MarketOption =>
+      !!m && typeof m.key === "string" && typeof m.label === "string" && typeof m.count === "number"
+  );
+});
+
+function sendHidden(keys: string[]): void {
+  const payload = JSON.stringify(keys);
+  // Re-sent on a slow cadence even when unchanged, so a bridge that started late -- or a grid
+  // rebuilt by a board switch -- picks the list back up without the user touching anything.
+  if (payload === lastSent && Date.now() - lastSentAt < 3000) return;
+  lastSent = payload;
+  lastSentAt = Date.now();
+  window.postMessage({ source: FILTER_OUT, hidden: keys }, window.location.origin);
+}
+
+/**
+ * The market a row is quoting, taken from its own row-id.
+ *
+ * Only needed while revealing, to mark which of the rows now on screen are the hidden ones. The
+ * id's second-to-last colon segment is always the market on both board layouts -- see the row-id
+ * note in `parsers/propprofessor.ts` for why it is counted from the end.
+ */
+function marketKeyOfRow(rowId: string): string {
+  const parts = rowId.split(":");
+  if (parts.length < 7) return "";
+  return marketFilterKey(parts[parts.length - 2].replace(/_/g, " "));
+}
+
+/** Dims the hidden-but-revealed rows, in the same frame pass that positions the checkboxes --
+ *  AG Grid recycles row nodes, so this has to be re-asserted rather than set once. */
+function markRevealed(g: Element): void {
+  const active = revealing && hiddenKeys.size > 0;
+  for (const el of Array.from(g.querySelectorAll('[role="row"][row-id]'))) {
+    const dim = active && hiddenKeys.has(marketKeyOfRow(el.getAttribute("row-id") ?? ""));
+    if (dim) el.setAttribute(DIM_ATTR, "1");
+    else if (el.hasAttribute(DIM_ATTR)) el.removeAttribute(DIM_ATTR);
+  }
+}
+
+/** PropProfessor's own control row -- the pick-type dropdown and "Compact View" sit here, which is
+ *  where a board-level control belongs. Null until the board has rendered it. */
+function boardToolbar(): HTMLElement | null {
+  const compact = Array.from(document.querySelectorAll("button")).find((b) =>
+    /^compact view$/i.test((b.textContent ?? "").trim())
+  );
+  return compact?.parentElement ?? null;
+}
 
 const adapter: SiteAdapter = {
   site: "PROPPROFESSOR",
@@ -203,6 +281,20 @@ const adapter: SiteAdapter = {
 
   injectHeader() {
     // No-op: the lane is reserved by CSS, and a LANE-wide header cell has no room for a label.
+  },
+
+  marketFilter: {
+    vocabulary: () => vocabulary,
+
+    apply(hidden, reveal) {
+      hiddenKeys = new Set(hidden);
+      revealing = reveal;
+      // Revealing is sent as "hide nothing" rather than as a flag of its own: the grid has one
+      // question to answer, and the marking of which rows came back is this side's job anyway.
+      sendHidden(reveal ? [] : [...hidden]);
+    },
+
+    toolbar: boardToolbar,
   },
 
   mount(row) {
