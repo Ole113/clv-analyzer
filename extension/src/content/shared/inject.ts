@@ -7,6 +7,7 @@ import type {
   UntrackResponse,
 } from "./messages";
 import { DEFAULT_CHECKBOX_COLOR, loadSettings } from "./config";
+import { MARKET_FILTER_STYLES, startMarketFilter, type MarketFilterHooks } from "./market-filter";
 import { ODDS_MODAL_STYLES, oddsButton, openOddsModal, pickFromRow } from "./odds-modal";
 
 export interface SiteAdapter {
@@ -40,6 +41,11 @@ export interface SiteAdapter {
    * own, with that lane looked at properly, not as a side effect of this.
    */
   oddsButton?: boolean;
+  /**
+   * Hooks for the hide-markets control. Omitted by a board that has no way to make a row
+   * disappear, in which case the control is simply never mounted there.
+   */
+  marketFilter?: MarketFilterHooks;
 }
 
 const MARK = "data-clv-injected";
@@ -124,7 +130,7 @@ function ensureStyles(extra?: string): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = STYLES + ODDS_MODAL_STYLES + (extra ?? "");
+  style.textContent = STYLES + ODDS_MODAL_STYLES + MARKET_FILTER_STYLES + (extra ?? "");
   document.documentElement.appendChild(style);
 }
 
@@ -493,6 +499,8 @@ export function startCapture(adapter: SiteAdapter): void {
     if (area === "sync" && changes.checkboxColor) applyAccent(changes.checkboxColor.newValue);
   });
 
+  const filter = adapter.marketFilter ? startMarketFilter(adapter.marketFilter) : null;
+
   let queued = false;
   const run = () => {
     queued = false;
@@ -500,6 +508,9 @@ export function startCapture(adapter: SiteAdapter): void {
     try {
       adapter.injectHeader();
       injectRows(adapter);
+      // After the rows, not before: on the table board the marking lives on the row elements this
+      // pass may have just seen rebuilt.
+      filter?.refresh();
     } catch (error) {
       console.warn("[CLV Analyzer] injection failed:", error);
     }

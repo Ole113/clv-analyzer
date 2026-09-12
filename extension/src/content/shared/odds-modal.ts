@@ -33,8 +33,10 @@ export const ODDS_MODAL_STYLES = `
 .clva-odds-btn svg { width: 10px; height: 10px; display: block; }
 /* Stacked, never side by side: the column these live in is a fixed 24px lane on one board and a
    hand-inserted <td> on the other, and widening either is what causes the layout complaints this
-   project already has. Vertically there is row height to spare. */
-.clva-stack { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+   project already has. Vertically there is row height to spare -- which is why the gap is 9px and
+   not the 4px it started at: at 4px the odds button and the checkbox read as one control and were
+   easy to mis-click, and the row is tall enough that the extra 5px costs nothing. */
+.clva-stack { display: flex; flex-direction: column; align-items: center; gap: 9px; }
 
 .clva-odds-modal {
   background: #131a23; color: #e6edf6; border: 1px solid #243040; border-radius: 11px;

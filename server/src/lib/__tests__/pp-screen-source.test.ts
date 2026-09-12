@@ -6,6 +6,7 @@ import {
   normalizeScreenMarket,
   planScreenRead,
   resolveClosingMarket,
+  PROPPROFESSOR_MARKETS,
   isSportsbookForClose,
   type ParseResult,
   type ScreenReadPlan,
@@ -79,9 +80,55 @@ describe("market resolution", () => {
     expect(resolveClosingMarket("NFL", "1st Quarter Passing Yards")).toMatchObject({
       kind: "noEquivalent",
     });
-    // A gap in our table -- must stay loud so a line can be added.
-    expect(resolveClosingMarket("NFL", "Longest Completion")).toMatchObject({ kind: "unmapped" });
+    // A gap in our table -- must stay loud so a line can be added. "Longest Completion" used to
+    // stand here and no longer does: it is a market the screen carries, and it is now aliased
+    // along with every other Player/Pitcher value in __fixtures__/pp-screen-vocabulary.json.
+    expect(resolveClosingMarket("NFL", "Quarterback Rating")).toMatchObject({ kind: "unmapped" });
     expect(resolveClosingMarket("Cricket", "Runs")).toMatchObject({ kind: "unmapped" });
+  });
+
+  it("resolves a market whether or not the board prefixed it with 'Player'", () => {
+    // The two boards genuinely disagree on this, and hand-maintaining both spellings per market is
+    // what let "Player Points + Rebounds + Assists" come back unmapped while the bare spelling
+    // resolved. Both now route through the same derived index.
+    for (const spelling of ["Longest Reception", "Player Longest Reception"]) {
+      expect(resolveClosingMarket("NFL", spelling)).toMatchObject({
+        ok: true,
+        market: "Player Longest Reception",
+      });
+    }
+    expect(resolveClosingMarket("NBA", "Player Points + Rebounds + Assists")).toMatchObject({
+      market: "Player Points + Rebounds + Assists",
+    });
+    // "Pitcher " is deliberately not stripped: a pitcher's strikeouts are not a batter's.
+    expect(resolveClosingMarket("MLB", "Pitcher Strikeouts")).toMatchObject({
+      market: "Pitcher Strikeouts",
+    });
+    expect(resolveClosingMarket("MLB", "Strikeouts")).toMatchObject({ market: "Player Strikeouts" });
+  });
+
+  it("names a game total after the league, unless the board named the total itself", () => {
+    // Previously every GAME_TOTAL fell through to the player-prop table and came back unmapped.
+    expect(resolveClosingMarket("NFL", "Game Total", "GAME_TOTAL")).toMatchObject({
+      market: "Total Points",
+    });
+    expect(resolveClosingMarket("MLB", "Game Total", "GAME_TOTAL")).toMatchObject({
+      market: "Total Runs",
+    });
+    expect(resolveClosingMarket("WTA", "Total Games", "GAME_TOTAL")).toMatchObject({
+      market: "Total Games",
+    });
+    expect(resolveClosingMarket("NHL", "Game Total", "GAME_TOTAL")).toMatchObject({
+      market: "Total Goals",
+    });
+    // A board that said which total it meant is taken at its word rather than flattened.
+    expect(resolveClosingMarket("ATP", "Total Sets", "GAME_TOTAL")).toMatchObject({
+      market: "Total Sets",
+    });
+    // Still terminal where the sport has no game total at all.
+    expect(resolveClosingMarket("PGA", "Game Total", "GAME_TOTAL")).toMatchObject({
+      kind: "unmapped",
+    });
   });
 
   it("names a game market by its type, not by whatever prose the board rendered", () => {
@@ -612,5 +659,69 @@ describe("matcher safety", () => {
         externalPropId: null,
       })
     ).not.toBeNull();
+  });
+});
+
+/**
+ * The alias table against PropProfessor's own market dropdown.
+ *
+ * This exists because "no PropProfessor market alias for X" kept being reported one market at a
+ * time, fixed one market at a time, and then reported again for the next one. The vocabulary
+ * fixture is the full list of markets the screen answers to, so coverage of it is checkable in one
+ * go rather than discovered in production -- and a market PropProfessor adds later shows up here as
+ * a failing test instead of as a silently unread closing line.
+ */
+describe("market alias coverage", () => {
+  const vocabulary: { markets: Record<string, { value: string }[]> } = JSON.parse(
+    readFileSync(join(FIXTURES, "pp-screen-vocabulary.json"), "utf8")
+  );
+  const league: Record<string, string> = {
+    football: "NFL",
+    basketball: "NBA",
+    baseball: "MLB",
+    NHL: "NHL",
+    Tennis: "tennis",
+    Soccer: "soccer",
+    UFC: "UFC",
+    PGA: "PGA",
+  };
+
+  it("resolves every player market the screen carries, in both board spellings", () => {
+    const unmapped: string[] = [];
+    for (const [sport, items] of Object.entries(vocabulary.markets)) {
+      for (const { value } of items) {
+        if (!/^(Player|Pitcher) /.test(value)) continue;
+        // PropProfessor writes "Player Receiving Yards"; OddsJam writes "Receiving Yards". Both
+        // reach the database, so both have to resolve to the same screen market.
+        for (const spelling of [value, value.replace(/^Player /, "")]) {
+          const resolved = resolveClosingMarket(league[sport], spelling);
+          if (!resolved.ok || resolved.market !== value) {
+            unmapped.push(`${spelling} -> ${resolved.ok ? resolved.market : resolved.detail}`);
+          }
+        }
+      }
+    }
+    expect(unmapped).toEqual([]);
+  });
+
+  it("points every alias at a market the screen actually answers to", () => {
+    // The failure this catches for real: three-pointers were aliased to "Player Three Pointers
+    // Made", which reads perfectly and is not a market -- the screen calls it "Player Threes Made".
+    const known = new Set(
+      Object.values(vocabulary.markets).flatMap((items) => items.map((i) => i.value))
+    );
+    const bogus: string[] = [];
+    for (const [, market] of Object.entries(PROPPROFESSOR_MARKETS)) {
+      if (!known.has(market)) bogus.push(market);
+    }
+    expect([...new Set(bogus)]).toEqual([]);
+  });
+
+  it("keeps a pitcher's stat distinct from a batter's of the same name", () => {
+    // marketFilterKey strips "Player " but never "Pitcher ", and the derived index depends on it.
+    expect(resolveClosingMarket("MLB", "Pitcher Hits Allowed")).toMatchObject({
+      market: "Pitcher Hits Allowed",
+    });
+    expect(resolveClosingMarket("MLB", "Hits")).toMatchObject({ market: "Player Hits" });
   });
 });

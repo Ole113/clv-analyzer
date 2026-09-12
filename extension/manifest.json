@@ -46,6 +46,16 @@
     },
     {
       "matches": [
+        "https://www.propprofessor.com/fantasy*"
+      ],
+      "js": [
+        "content/pp-grid-bridge.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
         "https://www.propprofessor.com/*"
       ],
       "js": [

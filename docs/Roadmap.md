@@ -15,8 +15,6 @@ Add a way to export your pikkit betting information and back test your bets. you
 - Per book win %
 - Per prop type win %
 
-Tell Claude we are about to release this app and we need a full double check of all systems components etc. Make sure it follows best practices
-
 Brainstorm additions to the project
 
 - Think of analytical additions.
@@ -24,15 +22,7 @@ Brainstorm additions to the project
 - Any additional pages to add that might be useful for my analytical analysis of my +ev betting.
 - Any additional integrations to add that might be useful for my analytical analysis of my +ev betting
 
-Add the ability to hide certain markets. There should be a way to easily add markets to the list by clicking on a bet. Should easily be able to hide/show all hidden markets.
-
-- Sig strikes
-- Fantasy score
-- 1q/1h receiving, rushing etc
-
 Grade 1st-quarter/1st-half (and other partial-game) markets automatically, for NFL and NBA at least. Currently anything matching that pattern is refused up front (`unsupportedReason` in `server/src/lib/grading/stat-map.ts`) because the box-score source only has full-game cumulative stats. Split by what's actually being asked:
 
 - Team score/total/spread scoped to a quarter or half (e.g. "1st Half Total") is plausibly gradable already -- ESPN's scoreboard likely exposes per-period team scores (`linescores`) on the same event object `getFinalScores` already reads in `sources/espn.ts`, just not wired up or verified live yet.
 - A player stat prop scoped to a quarter/half (e.g. "1st Quarter Passing Yards") is a much bigger lift -- the free ESPN endpoint used here has no per-period player stat lines at all, so this would need a different data source entirely (play-by-play parsing, or a paid provider), not just a mapping addition.
-
-Currently when you click the "Odds" link on a prop it just routes you to the PP odds screen which isn't much help. Build a feature where clicking the odds link opens up a modal that pulls the current odds from prop professor like how it is done and displayed for the snapshot right before the game starts. There should be a refresh button.
