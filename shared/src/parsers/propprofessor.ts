@@ -93,21 +93,21 @@ export const parsePropProfessorTable = (): ParseResult => {
     cell: Element | null,
     key: string,
     label: string | null,
-    logoUrl: string | null,
-    side: PickSide | null
+    logoUrl: string | null
   ): BookLine => {
     const rawText = norm((cell as HTMLElement | null)?.innerText ?? cell?.textContent ?? "");
     // Drop suggested-stake figures ("$111 / $696") before reading numbers.
     const stripped = rawText.replace(/\$\s*[\d,.]+[kKmM]?/g, " ");
-    // Signed tokens are american prices ("-114 / -110" = over / under); unsigned is the line.
+    // Signed tokens are american prices. The pair is ordered [this row's side, the other side] --
+    // not [over, under] -- so the left token is always the one this row is for, regardless of the
+    // row's own side. An under row showing "-116/+118" means -116 IS the under price, not +118.
     const priceTokens: string[] = stripped.match(/[+-]\d{3,}/g) ?? [];
     const lineMatch = stripped.match(/(?:^|[^\d+.-])(\d+(?:\.\d+)?)/);
-    const priceIdx = side === "UNDER" && priceTokens.length > 1 ? 1 : 0;
     return {
       bookKey: key,
       label,
       line: lineMatch ? parseFloat(lineMatch[1]) : null,
-      price: priceTokens.length ? parseInt(priceTokens[priceIdx], 10) : null,
+      price: priceTokens.length ? parseInt(priceTokens[0], 10) : null,
       logoUrl,
       rawText,
     };
@@ -307,8 +307,11 @@ export const parsePropProfessorTable = (): ParseResult => {
     }
 
     // Fair probability: `value` is already a no-vig percentage on the standard board. The alt
-    // board has no `value` -- its no-vig figure is the `noVigOdds` price. `ev` is deliberately
-    // not used: it is an expected-value percentage, not a win probability.
+    // board has no `value` column -- its `ev` column fills that role instead, but it is not an
+    // expected-value percentage the way the name suggests: it reads centred on a 50% coin flip
+    // (0% == 50% to hit), not on 0% risk-adjusted return, so a displayed "7%" is a 57% win
+    // probability. `noVigOdds` (a price) is kept as a fallback for the rare row where `ev` itself
+    // doesn't parse.
     let fairProbability: number | null = null;
     const valueText = norm(
       (cellByColId.get("value") as HTMLElement | undefined)?.innerText ??
@@ -318,12 +321,21 @@ export const parsePropProfessorTable = (): ParseResult => {
     if (valueMatch) {
       fairProbability = parseFloat(valueMatch[1]) / 100;
     } else {
-      const noVigText = norm(
-        (cellByColId.get("noVigOdds") as HTMLElement | undefined)?.innerText ??
-          cellByColId.get("noVigOdds")?.textContent
+      const evText = norm(
+        (cellByColId.get("ev") as HTMLElement | undefined)?.innerText ??
+          cellByColId.get("ev")?.textContent
       );
-      const priceMatch = noVigText.match(/[+-]\d{3,}/);
-      if (priceMatch) fairProbability = impliedFromAmerican(parseInt(priceMatch[0], 10));
+      const evMatch = evText.match(/(-?\d+(?:\.\d+)?)\s*%/);
+      if (evMatch) {
+        fairProbability = 0.5 + parseFloat(evMatch[1]) / 100;
+      } else {
+        const noVigText = norm(
+          (cellByColId.get("noVigOdds") as HTMLElement | undefined)?.innerText ??
+            cellByColId.get("noVigOdds")?.textContent
+        );
+        const priceMatch = noVigText.match(/[+-]\d{3,}/);
+        if (priceMatch) fairProbability = impliedFromAmerican(parseInt(priceMatch[0], 10));
+      }
     }
 
     const bookLines: BookLine[] = [];
@@ -332,7 +344,7 @@ export const parsePropProfessorTable = (): ParseResult => {
       const text = norm((cell as HTMLElement).innerText ?? cell.textContent ?? "");
       if (!text) continue;
       const { key, label, logoUrl } = bookIdFromHeader(headerByColId.get(colId) ?? null, colId);
-      bookLines.push(parseBookCell(cell, key, label, logoUrl, side));
+      bookLines.push(parseBookCell(cell, key, label, logoUrl));
     }
 
     rows.push({

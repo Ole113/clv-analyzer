@@ -99,6 +99,20 @@ export const FANTASY_BOOK_HINTS = [
   "propbuilder",
 ];
 
+/**
+ * Fantasy apps that, unlike the rest of `FANTASY_BOOK_HINTS`, quote genuine varying two-sided
+ * American odds on PropProfessor's *odds screen* rather than a fixed payout vig. PrizePicks is the
+ * documented counter-example: it prices at a flat -119/-119 regardless of where the real market
+ * sits, which de-vigs to an artificial 50% that would drag the average toward the middle -- that's
+ * a property of the fixed payout, not a reading of the market, so it correctly stays excluded.
+ * BoomFantasy and Prop Builder don't do that: a real captured close had them at -149/-143 against
+ * a -142/-148/-151 sportsbook consensus -- in line with the market, not fixed. Scoped to the
+ * screen path (`isSportsbookForClose`) only; the Fantasy Optimizer's own "line" for these apps is
+ * still a fixed-payout pick threshold, not a market price, so `isSportsbookForAverage` is
+ * unaffected.
+ */
+export const SCREEN_FANTASY_SPORTSBOOK_HINTS = ["boomfantasy", "propbuilder", "propsbuilder"];
+
 /** Substrings that mark a derived/aggregate column rather than a real book. */
 export const COMPUTED_COLUMN_HINTS = [
   "algo",
@@ -171,6 +185,10 @@ export function isSportsbookForAverage(
  * already hard-codes `novigodds` into its reserved set for exactly this reason.
  *
  * `isSportsbookForAverage` is left untouched so the optimizer path cannot regress.
+ *
+ * `SCREEN_FANTASY_SPORTSBOOK_HINTS` is also admitted here (see its own doc comment): a couple of
+ * fantasy apps quote real market-tracking odds on this specific screen, unlike the rest of
+ * `FANTASY_BOOK_HINTS`, which stay excluded exactly as before.
  */
 export function isSportsbookForClose(
   bookKey: string,
@@ -188,7 +206,10 @@ export function isSportsbookForClose(
   if (/\balt\b/.test(`${bookKey.toLowerCase()} ${(label ?? "").toLowerCase()}`)) return false;
   if (/draftkings\s*6|pick\s*6/.test(haystack)) return false;
 
-  return SPORTSBOOK_HINTS.some((hint) => haystack.includes(hint));
+  return (
+    SPORTSBOOK_HINTS.some((hint) => haystack.includes(hint)) ||
+    SCREEN_FANTASY_SPORTSBOOK_HINTS.some((hint) => haystack.includes(hint))
+  );
 }
 
 /** True when a column is a DFS / pick'em product rather than a sportsbook. */

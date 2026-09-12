@@ -109,7 +109,8 @@ export function ActionButton({
         aria-describedby={disabledReason ? undefined : undefined}
         onClick={start}
       >
-        {pending ? (pendingLabel ?? `${label}...`) : label}
+        {pending ? <span className="spinner" aria-hidden="true" /> : label}
+        {pending && <span className="sr-only">{pendingLabel ?? `${label}...`}</span>}
       </button>
 
       {step !== null && confirm && (

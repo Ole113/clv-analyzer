@@ -56,10 +56,10 @@ export function Footer() {
         <nav>
           <a href="/methodology">Methodology</a>
           <a href="/about">About</a>
-          <a href="https://fantasy.oddsjam.com/fantasy-odds/prizepicks" target="_blank" rel="noopener noreferrer">
+          <a href="https://oddsjam.cello.so/YYA2ODgFeaO" target="_blank" rel="noopener noreferrer">
             OddsJam ↗
           </a>
-          <a href="https://www.propprofessor.com/fantasy" target="_blank" rel="noopener noreferrer">
+          <a href="https://www.propprofessor.com/?via=jake" target="_blank" rel="noopener noreferrer">
             PropProfessor ↗
           </a>
         </nav>

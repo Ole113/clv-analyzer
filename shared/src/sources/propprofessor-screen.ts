@@ -212,11 +212,16 @@ interface BookMainLine {
  * Reconstructing the optimizer's shape keeps `edge` denominated in line units and leaves every
  * downstream convention (Over/Under direction, spread sign, moneyline price handling) untouched.
  *
- * A book's main line is the selection where its price is least lopsided, because that is what
- * distinguishes a real market from an alt: a book hanging Over 9.5 at -400 is not quoting 9.5 as
- * its number, it is selling a near-certainty. Where the book prices both sides, the balance between
- * them is the better signal; where it prices only one, distance from even money is all there is,
- * and such a quote loses ties to a two-sided one.
+ * A book's main line is, first, whichever line the *majority of books* are quoting -- the real
+ * consensus number -- if this book quotes that line at all. "Least lopsided" is only the
+ * tie-breaker for books that don't: a book hanging Over 9.5 at -400 is not quoting 9.5 as its
+ * number, it is selling a near-certainty, so among a book's *other* selections the more balanced
+ * one is the better guess at its real line. Picking least-lopsided globally, before checking for a
+ * consensus line, has a real failure mode -- a book can quote the correct, consensus line at a
+ * perfectly normal but not perfectly balanced price (say -105/-115) while also hanging some unrelated
+ * deep alt line dead even (-110/-110); "most balanced wins" would pick the alt line and silently
+ * throw away a book that was quoting the real market all along. Preferring the consensus line
+ * whenever a book has it avoids that.
  *
  * A book is kept whenever it quotes the selection *at all*, even if the side actually taken has no
  * price. The line is a property of the market, not of one side of it -- a book hanging Over 21.5 is
@@ -230,7 +235,19 @@ function mainLineByBook(
   selections: Record<string, RawSelection>,
   side: 1 | 2
 ): Map<string, BookMainLine> {
-  const best = new Map<string, { entry: BookMainLine; lopsidedness: number }>();
+  type Candidate = {
+    line: number | null;
+    price: number | null;
+    otherSidePrice: number | null;
+    liquidity: number | null;
+    nearMarket: boolean;
+    lopsidedness: number;
+    label: string;
+  };
+  const candidatesByBook = new Map<string, Candidate[]>();
+  // How many distinct books quote each line at all, to find the real consensus number rather than
+  // just whichever selection happens to price closest to even money.
+  const bookCountByLine = new Map<number, Set<string>>();
 
   for (const [key, sel] of Object.entries(selections ?? {})) {
     if (!sel || typeof sel !== "object") continue;
@@ -267,41 +284,43 @@ function mainLineByBook(
         });
 
       const label = str(quote.book) ?? bookName;
-      const existing = best.get(bookName);
-      if (existing) {
-        if (line !== null) existing.entry.selectionsSeen.push(line);
-        if (lopsidedness >= existing.lopsidedness) continue;
-        existing.lopsidedness = lopsidedness;
-        existing.entry = {
-          ...existing.entry,
-          label,
-          line,
-          price,
-          otherSidePrice: other,
-          liquidity,
-          nearMarket,
-        };
-      } else {
-        best.set(bookName, {
-          lopsidedness,
-          entry: {
-            label,
-            line,
-            price,
-            otherSidePrice: other,
-            liquidity,
-            nearMarket,
-            selectionsSeen: line !== null ? [line] : [],
-          },
-        });
+      const list = candidatesByBook.get(bookName) ?? [];
+      list.push({ line, price, otherSidePrice: other, liquidity, nearMarket, lopsidedness, label });
+      candidatesByBook.set(bookName, list);
+
+      if (line !== null) {
+        if (!bookCountByLine.has(line)) bookCountByLine.set(line, new Set());
+        bookCountByLine.get(line)!.add(bookName);
       }
     }
   }
 
+  let consensusLine: number | null = null;
+  let consensusCount = -1;
+  for (const [line, books] of bookCountByLine) {
+    if (books.size > consensusCount) {
+      consensusCount = books.size;
+      consensusLine = line;
+    }
+  }
+
   const out = new Map<string, BookMainLine>();
-  for (const [bookName, { entry }] of best) {
-    entry.selectionsSeen = [...new Set(entry.selectionsSeen)].sort((a, b) => a - b);
-    out.set(bookName, entry);
+  for (const [bookName, candidates] of candidatesByBook) {
+    const atConsensus = consensusLine !== null ? candidates.find((c) => c.line === consensusLine) : undefined;
+    const chosen =
+      atConsensus ??
+      candidates.reduce((best, c) => (c.lopsidedness < best.lopsidedness ? c : best));
+    out.set(bookName, {
+      label: chosen.label,
+      line: chosen.line,
+      price: chosen.price,
+      otherSidePrice: chosen.otherSidePrice,
+      liquidity: chosen.liquidity,
+      nearMarket: chosen.nearMarket,
+      selectionsSeen: [...new Set(candidates.map((c) => c.line).filter((l): l is number => l !== null))].sort(
+        (a, b) => a - b
+      ),
+    });
   }
   return out;
 }

@@ -122,6 +122,68 @@ describe("resolveMapping", () => {
     expect(r.mapping).toBeNull();
     expect(r.reason).toContain("Player Longest Completion");
   });
+
+  it("maps NFL defensive combos, distinct from the underlying single fields", () => {
+    const ta = resolveMapping("NFL", "Tackles + Assists");
+    expect(ta.mapping).toEqual({ source: "espn", parts: [{ category: "defensive", label: "TOT" }] });
+    // Same underlying field as "Tackles" -- the board's own wording is inconsistent, not the data.
+    expect(resolveMapping("NFL", "Tackles").mapping).toEqual(ta.mapping);
+    expect(resolveMapping("NFL", "Solo Tackles").mapping).toEqual({
+      source: "espn",
+      parts: [{ category: "defensive", label: "SOLO" }],
+    });
+    // Assisted tackles has no box-score field of its own -- derived as total minus solo.
+    expect(resolveMapping("NFL", "Tackles Assisted").mapping).toEqual({
+      source: "espn",
+      parts: [
+        { category: "defensive", label: "TOT" },
+        { category: "defensive", label: "SOLO", weight: -1 },
+      ],
+    });
+  });
+
+  it("keeps a defender's interceptions separate from a QB's own passing category", () => {
+    expect(resolveMapping("NFL", "Player Interceptions").mapping).toEqual({
+      source: "espn",
+      parts: [{ category: "interceptions", label: "INT" }],
+    });
+  });
+
+  it("does not let one ESPN sport's market shadow another's under the same name", () => {
+    // NBA and NHL both have a plain "Assists"/"Points" market -- a single flat table keyed only by
+    // market name would let whichever sport's entry was declared last silently win for the other.
+    expect(resolveMapping("NBA", "Assists").mapping).toEqual({
+      source: "espn",
+      parts: [{ category: "*", label: "AST" }],
+    });
+    expect(resolveMapping("NHL", "Assists").mapping).toEqual({
+      source: "espn",
+      parts: [{ category: "skaters", label: "A" }],
+    });
+    expect(resolveMapping("NBA", "Points").mapping).toEqual({
+      source: "espn",
+      parts: [{ category: "*", label: "PTS" }],
+    });
+    // Hockey's "Points" is goals plus assists -- there is no single box-score field for it.
+    expect(resolveMapping("NHL", "Points").mapping).toEqual({
+      source: "espn",
+      parts: [
+        { category: "skaters", label: "G" },
+        { category: "skaters", label: "A" },
+      ],
+    });
+  });
+
+  it("maps NHL goalie markets to the goalie category, not the skater one", () => {
+    expect(resolveMapping("NHL", "Player Saves").mapping).toEqual({
+      source: "espn",
+      parts: [{ category: "goalies", label: "SV" }],
+    });
+    expect(resolveMapping("NHL", "Player Goals Allowed").mapping).toEqual({
+      source: "espn",
+      parts: [{ category: "goalies", label: "GA" }],
+    });
+  });
 });
 
 describe("sourceForSport", () => {
@@ -129,6 +191,7 @@ describe("sourceForSport", () => {
     expect(sourceForSport("NFL")).toBe("espn");
     expect(sourceForSport("NCAAF")).toBe("espn");
     expect(sourceForSport("NBA")).toBe("espn");
+    expect(sourceForSport("NHL")).toBe("espn");
     expect(sourceForSport("MLB")).toBe("mlb");
   });
 

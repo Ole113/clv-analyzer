@@ -9,11 +9,19 @@ import { ActionButton, type ActionResult } from "@/components/action-button";
 import { runDueGrades } from "@/lib/grading/grader";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { generateTestData, TEST_DATA_SOURCE_DEVICES, MAX_TEST_DATA_PER_REQUEST } from "@/lib/test-data";
-import { getAppSettings, knownBooks, saveBookOrder, saveBookWeights } from "@/lib/app-settings";
+import {
+  getAppSettings,
+  knownBooks,
+  saveBookOrder,
+  saveBookWeights,
+  saveThemePreference,
+  type ThemePreference,
+} from "@/lib/app-settings";
 import { getRecentIngestFailures, countIngestFailures, clearIngestFailures } from "@/lib/ingest-log";
 import { SettingsNav } from "@/components/settings-nav";
 
 const SECTIONS = [
+  { id: "appearance", label: "Appearance" },
   { id: "database", label: "Database" },
   { id: "books", label: "Books" },
   { id: "grading", label: "Grading" },
@@ -59,6 +67,16 @@ export default async function SettingsPage() {
     ]);
     revalidatePath("/settings");
     revalidatePath("/bets");
+  }
+
+  async function setThemeAction(pref: ThemePreference): Promise<ActionResult> {
+    "use server";
+    await saveThemePreference(pref);
+    // The layout reads the saved preference on every request, so revalidating "/" with the
+    // "layout" type refreshes the <html data-theme> attribute site-wide, not just this route.
+    revalidatePath("/", "layout");
+    const labels: Record<ThemePreference, string> = { system: "Match device", light: "Light", dark: "Dark" };
+    return { message: `Theme set to ${labels[pref]}` };
   }
 
   /** Counts what a purge would remove, so the confirmation can name a real number. */
@@ -159,6 +177,31 @@ export default async function SettingsPage() {
         <SettingsNav sections={SECTIONS} />
 
         <div className="settings-content">
+
+      <section className="chart-card" id="appearance">
+        <h3>Appearance</h3>
+        <p className="lede">Defaults to your device&apos;s own light/dark setting.</p>
+        <div className="inline">
+          <ActionButton
+            action={setThemeAction.bind(null, "system")}
+            label="Match device"
+            pendingLabel="Saving..."
+            className={bookSettings.themePreference === "system" ? "primary" : ""}
+          />
+          <ActionButton
+            action={setThemeAction.bind(null, "light")}
+            label="Light"
+            pendingLabel="Saving..."
+            className={bookSettings.themePreference === "light" ? "primary" : ""}
+          />
+          <ActionButton
+            action={setThemeAction.bind(null, "dark")}
+            label="Dark"
+            pendingLabel="Saving..."
+            className={bookSettings.themePreference === "dark" ? "primary" : ""}
+          />
+        </div>
+      </section>
 
       <section className="chart-card" id="database">
         <h3>Database</h3>

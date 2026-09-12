@@ -71,7 +71,8 @@ export function ActionForm({
       {children}
       <span className="action-btn-wrap" title={disabledReason ?? undefined}>
         <button type="submit" disabled={disabled} aria-disabled={disabled}>
-          {pending ? (pendingLabel ?? `${submitLabel}...`) : submitLabel}
+          {pending ? <span className="spinner" aria-hidden="true" /> : submitLabel}
+          {pending && <span className="sr-only">{pendingLabel ?? `${submitLabel}...`}</span>}
         </button>
       </span>
     </form>

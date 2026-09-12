@@ -145,13 +145,17 @@ describe("Xavier Robinson -- a real stored bet", () => {
     const verdict = buildClosingVerdict("PLAYER_PROP", "UNDER", 24.5, match, null, "PP_SCREEN");
 
     expect(verdict.status).toBe("CLOSED");
-    // theScore 24.5, Hardrock 21.5, Rebet 20.5, OnyxOdds 24.5, DraftKings 24.5, SportZino 21.5,
-    // Fliff 21.5. Fanatics' 49.5 is dropped as an outlier; keeping it would give 25.9 and cut the
-    // measured edge by more than half.
-    expect(verdict.closingBookCount).toBe(7);
-    expect(verdict.avgClosingLine).toBeCloseTo(22.64, 2);
-    // Under: edge = taken - close. Took 24.5 into a market that closed near 22.6.
-    expect(verdict.edge).toBeCloseTo(1.86, 2);
+    // theScore 24.5, Hardrock 21.5, Rebet 20.5, Prop Builder 20.5, OnyxOdds 21.5, BoomFantasy 21.5,
+    // DraftKings 21.5, SportZino 21.5, Fliff 21.5 -- 21.5 is the real consensus (10 books quote it,
+    // more than any other line), which is why OnyxOdds and DraftKings land there and not on 24.5:
+    // their own price at 24.5 happened to be more balanced than at 21.5, but "most balanced" isn't
+    // "most agreed-upon", and mainLineByBook now prefers the latter whenever a book has it. Fanatics'
+    // 49.5 is still dropped as an outlier; keeping it would give 25.9 and cut the measured edge by
+    // more than half.
+    expect(verdict.closingBookCount).toBe(9);
+    expect(verdict.avgClosingLine).toBeCloseTo(21.61, 2);
+    // Under: edge = taken - close. Took 24.5 into a market that closed near 21.6.
+    expect(verdict.edge).toBeCloseTo(2.89, 2);
     expect(verdict.beatClv).toBe(true);
     expect(verdict.note).toMatch(/fanatics/i);
   });
@@ -316,6 +320,63 @@ describe("stray exchange orders", () => {
   });
 });
 
+describe("main-line consensus", () => {
+  const plan = planFor("NCAAF", "Rushing Yards");
+
+  const selection = (line: number, odds1: number, odds2: number, book: string) => ({
+    selection1: `Test Player Over ${line}`,
+    selectionType1: "Over",
+    line1: line,
+    selection2: `Test Player Under ${line}`,
+    selectionType2: "Under",
+    line2: line,
+    odds: { [book]: { book, odds1, odds2 } },
+  });
+
+  it("prefers the line most books agree on over whichever line happens to price closest to even money", () => {
+    // FanDuel and DraftKings both quote the real market at 21.5, at perfectly ordinary (not
+    // perfectly balanced) prices. FanDuel also hangs an unrelated, much deeper alt line at 9.5,
+    // priced dead even -- a bug that picked "most balanced" over "most agreed-upon" would read that
+    // as FanDuel's main line and throw its real 21.5 quote away entirely.
+    const result = normalizeScreenMarket(
+      {
+        game_data: [
+          {
+            gameId: "NCAAF:GAME:A:B:1",
+            start: "2026-09-12T16:00:00.000Z",
+            league: "NCAAF",
+            homeTeam: "A",
+            awayTeam: "B",
+            market: "Player Rushing Yards",
+            participant: "Test Player",
+            defaultKey: "21.5",
+            selections: {
+              "21.5": {
+                selection1: "Test Player Over 21.5",
+                selectionType1: "Over",
+                line1: 21.5,
+                selection2: "Test Player Under 21.5",
+                selectionType2: "Under",
+                line2: 21.5,
+                odds: {
+                  FanDuel: { book: "FanDuel", odds1: -105, odds2: -115 },
+                  DraftKings: { book: "DraftKings", odds1: -108, odds2: -112 },
+                },
+              },
+              "9.5": selection(9.5, -110, -110, "FanDuel"),
+            },
+          },
+        ],
+      },
+      plan
+    );
+    const over = result.rows.find((r) => r.side === "OVER")!;
+    const fanduel = over.bookLines.find((b) => b.bookKey === "fanduel");
+    expect(fanduel?.line).toBe(21.5);
+    expect(fanduel?.price).toBe(-105);
+  });
+});
+
 describe("de-vigged closing probability", () => {
   const plan = planFor("NCAAF", "Rushing Yards");
   const target = (side: "OVER" | "UNDER") => ({
@@ -341,11 +402,12 @@ describe("de-vigged closing probability", () => {
     const verdict = verdictFor("OVER");
     const hardrock = verdict.closeLines.find((l) => l.bookKey === "hardrock")!;
     expect(hardrock.fairProbability).toBeCloseTo(0.510121, 6);
-    expect(verdict.closeFairProb).toBeCloseTo(0.50374, 5);
-    // Four of the eighteen books quoted both sides at their main line, so the fair price is a
-    // consensus of four while the line is a consensus of seven.
-    expect(verdict.fairBookCount).toBe(4);
-    expect(verdict.closingBookCount).toBe(7);
+    expect(verdict.closeFairProb).toBeCloseTo(0.502992, 6);
+    // Five of the eighteen books quoted both sides at their main line (Prop Builder now among
+    // them, admitted as a screen sportsbook), so the fair price is a consensus of five while the
+    // line is a consensus of nine.
+    expect(verdict.fairBookCount).toBe(5);
+    expect(verdict.closingBookCount).toBe(9);
   });
 
   it("gives the two sides of one market probabilities that sum to 1", () => {
@@ -370,8 +432,8 @@ describe("de-vigged closing probability", () => {
 
   it("measures price movement the line cannot see", () => {
     // The point of the second metric. Took the pick when the market called it 52%; it closed at
-    // 50.4%, so the price moved against it by 1.6 probability points.
-    expect(verdictFor("OVER", 0.52).priceEdge).toBeCloseTo(-1.626, 3);
+    // 50.3%, so the price moved against it by 1.7 probability points.
+    expect(verdictFor("OVER", 0.52).priceEdge).toBeCloseTo(-1.701, 3);
     // And null, not 0, when there is no open probability to compare against -- a one-ended
     // difference is not a difference.
     expect(verdictFor("OVER", null).priceEdge).toBeNull();
@@ -482,13 +544,16 @@ describe("book classification on the screen", () => {
       "betrivers", "ballybet", "fliff", "rebet", "thescore", "polymarket",
       // Sweepstakes books, counted like Fliff and Rebet: a real two-sided market, not a
       // fixed-payout pick threshold.
-      "sportzino", "onyxodds"];
+      "sportzino", "onyxodds",
+      // Fantasy apps that, unlike the rest below, quote real market-tracking odds on this screen
+      // rather than a fixed payout vig -- see SCREEN_FANTASY_SPORTSBOOK_HINTS in books.ts.
+      "boomfantasy", "propbuilder"];
     for (const key of sportsbooks) {
       expect(isSportsbookForClose(key, null, true), key).toBe(true);
     }
 
     const notSportsbooks = ["prizepicks", "underdog", "betr", "dabble", "sleeper", "parlayplay",
-      "boomfantasy", "chalkboard", "propbuilder", "draftkings6"];
+      "chalkboard", "draftkings6"];
     for (const key of notSportsbooks) {
       expect(isSportsbookForClose(key, null, true), key).toBe(false);
     }

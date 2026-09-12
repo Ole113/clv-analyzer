@@ -10,6 +10,12 @@ import { DEFAULT_CHECKBOX_COLOR, loadSettings } from "./config";
 
 export interface SiteAdapter {
   site: SiteId;
+  /**
+   * Whether this is the board the checkbox belongs on. Sites that are client-routed SPAs can serve
+   * unrelated pages (e.g. a real-odds screen) under the same URL prefix the manifest matches on;
+   * defaults to always active for sites where the match pattern alone is precise enough.
+   */
+  isActive?(): boolean;
   /** Which fantasy book the board is currently showing. */
   fantasyBook(): string;
   parse(): ParseResult;
@@ -444,6 +450,7 @@ export function startCapture(adapter: SiteAdapter): void {
   let queued = false;
   const run = () => {
     queued = false;
+    if (adapter.isActive && !adapter.isActive()) return;
     try {
       adapter.injectHeader();
       injectRows(adapter);

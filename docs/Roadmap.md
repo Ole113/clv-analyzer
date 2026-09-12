@@ -34,3 +34,8 @@ Add the ability to hide certain markets. There should be a way to easily add mar
   * Sig strikes
   * Fantasy score
   * 1q/1h receiving, rushing etc
+
+
+Grade 1st-quarter/1st-half (and other partial-game) markets automatically, for NFL and NBA at least. Currently anything matching that pattern is refused up front (`unsupportedReason` in `server/src/lib/grading/stat-map.ts`) because the box-score source only has full-game cumulative stats. Split by what's actually being asked:
+  * Team score/total/spread scoped to a quarter or half (e.g. "1st Half Total") is plausibly gradable already -- ESPN's scoreboard likely exposes per-period team scores (`linescores`) on the same event object `getFinalScores` already reads in `sources/espn.ts`, just not wired up or verified live yet.
+  * A player stat prop scoped to a quarter/half (e.g. "1st Quarter Passing Yards") is a much bigger lift -- the free ESPN endpoint used here has no per-period player stat lines at all, so this would need a different data source entirely (play-by-play parsing, or a paid provider), not just a mapping addition.

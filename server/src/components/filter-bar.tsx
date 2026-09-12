@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { Facets } from "@/lib/queries";
+import { Combobox } from "@/components/combobox";
+
+// A second, small copy of app-settings.ts's titleCase() rather than an import: that module pulls
+// in prisma at module scope, which can't cross into this "use client" component's bundle.
+function titleCase(key: string): string {
+  return key.length ? key[0].toUpperCase() + key.slice(1) : key;
+}
 
 /**
  * Filters apply as you change them -- no Apply button.
@@ -27,27 +35,28 @@ export function FilterBar({
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   /**
-   * Empty controls are disabled for the duration of the submit so they stay out of the query
-   * string -- otherwise every filter change produces ?q=&sport=&stat=... noise in the URL.
+   * A client-side navigation (router.push) rather than a native form submit, for one reason: it is
+   * what lets Next's `loading.tsx` Suspense boundary show a spinner while a large, filtered result
+   * set is being queried -- a native GET submit is a full page reload the App Router never gets a
+   * chance to instrument. Empty fields are simply left out of the URLSearchParams building it,
+   * which also means there is no more "disable empty fields so they don't show up as ?q=&sport="
+   * dance to undo afterward.
    */
   const submit = () => {
     const form = formRef.current;
     if (!form) return;
-    const emptied: (HTMLInputElement | HTMLSelectElement)[] = [];
-    for (const el of Array.from(form.elements)) {
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement)) continue;
-      if (el.name && el.value === "") {
-        el.disabled = true;
-        emptied.push(el);
-      }
+    const params = new URLSearchParams();
+    for (const [key, value] of new FormData(form).entries()) {
+      if (typeof value === "string" && value !== "") params.set(key, value);
     }
-    form.requestSubmit();
-    // Re-enable so the controls stay usable if the navigation is slow or cancelled.
-    setTimeout(() => emptied.forEach((el) => (el.disabled = false)), 0);
+    const query = params.toString();
+    startTransition(() => router.push(query ? `${action}?${query}` : action));
   };
 
   const debouncedSubmit = () => {
@@ -63,19 +72,7 @@ export function FilterBar({
     name: string;
     label: string;
     options: { value: string; label: string }[];
-  }) => (
-    <label className="field">
-      <span>{label}</span>
-      <select name={name} defaultValue={values[name] ?? ""} onChange={submit}>
-        <option value="">Any</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  }) => <Combobox name={name} label={label} options={options} defaultValue={values[name] ?? ""} onChange={submit} />;
 
   const hasFilters = Object.entries(values).some(([, v]) => !!v);
 
@@ -134,7 +131,11 @@ export function FilterBar({
           { value: "MONEYLINE", label: "Moneyline" },
         ]}
       />
-      <Select name="book" label="Book" options={facets.books.map((b) => ({ value: b, label: b }))} />
+      <Select
+        name="book"
+        label="Book"
+        options={facets.books.map((b) => ({ value: b, label: titleCase(b) }))}
+      />
       <Select
         name="site"
         label="Site"
@@ -190,15 +191,20 @@ export function FilterBar({
         <input type="date" name="to" defaultValue={values.to ?? ""} onChange={submit} />
       </label>
 
-      {hasFilters && (
+      {(hasFilters || pending) && (
         <div className="field actions">
           {/* An invisible label matching every other field's so this button's own height is
               pushed down to line up with the row's inputs, not the row's labels -- the .filters
               container bottom-aligns fields by default, so matching that structure is enough. */}
           <span aria-hidden="true">&nbsp;</span>
-          <a href={action} className="reset">
-            Clear filters
-          </a>
+          <span className="filters-status">
+            {pending && <span className="spinner" aria-hidden="true" />}
+            {hasFilters && (
+              <a href={action} className="reset">
+                Clear filters
+              </a>
+            )}
+          </span>
         </div>
       )}
     </form>

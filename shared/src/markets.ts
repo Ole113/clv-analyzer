@@ -65,6 +65,19 @@ export const PROPPROFESSOR_MARKETS: Record<string, string> = {
   "player passing plus rushing yards": "Player Passing + Rushing Yards",
   "tackles plus assists": "Player Tackles + Assists",
   "player tackles plus assists": "Player Tackles + Assists",
+  // Confirmed in the captured vocabulary alongside "Tackles + Assists" above (see the fixture
+  // comment in stat-map.ts's MARKETS table for why "Tackles" and "Tackles + Assists" are treated
+  // as the same underlying stat for grading, despite being separate dropdown entries here).
+  tackles: "Player Tackles",
+  "player tackles": "Player Tackles",
+  "solo tackles": "Player Solo Tackles",
+  "player solo tackles": "Player Solo Tackles",
+  "tackles assisted": "Player Tackles Assisted",
+  "player tackles assisted": "Player Tackles Assisted",
+  "tackles for loss": "Player Tackles For Loss",
+  "player tackles for loss": "Player Tackles For Loss",
+  sacks: "Player Sacks",
+  "player sacks": "Player Sacks",
   "kicking points": "Player Kicking Points",
   "player kicking points": "Player Kicking Points",
 
@@ -98,6 +111,9 @@ export const PROPPROFESSOR_MARKETS: Record<string, string> = {
   "player hits": "Player Hits",
   "total bases": "Player Total Bases",
   "player total bases": "Player Total Bases",
+  // DFS-app shorthand for the same market.
+  bases: "Player Total Bases",
+  "player bases": "Player Total Bases",
   runs: "Player Runs",
   "player runs": "Player Runs",
   rbis: "Player RBIs",
@@ -141,6 +157,21 @@ export const PROPPROFESSOR_MARKETS: Record<string, string> = {
   "player shots on goal": "Player Shots On Goal",
   saves: "Player Saves",
   "player saves": "Player Saves",
+  goals: "Player Goals",
+  "player goals": "Player Goals",
+  // Assists/Points/Hits are already aliased above (basketball/baseball) to the same target string
+  // PropProfessor uses for the hockey market of the same name -- the request's separate `league`
+  // field is what disambiguates the sport, not this table, so one shared entry already covers both.
+  blocks: "Player Blocks",
+  "player blocks": "Player Blocks",
+  "blocked shots": "Player Blocked Shots",
+  "player blocked shots": "Player Blocked Shots",
+  "faceoffs won": "Player Faceoffs Won",
+  "player faceoffs won": "Player Faceoffs Won",
+  "plus minus": "Player Plus/Minus",
+  "player plus minus": "Player Plus/Minus",
+  "goals allowed": "Player Goals Allowed",
+  "player goals allowed": "Player Goals Allowed",
 
   // --- game markets ---
   moneyline: "Moneyline",

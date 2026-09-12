@@ -51,6 +51,7 @@ const WEB_PATH: Record<string, string> = {
   "football/nfl": "nfl",
   "football/college-football": "college-football",
   "basketball/nba": "nba",
+  "hockey/nhl": "nhl",
 };
 
 /** A player whose whole line is blank/"--" was dressed but recorded nothing readable. */
@@ -208,7 +209,7 @@ export const espnSource: StatsSource = {
       if (value === null) {
         return { reason: `Could not read "${part.label}" for ${rows[0].name} (raw: "${rows[0].raw}").` };
       }
-      total += value;
+      total += (part.weight ?? 1) * value;
       matchedName = rows[0].name;
     }
 

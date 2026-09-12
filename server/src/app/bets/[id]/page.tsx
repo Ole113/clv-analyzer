@@ -66,13 +66,12 @@ function SnapshotTable({
                       <img className="book-logo" src={l.logoUrl} alt="" width={16} height={16} loading="lazy" />
                     )}
                     <span>{l.label ?? l.bookKey}</span>
+                    {!l.includedInAverage && (
+                      <span className="muted" style={{ fontSize: 11 }}>
+                        · not averaged
+                      </span>
+                    )}
                   </span>
-                  {!l.includedInAverage && (
-                    <span className="muted" style={{ fontSize: 11 }}>
-                      {" "}
-                      · not averaged
-                    </span>
-                  )}
                 </td>
                 <td className="num">{l.line ?? "--"}</td>
                 <td className="num">{fmtOdds(l.price)}</td>

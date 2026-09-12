@@ -2,10 +2,21 @@ import { parsePropProfessorTable } from "@clv/shared";
 import { startCapture, type SiteAdapter } from "../shared/inject";
 
 /**
- * PropProfessor renders AG Grid. Adding a real column would fight the grid's own column model and
- * width calculations, and a logical row is split across pinned/centre elements anyway. So the
- * checkbox is appended inside the existing pinned "actions" cell -- the same place as the row's
- * other controls -- keyed by the grid's stable row-id.
+ * PropProfessor renders AG Grid, which virtualizes both axes: it recycles cell DOM nodes as the
+ * grid scrolls horizontally (columns swap in and out), and it can rebuild the whole row/column set
+ * when the board itself changes (e.g. switching DFS-app tabs). Two real bugs came from mounting the
+ * checkbox inside a cell AG Grid owns: shift+scroll (the usual way to scroll horizontally on
+ * Windows) could strand a checkbox on the wrong column when its host cell got recycled, and
+ * switching tabs (Dabble -> another board) could leave a stale checkbox behind alongside a new one
+ * for what looked like the same row.
+ *
+ * Both bugs share one cause: the checkbox's continued existence depended on a specific AG Grid DOM
+ * node's identity, which AG Grid is free to reuse or destroy without notice. The fix is to stop
+ * depending on it. Checkboxes now live in an independent overlay appended to `document.body`,
+ * keyed only by the grid's own stable `row-id` -- never by which DOM node currently renders that
+ * row -- and positioned every animation frame from that row's live `getBoundingClientRect()`. AG
+ * Grid can recycle or rebuild anything it wants; the overlay only cares whether a row-id currently
+ * exists on the page, which it re-derives from scratch on every frame.
  */
 const KNOWN_BOOKS = [
   "PrizePicks",
@@ -20,116 +31,128 @@ const KNOWN_BOOKS = [
   "Chalkboard",
 ];
 
+/** Width of the reserved strip beside the grid the checkboxes live in. */
+const LANE = 24;
+const OVERLAY_ID = "clva-pp-overlay";
+
 function grid(): Element | null {
   return document.querySelector('[role="grid"], [role="table"]');
 }
 
 /**
- * PropProfessor pins a single 36px "actions" column on the left. Sharing that one cell with the
- * site's own control crowded them together and let the checkbox sit on the column border, so the
- * pinned lane is widened by LANE px and the checkbox gets that strip to itself, with its own
- * divider. AG Grid lays the pinned and centre containers out as flex siblings, so widening the
- * pinned side shifts the centre columns across cleanly rather than overlapping them.
+ * The book chips carry no aria-selected or data-state -- only Tailwind class variants -- but their
+ * mere presence is also the only reliable signal that this is the Fantasy Optimizer board at all.
+ * PropProfessor is a client-routed SPA and the manifest's `/fantasy*` match covers more than just
+ * this board (the odds screen -- real sportsbook lines, not DFS picks -- lives under the same
+ * prefix), so without this check `grid()` will happily latch onto any AG Grid on the page and
+ * inject a checkbox somewhere it doesn't belong.
  */
-// 16px box + 4px on each side, matching OddsJam's `.clva-cell` padding (shared/inject.ts) so the
-// checkbox reads as the same size on both boards instead of PP's lane dwarfing OJ's bare <td>.
-const LANE = 24;
-const PINNED_BASE = 36;
-const PINNED_TOTAL = PINNED_BASE + LANE;
+function boardChips(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>("button")).filter((b) => {
+    const text = (b.textContent ?? "").trim();
+    if (!text || text.length > 24) return false;
+    return KNOWN_BOOKS.some(
+      (n) => text.toLowerCase() === n.toLowerCase() || text.toLowerCase() === `${n.toLowerCase()} (alt)`
+    );
+  });
+}
 
-const LANE_STYLES = `
-.ag-pinned-left-cols-container, .ag-pinned-left-header, .ag-horizontal-left-spacer {
-  width: ${PINNED_TOTAL}px !important;
-  min-width: ${PINNED_TOTAL}px !important;
-  max-width: ${PINNED_TOTAL}px !important;
+/** Every logical row currently on the page, deduped by row-id (AG Grid splits pinned/centre
+ *  halves of one row across two DOM elements sharing an id; either half's rect is the same). */
+function currentRows(): { el: Element; key: string }[] {
+  const g = grid();
+  if (!g) return [];
+  const byRowId = new Map<string, Element>();
+  for (const el of Array.from(g.querySelectorAll('[role="row"][row-id]'))) {
+    const key = el.getAttribute("row-id");
+    if (key && !byRowId.has(key)) byRowId.set(key, el);
+  }
+  return [...byRowId.entries()].map(([key, el]) => ({ el, key }));
 }
-.ag-pinned-left-header .ag-header-cell[col-id="actions"],
-[role="cell"][col-id="actions"], [role="gridcell"][col-id="actions"] {
-  width: ${PINNED_TOTAL}px !important;
-  min-width: ${PINNED_TOTAL}px !important;
-  max-width: ${PINNED_TOTAL}px !important;
-  display: flex !important;
-  align-items: center;
-  justify-content: flex-start;
-  overflow: hidden;
+
+function overlayHost(): HTMLElement {
+  let host = document.getElementById(OVERLAY_ID);
+  if (!host) {
+    host = document.createElement("div");
+    host.id = OVERLAY_ID;
+    document.body.appendChild(host);
+  }
+  return host;
 }
-.clva-lane {
-  width: ${LANE}px; flex: 0 0 ${LANE}px; height: 100%;
+
+/** row-id -> its checkbox's slot. The slot persists for as long as the row-id does, regardless of
+ *  how many times AG Grid recycles or rebuilds the DOM node that currently renders that row. */
+const slots = new Map<string, HTMLElement>();
+
+function positionSlot(slot: HTMLElement, row: Element, gridRect: DOMRect): void {
+  const r = row.getBoundingClientRect();
+  const visible = r.height > 0 && r.bottom > gridRect.top && r.top < gridRect.bottom;
+  slot.style.top = `${r.top}px`;
+  // The reserved strip sits just outside the grid's own (margin-shifted) left edge -- see the
+  // `[role="grid"]` margin rule below -- so this stays put across horizontal scroll, since that
+  // scroll never moves the grid's own bounding box, only its internal column layout.
+  slot.style.left = `${gridRect.left - LANE}px`;
+  slot.style.height = `${r.height}px`;
+  slot.style.visibility = visible ? "visible" : "hidden";
+}
+
+/** Repositions every live slot and drops any whose row no longer exists. Runs every animation
+ *  frame: cheap (a handful of `getBoundingClientRect()` calls), and correctness here matters more
+ *  than the two AG-Grid-recycling bugs this replaces ever did, so it does not wait for a debounced
+ *  MutationObserver pass the way the checkbox-creation cycle in shared/inject.ts does. */
+function reposition(): void {
+  const g = boardChips().length > 0 ? grid() : null;
+  if (!g) {
+    for (const slot of slots.values()) slot.remove();
+    slots.clear();
+    return;
+  }
+  const gridRect = g.getBoundingClientRect();
+  const seen = new Set<string>();
+  for (const { el, key } of currentRows()) {
+    seen.add(key);
+    const slot = slots.get(key);
+    if (slot) positionSlot(slot, el, gridRect);
+  }
+  for (const [key, slot] of slots) {
+    if (!seen.has(key)) {
+      slot.remove();
+      slots.delete(key);
+    }
+  }
+}
+
+function repositionLoop(): void {
+  reposition();
+  requestAnimationFrame(repositionLoop);
+}
+requestAnimationFrame(repositionLoop);
+
+const OVERLAY_STYLES = `
+#${OVERLAY_ID} { position: fixed; top: 0; left: 0; width: 0; height: 0; pointer-events: none; z-index: 2147483000; }
+.clva-slot {
+  position: fixed; width: ${LANE}px; pointer-events: auto;
   display: flex; align-items: center; justify-content: center;
-  border-right: 1px solid rgba(255, 255, 255, 0.16);
 }
-.clva-lane + * { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; }
-/* Boards with no pinned actions column (plain Dabble) get the lane inside their first cell. That
-   cell is a plain block box (not a flex container), so a width:auto lane -- correct for a flex
-   parent, where flex-basis governs sizing -- instead becomes a full-width block box that stacks
-   above the cell's own content rather than sitting beside it, hiding the game text and whatever
-   native control follows it. Forcing the host cell into a flex row (mirroring the actions-column
-   case above) is what makes ".clva-lane + *" on line 61 actually take effect here too. */
-[role="cell"]:not([col-id="actions"]):has(> .clva-lane),
-[role="gridcell"]:not([col-id="actions"]):has(> .clva-lane) {
-  display: flex !important;
-  align-items: center;
-}
-[role="cell"]:not([col-id="actions"]) > .clva-lane,
-[role="gridcell"]:not([col-id="actions"]) > .clva-lane {
-  border-right: none; width: ${LANE}px; flex: 0 0 ${LANE}px; padding: 0 4px;
-}
+/* Reserves the strip the slots render into. A plain margin (not width/padding on some AG-Grid-
+   internal element) so this works identically on every board layout without depending on which
+   columns a given board happens to pin. */
+[role="grid"] { margin-left: ${LANE}px; }
 `;
-
-/**
- * Whether this board has a pinned "actions" column at all, checked against the grid rather than
- * one row: AG Grid renders each logical row as two DOM halves (pinned-left and centre) that share
- * a row-id, and during scroll the centre half can exist in the DOM briefly before its pinned
- * partner does. Asking the row itself "do you have an actions cell" would then say no and fall
- * through to the first-cell guess below -- which, for the centre half, is a book-price cell
- * (FanDuel, Circa, ...), not the actions lane. Asking the grid instead means the fallback only
- * ever fires on boards that truly have no actions column (plain Dabble), never on a stale half of
- * one that does.
- */
-function hasActionsColumn(): boolean {
-  return !!grid()?.querySelector('[col-id="actions"]');
-}
-
-/**
- * The cell the checkbox lives in.
- *
- * Most boards pin an "actions" column and the lane goes there. The plain Dabble board has no
- * actions column at all -- its columns start at "game" -- so requiring one meant no checkbox was
- * ever created on that board. Falling back to the "game" cell puts the lane in the same visual
- * position without depending on a column that may not exist.
- *
- * That fallback used to grab the row's first `[role="cell"]` in DOM order. "Game" is unpinned on
- * this board, so it sits in AG Grid's horizontally-scrolled centre container, which recycles cell
- * DOM nodes for column virtualization as the grid scrolls sideways -- shift+wheel being the usual
- * way to trigger that scroll on Windows. DOM order among recycled cells doesn't track visual
- * column order, so "first cell" would drift to whatever column happened to render first, stranding
- * the checkbox (and the mark it carries) on a random sportsbook cell instead of "game". Targeting
- * `col-id="game"` directly sidesteps DOM order entirely.
- */
-function mountCell(row: Element): HTMLElement | null {
-  const actions = row.querySelector<HTMLElement>('[col-id="actions"]');
-  if (actions) return actions;
-  // This row element doesn't carry the actions cell. On boards that have one elsewhere (the
-  // pinned-left half, not yet rendered for this row-id), that's a transient gap to wait out --
-  // not a cue to plant the checkbox in whatever cell happens to be first here instead.
-  if (hasActionsColumn()) return null;
-  return row.querySelector<HTMLElement>('[col-id="game"]');
-}
 
 const adapter: SiteAdapter = {
   site: "PROPPROFESSOR",
 
+  // Not the Fantasy Optimizer (e.g. the odds screen) when no board chip is on the page at all.
+  isActive() {
+    return boardChips().length > 0;
+  },
+
   fantasyBook() {
-    // The book chips carry no aria-selected or data-state -- only Tailwind class variants. The
-    // selected one is the colour outlier (brand purple against the neutral rest), which survives
-    // class renames; the brand-class check is a backstop.
-    const chips = Array.from(document.querySelectorAll<HTMLElement>("button")).filter((b) => {
-      const text = (b.textContent ?? "").trim();
-      if (!text || text.length > 24) return false;
-      return KNOWN_BOOKS.some(
-        (n) => text.toLowerCase() === n.toLowerCase() || text.toLowerCase() === `${n.toLowerCase()} (alt)`
-      );
-    });
+    // The selected chip carries no aria-selected or data-state -- only Tailwind class variants.
+    // It's the colour outlier (brand purple against the neutral rest), which survives class
+    // renames; the brand-class check is a backstop.
+    const chips = boardChips();
     if (chips.length === 0) return "unknown";
 
     const slug = (el: HTMLElement) =>
@@ -166,35 +189,27 @@ const adapter: SiteAdapter = {
     return grid();
   },
 
-  rows() {
-    const g = grid();
-    if (!g) return [];
-    const byRowId = new Map<string, Element>();
-    for (const el of Array.from(g.querySelectorAll('[role="row"][row-id]'))) {
-      const key = el.getAttribute("row-id");
-      if (!key) continue;
-      // Prefer the half that owns the mount cell; that is where the checkbox goes.
-      if (mountCell(el) || !byRowId.has(key)) byRowId.set(key, el);
-    }
-    return [...byRowId.entries()].map(([key, el]) => ({ el, key }));
-  },
+  rows: currentRows,
 
-  extraStyles: LANE_STYLES,
+  extraStyles: OVERLAY_STYLES,
 
   injectHeader() {
     // No-op: the lane is reserved by CSS, and a LANE-wide header cell has no room for a label.
   },
 
   mount(row) {
-    const cell = mountCell(row);
-    if (!cell) return null;
-    let lane = cell.querySelector<HTMLElement>(".clva-lane");
-    if (!lane) {
-      lane = document.createElement("div");
-      lane.className = "clva-lane";
-      cell.insertBefore(lane, cell.firstChild);
+    const key = row.getAttribute("row-id");
+    if (!key) return null;
+    let slot = slots.get(key);
+    if (!slot) {
+      slot = document.createElement("div");
+      slot.className = "clva-slot";
+      overlayHost().appendChild(slot);
+      slots.set(key, slot);
     }
-    return lane;
+    const g = grid();
+    if (g) positionSlot(slot, row, g.getBoundingClientRect());
+    return slot;
   },
 };
 

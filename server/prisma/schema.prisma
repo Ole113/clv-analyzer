@@ -186,6 +186,10 @@ model AppSettings {
   /// be quietly overridden by a number scraped off the screen.
   useLiquidityWeighting Boolean @default(false)
 
+  /// "system" | "light" | "dark". Default "system" so a user who never opens Settings still gets
+  /// their device's own preference rather than being locked into whichever palette shipped first.
+  themePreference String @default("system")
+
   updatedAt DateTime @updatedAt
 }
 

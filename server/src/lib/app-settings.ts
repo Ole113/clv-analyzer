@@ -9,12 +9,19 @@ export const DEFAULT_BOOK_ORDER: string[] = [...SPORTSBOOK_HINTS];
 /** A book with no configured weight is treated as this -- see bookWeightsJson in schema.prisma. */
 export const DEFAULT_BOOK_WEIGHT = 1;
 
+export type ThemePreference = "system" | "light" | "dark";
+
 export interface AppSettings {
   bookOrder: string[];
   useWeightedAverage: boolean;
   bookWeights: Record<string, number>;
   /** Whether captured depth weights the closing average. See useLiquidityWeighting in the schema. */
   useLiquidityWeighting: boolean;
+  themePreference: ThemePreference;
+}
+
+function parseTheme(raw: string): ThemePreference {
+  return raw === "light" || raw === "dark" ? raw : "system";
 }
 
 function parseBookOrder(raw: string): string[] {
@@ -51,7 +58,16 @@ export async function getAppSettings(): Promise<AppSettings> {
     useWeightedAverage: row.useWeightedAverage,
     bookWeights: parseWeights(row.bookWeightsJson),
     useLiquidityWeighting: row.useLiquidityWeighting,
+    themePreference: parseTheme(row.themePreference),
   };
+}
+
+export async function saveThemePreference(themePreference: ThemePreference): Promise<void> {
+  await prisma.appSettings.upsert({
+    where: { id: SETTINGS_ID },
+    update: { themePreference },
+    create: { id: SETTINGS_ID, bookOrder: DEFAULT_BOOK_ORDER.join(","), themePreference },
+  });
 }
 
 export async function saveBookOrder(order: string[]): Promise<void> {
@@ -82,7 +98,7 @@ export async function saveBookWeights(
 }
 
 /** Title-cases a bare book key ("fanduel" -> "Fanduel") for when no captured label exists. */
-function titleCase(key: string): string {
+export function titleCase(key: string): string {
   return key.length ? key[0].toUpperCase() + key.slice(1) : key;
 }
 

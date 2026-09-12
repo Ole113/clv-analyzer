@@ -9,7 +9,17 @@ import { useRouter } from "next/navigation";
  * anchor or button is left alone, so "odds ↗" still opens the sportsbook rather than navigating
  * into the pick. Text selection is preserved too -- dragging to select does not count as a click.
  */
-export function BetRow({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+export function BetRow({
+  id,
+  label,
+  onContextMenu,
+  children,
+}: {
+  id: string;
+  label: string;
+  onContextMenu?: (event: React.MouseEvent) => void;
+  children: React.ReactNode;
+}) {
   const router = useRouter();
 
   const navigate = () => router.push(`/bets/${id}`);
@@ -33,6 +43,7 @@ export function BetRow({ id, label, children }: { id: string; label: string; chi
         event.preventDefault();
         navigate();
       }}
+      onContextMenu={onContextMenu}
     >
       {children}
     </tr>
