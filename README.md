@@ -87,6 +87,83 @@ If nothing is running at kickoff the pick simply stays queued and is read whenev
 comes online — and that read is **flagged as late** (`STALE_CAPTURE_MINUTES`, default 20) rather
 than being passed off as a genuine closing line.
 
+### The Odds modal reads from the server, not the queue
+
+The scheduled closing read above is the extension's job, on a 60-second alarm, and a minute of
+latency costs nothing there. The **"odds ↗" modal is different**: someone is watching a spinner.
+Routed through the same queue it cost a full `chrome.alarms` period (one minute is Chrome's floor)
+before anything appeared.
+
+So the token is relayed. The extension already holds PropProfessor's bearer token; it now POSTs it
+to `/api/pp-token`, and the server makes the same one-request read itself
+(`server/src/lib/pp-screen-read.ts`) inside the modal's own round trip — typically a few hundred
+milliseconds, with one response shared by every pick on the same (league, market) for ten seconds.
+
+The extension path is kept as the fallback, because it is the only thing that can *mint* a token.
+But it is no longer waited for in the normal case, because the token is now obtained **ahead of
+need** rather than on the first click that wants it. `ensureServerToken()` runs:
+
+* on browser startup — `chrome.storage.session` is cleared when Chrome closes, so at that moment
+  nothing anywhere holds a token;
+* on every closing alarm, which covers the server being restarted (it keeps the token in memory by
+  design, so a restart forgets it);
+* **the moment the dashboard is opened.** A one-line content script is registered at runtime
+  against whatever origin the backend URL points at — it cannot be a manifest entry, since that URL
+  is a setting — and it does nothing but say "I am here" to the worker.
+
+Minting means loading the odds screen in a background tab and waiting for PropProfessor's own app to
+make a request, so a failed attempt (signed out, subscription lapsed) backs off for ten minutes
+rather than reopening a tab every sixty seconds.
+
+The modal's "waiting on your browser extension" state therefore still exists, but reaching it now
+means PropProfessor itself cannot be signed into — not merely that nothing has warmed up yet.
+
+The token is held in memory on the server, never written to the database, never logged, and never
+returned in a response — the same treatment the extension gives it in `chrome.storage.session`.
+Both are lost on restart by design, and `syncTokenToServer` pushes it back on the next alarm.
+
+### The same modal on the boards themselves
+
+The dashboard is the wrong place to ask "what is this market really priced at": by the time a pick
+is on `/bets` it has already been taken. So the odds button is injected on the board too — a small
+control stacked **above** the CLV checkbox on each OddsJam row, opening the same modal in the page.
+
+It is answered by `POST /api/odds-lookup`, not by the content script. The averaging, the sportsbook
+allowlist and the outlier test all live in `buildClosingVerdict`, and a second implementation in the
+extension would drift from it silently — leaving the board modal and the dashboard modal quoting
+different closing numbers for the same market with no way to tell which was right.
+
+The read target is always PropProfessor, whichever board asked. An OddsJam row looking up its own
+market sends OddsJam nothing; the capture site is provenance and has no influence on where the read
+goes, which is the same rule the closing read follows and is asserted by the same test.
+
+Currently OddsJam only. PropProfessor's checkbox lives in a 24px overlay lane whose width is already
+the subject of open layout complaints (`docs/Bugs.md`), and adding a second control there is worth
+doing deliberately rather than as a side effect — hence the `oddsButton` flag on the site adapter.
+
+### Line is not the whole story: the average price
+
+A market can move hard without its line moving at all. A passing-touchdowns prop sits on 2.5 all
+week — there is no 2.6 for it to drift to — so the line average reads 2.50 and the edge reads 0.00
+while the price behind that same 2.5 travels from -110 to -145. Both modals therefore show an
+**average price** next to the average line.
+
+Two things about how it is computed:
+
+* **Averaged as probabilities, never as American odds.** American odds are a display format, not a
+  scale: they are discontinuous across ±100 and wildly non-linear. Averaging -110 and +110
+  numerically gives 0, which is not a price; averaging their implied probabilities gives 0.5, which
+  converts back to +100. This is the same reasoning `findLineOutliers` already applies to
+  moneylines.
+* **Vigged on purpose.** The question is "what is this priced at", not "what is the true
+  probability". The de-vigged answer to the second is `closeFairProb`, computed separately;
+  conflating them would show a price better than anything anyone could actually bet.
+
+It is taken over exactly the books that feed the line average, so the two can never describe
+different fields — the book counts are shown separately because they legitimately differ (a book is
+kept in the line average whenever it quotes the market, including on one side only, but it can only
+contribute a price for the side actually taken).
+
 ### EV method
 
 `EV% = fair win probability x decimal payout - 1`.

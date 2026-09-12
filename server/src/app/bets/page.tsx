@@ -19,21 +19,11 @@ export default async function BetsPage({
   // the RSC boundary) -- these are pure functions of a bet's own fields, so computing the strings
   // here and shipping data instead is simpler than exposing them as server actions.
   const bets = rawBets.map((b) => ({ ...b, boardUrl: boardUrlFor(b), oddsScreenUrl: oddsScreenUrlFor(b) }));
-  const q = params.get("q");
-  const settled = bets.filter((b) => b.status === "CLOSED").length;
-  const graded = bets.filter((b) => b.gradeResult === "WIN" || b.gradeResult === "LOSS").length;
-  const waiting = bets.filter((b) => ["PENDING", "DUE", "NEEDS_GAME_TIME"].includes(b.status)).length;
 
   return (
     <main>
       <h2 style={{ marginTop: 0 }}>Picks</h2>
         <FilterBar facets={facets} values={values} action="/bets" showVerdict showStatus showResult />
-
-      <p className="result-count">
-        {bets.length} pick{bets.length === 1 ? "" : "s"}
-        {q ? ` matching “${q}”` : ""} · {waiting} awaiting close · {settled} settled ·{" "}
-        {graded} graded
-      </p>
 
       {bets.length === 0 ? (
         <p className="muted">Nothing matches these filters.</p>

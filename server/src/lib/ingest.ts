@@ -47,7 +47,12 @@ export const snapshotSchema = z.object({
   site: z.enum(["ODDSJAM", "PROPPROFESSOR"]),
   fantasyBook: z.string().min(1),
   pageUrl: z.string(),
-  capturedAt: z.string(),
+  // Validated as a real timestamp, not just a string: it is written straight to a DateTime column,
+  // and `new Date("whenever")` is an Invalid Date that Prisma rejects with a 500 rather than the
+  // 422 a malformed payload deserves.
+  capturedAt: z.string().refine((v) => !Number.isNaN(new Date(v).getTime()), {
+    message: "must be a parseable timestamp",
+  }),
   sourceDevice: z.string().nullable().optional(),
   row: rowSchema,
   rawHtml: z.string().optional().default(""),

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { planScreenRead, PROPPROFESSOR_SCREEN_ENDPOINT } from "@clv/shared";
 
 /**
- * Guards the one rule in this project that cannot be allowed to rot: the extension never sends
+ * Guards the one rule in this project that cannot be allowed to rot: nothing here ever sends
  * automated traffic to OddsJam.
  *
  * The OddsJam subscription is paid a year up front, so a ban is unrecoverable; the PropProfessor
@@ -12,6 +12,12 @@ import { planScreenRead, PROPPROFESSOR_SCREEN_ENDPOINT } from "@clv/shared";
  * is fine and deliberately untouched by these tests -- it issues no requests. What is forbidden is
  * the background worker initiating contact on a timer, which is exactly what it used to do:
  * `runClosingWork` opened `fantasy.oddsjam.com/fantasy-odds/<book>` in a background tab every 60s.
+ *
+ * The server is covered as well as the extension, and that is newer than the rest of this file: the
+ * Odds modal's fast path (`pp-screen-read.ts`) reads the odds screen from the Node process instead
+ * of routing every click through the extension, so the server now initiates outbound requests too
+ * and needs the same rule applied to it. Only that module is listed rather than all of `lib`,
+ * because the graders legitimately call ESPN and MLB.
  *
  * This is the kind of constraint a later refactor undoes without noticing, which is why it is a
  * test rather than a comment.
@@ -28,12 +34,22 @@ const AUTOMATED_DIRS = [
   join(REPO, "shared/src/sources"),
 ];
 
+/** Server modules that make outbound reads of their own. */
+const AUTOMATED_FILES = [
+  join(REPO, "server/src/lib/pp-screen-read.ts"),
+  join(REPO, "server/src/lib/odds-preview.ts"),
+  join(REPO, "server/src/lib/pp-token.ts"),
+];
+
 function backgroundSources(): { file: string; source: string }[] {
-  return AUTOMATED_DIRS.flatMap((dir) =>
-    readdirSync(dir)
-      .filter((f) => f.endsWith(".ts"))
-      .map((file) => ({ file, source: readFileSync(join(dir, file), "utf8") }))
-  );
+  return [
+    ...AUTOMATED_DIRS.flatMap((dir) =>
+      readdirSync(dir)
+        .filter((f) => f.endsWith(".ts"))
+        .map((file) => ({ file, source: readFileSync(join(dir, file), "utf8") }))
+    ),
+    ...AUTOMATED_FILES.map((path) => ({ file: path, source: readFileSync(path, "utf8") })),
+  ];
 }
 
 /** Strips comments so prose *about* OddsJam (including this rule's own rationale) is not a match. */

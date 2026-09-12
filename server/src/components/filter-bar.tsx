@@ -1,14 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { Facets } from "@/lib/queries";
 import { Combobox } from "@/components/combobox";
 
 // A second, small copy of app-settings.ts's titleCase() rather than an import: that module pulls
-// in prisma at module scope, which can't cross into this "use client" component's bundle.
+// in prisma at module scope, which can't cross into this "use client" component's bundle. Splits
+// on hyphens/underscores too ("dogg-house" -> "Dogg House") rather than just capitalizing the
+// first letter of the whole key, since a raw book key is snake- or kebab-cased, not one word.
 function titleCase(key: string): string {
-  return key.length ? key[0].toUpperCase() + key.slice(1) : key;
+  return key
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 /**
@@ -36,6 +42,7 @@ export function FilterBar({
   const formRef = useRef<HTMLFormElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -47,11 +54,21 @@ export function FilterBar({
    * chance to instrument. Empty fields are simply left out of the URLSearchParams building it,
    * which also means there is no more "disable empty fields so they don't show up as ?q=&sport="
    * dance to undo afterward.
+   *
+   * Starts from the *current* search params rather than an empty one, so a filter change never
+   * wipes out `sort`/`dir`/`group` -- params this form knows nothing about, owned by
+   * `bets-table.tsx`, but that still need to survive every filter change since they live in this
+   * same URL.
    */
   const submit = () => {
     const form = formRef.current;
     if (!form) return;
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(searchParams.toString());
+    for (const el of Array.from(form.elements)) {
+      if ((el instanceof HTMLInputElement || el instanceof HTMLSelectElement) && el.name) {
+        params.delete(el.name);
+      }
+    }
     for (const [key, value] of new FormData(form).entries()) {
       if (typeof value === "string" && value !== "") params.set(key, value);
     }
@@ -118,7 +135,7 @@ export function FilterBar({
         label="When taken"
         options={[
           { value: "prematch", label: "Pre-match" },
-          { value: "live", label: "In-play" },
+          { value: "live", label: "Live" },
         ]}
       />
       <Select

@@ -13,6 +13,11 @@ export interface LineLike {
   liquidity?: number | null;
 }
 
+export interface PricedLineLike extends LineLike {
+  /** The taken side's American price at this book. Null where the book quotes only the other side. */
+  price?: number | null;
+}
+
 /**
  * How much a book's quote should count, given the money resting behind it.
  *
@@ -82,6 +87,80 @@ export function averageClosingLine(
     return { avg: sum / usable.length, count: usable.length };
   }
   return { avg: weightedSum / weightTotal, count: usable.length };
+}
+
+/**
+ * The average price the field is quoting for the taken side, in American odds.
+ *
+ * This exists because on a lot of markets the *line* cannot move and the price is the only thing
+ * that does. A passing-touchdowns prop is the clearest case: every book in the field sits on 2.5
+ * all week -- there is no 2.6 for it to drift to -- so `avgClosingLine` reads 2.50, `edge` reads
+ * 0.00, and the modal says nothing at all about a market that may have moved from -110 to -145.
+ * Whole-number stat props (touchdowns, home runs, made threes) behave this way almost by
+ * construction, and so do heavily-anchored totals.
+ *
+ * **Averaged as probabilities, never as American odds.** American odds are a presentation format,
+ * not a scale you can do arithmetic on: they are discontinuous across ±100 and wildly non-linear.
+ * Averaging -110 and +110 numerically gives 0, which is not a price; averaging their implied
+ * probabilities gives 0.5, which converts back to +100 -- the honest midpoint. This is the same
+ * reasoning `findLineOutliers` already applies to moneylines, for the same reason.
+ *
+ * These are the books' raw, vigged prices, which is deliberate: the question being answered is
+ * "what is this market priced at right now", not "what does the market think the true probability
+ * is". The de-vigged answer to the second question is `closeFairProb`, computed separately, and
+ * conflating the two would make the displayed price look better than anything anyone could bet.
+ *
+ * Weighting follows `averageClosingLine` exactly -- a manual book weight wins, liquidity fills in
+ * when enabled -- so the price average and the line average are always taken over the same field on
+ * the same footing.
+ */
+export function averageClosingPrice(
+  lines: PricedLineLike[],
+  weights?: Record<string, number> | null,
+  defaultWeight = 1,
+  useLiquidity = false
+): { avg: number | null; avgProbability: number | null; count: number } {
+  const usable = lines.filter(
+    (l): l is PricedLineLike & { price: number } =>
+      l.includedInAverage && typeof l.price === "number" && Number.isFinite(l.price) && l.price !== 0
+  );
+  if (usable.length === 0) return { avg: null, avgProbability: null, count: 0 };
+
+  let weightedSum = 0;
+  let weightTotal = 0;
+  for (const l of usable) {
+    const manual = weights?.[l.bookKey];
+    const w =
+      manual ?? (useLiquidity ? liquidityWeight(l.liquidity, defaultWeight) : defaultWeight);
+    weightedSum += impliedProbability(l.price) * w;
+    weightTotal += w;
+  }
+  // Same fallback as the line average: every configured weight at zero leaves nothing to divide by.
+  const probability =
+    weightTotal > 0
+      ? weightedSum / weightTotal
+      : usable.reduce((sum, l) => sum + impliedProbability(l.price), 0) / usable.length;
+
+  return {
+    avg: americanFromProbability(probability),
+    avgProbability: Math.round(probability * 1e6) / 1e6,
+    count: usable.length,
+  };
+}
+
+/**
+ * A 0-1 probability back to American odds, rounded to a whole number the way a book quotes one.
+ *
+ * The ±100 boundary is the only subtlety: at exactly even money both forms are correct and the
+ * convention is +100, so the favourite branch is strictly greater than 0.5.
+ */
+export function americanFromProbability(probability: number): number | null {
+  if (!Number.isFinite(probability) || probability <= 0 || probability >= 1) return null;
+  const raw =
+    probability > 0.5
+      ? -(100 * probability) / (1 - probability)
+      : (100 * (1 - probability)) / probability;
+  return Math.round(raw);
 }
 
 function median(values: number[]): number {

@@ -22,6 +22,9 @@ const options = {
     // isolated-world half that can actually talk to the background worker.
     "content/pp-token-bridge": "src/content/propprofessor/token-bridge.ts",
     "content/pp-token-relay": "src/content/propprofessor/token-relay.ts",
+    // Registered at runtime rather than in the manifest -- the dashboard's origin is whatever the
+    // user configured -- so it has no `content_scripts` entry to match it against.
+    "content/dashboard-warm": "src/content/dashboard/warm.ts",
     "background/service-worker": "src/background/service-worker.ts",
     "options/options": "src/options/options.ts",
   },

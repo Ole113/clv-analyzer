@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { CLV_STATUSES, OPEN_STATUSES, SETTLED_STATUSES, type MarketType, type Status } from "./constants";
+import { CLV_STATUSES, OPEN_STATUSES, SETTLED_STATUSES, STATUSES, type MarketType, type Status } from "./constants";
 import { getAppSettings, sortByBookOrder } from "./app-settings";
 
 export interface BetFilters {
@@ -26,10 +26,28 @@ export interface BetFilters {
   limit: number;
 }
 
+/**
+ * A query-string date, or undefined when it is not one.
+ *
+ * `new Date("banana")` is an Invalid Date, not an error, and Prisma throws on one -- so an
+ * unparseable `?from=` in a URL a user typed, bookmarked or shared used to 500 the whole /bets
+ * page. An unreadable filter is better ignored than fatal.
+ */
+function parseDate(raw: string | null): Date | undefined {
+  if (!raw) return undefined;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/** Same reasoning as `parseDate`: `Number("abc")` is NaN, and `take: NaN` is a Prisma error. */
+function parseLimit(raw: string | null, fallback: number, max: number): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 1) return fallback;
+  return Math.min(Math.floor(value), max);
+}
+
 export function parseBetFilters(params: URLSearchParams): BetFilters {
   const group = params.get("group");
-  const from = params.get("from");
-  const to = params.get("to");
   const verdict = params.get("verdict");
   const clean = (key: string): string | undefined => {
     const value = params.get(key)?.trim();
@@ -37,7 +55,9 @@ export function parseBetFilters(params: URLSearchParams): BetFilters {
   };
   return {
     group: group === "open" || group === "settled" ? group : "all",
-    status: (clean("status") as Status) ?? undefined,
+    // Validated against the real status list rather than cast: a typo'd ?status= should fall back
+    // to "no status filter", not quietly return an empty page.
+    status: STATUSES.find((s) => s === clean("status")),
     site: clean("site"),
     sport: clean("sport"),
     fantasyBook: clean("book"),
@@ -53,9 +73,9 @@ export function parseBetFilters(params: URLSearchParams): BetFilters {
     graded: (["graded", "ungraded", "ungradeable", "failed"] as const).find(
       (g) => g === clean("graded")
     ),
-    from: from ? new Date(from) : undefined,
-    to: to ? new Date(to) : undefined,
-    limit: Math.min(Number(params.get("limit") ?? 200), 1000),
+    from: parseDate(params.get("from")),
+    to: parseDate(params.get("to")),
+    limit: parseLimit(params.get("limit"), 200, 1000),
   };
 }
 
@@ -124,7 +144,9 @@ function whereFrom(filters: BetFilters) {
 export async function listBets(filters: BetFilters) {
   return prisma.bet.findMany({
     where: whereFrom(filters),
-    orderBy: [{ gameStartTime: "desc" }, { openCapturedAt: "desc" }],
+    // Most recently added first -- this is also what a reset ("default") sort on /bets falls back
+    // to, since that resets to whatever order the server itself already returned.
+    orderBy: [{ createdAt: "desc" }],
     take: filters.limit,
   });
 }

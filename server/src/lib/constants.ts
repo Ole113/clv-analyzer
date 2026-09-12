@@ -88,6 +88,24 @@ export const GRADE_SOURCES = ["espn", "mlb", "manual"] as const;
 export const HIT_RESULTS = ["WIN", "LOSS"] as const;
 export type GradeSource = (typeof GRADE_SOURCES)[number];
 
+/**
+ * A numeric setting from the environment, falling back when it is missing or unreadable.
+ *
+ * `Number("15m")` is NaN, and a NaN that reaches these settings does real damage rather than just
+ * being ignored: `setInterval(delay)` treats NaN as 0, so a typo in GRADE_POLL_MINUTES would turn
+ * the grader's 15-minute tick into a hot loop hammering ESPN. A malformed value is a mistake in a
+ * config file, so it falls back to the documented default rather than taking the process down.
+ */
+function envNumber(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    console.warn(`[config] ignoring unreadable value ${JSON.stringify(raw)}; using ${fallback}`);
+    return fallback;
+  }
+  return value;
+}
+
 export const config = {
   /**
    * The closing read is a *window before* kickoff, not a single shot after it.
@@ -104,23 +122,23 @@ export const config = {
    * moved hardest. Reading after kickoff risks measuring nothing at all. A small known bias beats
    * a large unknown one.
    */
-  closingReadOpensMinutesBefore: Number(process.env.CLOSING_READ_OPENS_MINUTES_BEFORE ?? 8),
-  closingReadTargetMinutesBefore: Number(process.env.CLOSING_READ_TARGET_MINUTES_BEFORE ?? 3),
+  closingReadOpensMinutesBefore: envNumber(process.env.CLOSING_READ_OPENS_MINUTES_BEFORE, 8),
+  closingReadTargetMinutesBefore: envNumber(process.env.CLOSING_READ_TARGET_MINUTES_BEFORE, 3),
   /** Kept slightly past kickoff only so a read already in flight can still land. */
-  closingReadClosesMinutesAfter: Number(process.env.CLOSING_READ_CLOSES_MINUTES_AFTER ?? 5),
+  closingReadClosesMinutesAfter: envNumber(process.env.CLOSING_READ_CLOSES_MINUTES_AFTER, 5),
   /** How long a pick handed to an extension is not handed to anyone else. */
-  closingLeaseMinutes: Number(process.env.CLOSING_LEASE_MINUTES ?? 5),
-  maxFetchAttempts: Number(process.env.MAX_FETCH_ATTEMPTS ?? 6),
+  closingLeaseMinutes: envNumber(process.env.CLOSING_LEASE_MINUTES, 5),
+  maxFetchAttempts: envNumber(process.env.MAX_FETCH_ATTEMPTS, 6),
   /**
    * A closing line read this long after kickoff is no longer really a closing line. The pick is
    * still recorded, but flagged so a late capture never masquerades as a clean one.
    */
-  staleCaptureMinutes: Number(process.env.STALE_CAPTURE_MINUTES ?? 20),
+  staleCaptureMinutes: envNumber(process.env.STALE_CAPTURE_MINUTES, 20),
   /** Hours after kickoff before a first grading attempt -- long enough for the game to finish. */
-  gradeDelayHours: Number(process.env.GRADE_DELAY_HOURS ?? 3),
-  maxGradeAttempts: Number(process.env.MAX_GRADE_ATTEMPTS ?? 8),
+  gradeDelayHours: envNumber(process.env.GRADE_DELAY_HOURS, 3),
+  maxGradeAttempts: envNumber(process.env.MAX_GRADE_ATTEMPTS, 8),
   /** How often the server checks its own database for picks due to grade. */
-  gradePollMinutes: Number(process.env.GRADE_POLL_MINUTES ?? 15),
+  gradePollMinutes: envNumber(process.env.GRADE_POLL_MINUTES, 15),
 };
 
 /**

@@ -126,7 +126,8 @@ th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--text); }
 .sort-indicator { color: var(--accent); font-size: 9px; }
 
-.bets-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.bets-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.bets-toolbar .result-count { margin: 0; }
 
 .day-group { margin-bottom: 22px; }
 .day-group table { margin-top: 6px; }
@@ -246,11 +247,29 @@ button .spinner { vertical-align: -2px; }
 .modal-body { color: var(--muted); font-size: 13px; line-height: 1.55; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
-/* Whole-row click-through. The row is a link, so it looks like one on hover; the anchors inside
-   keep their own behaviour and are skipped by the handler. */
-tr.row-link { cursor: pointer; }
-tr.row-link:hover > td { background: var(--panel-2); }
-tr.row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* A plain <a> that opens a modal instead of navigating reads oddly as a link (no visited state,
+   no real href to preview on hover), so the Odds trigger is a button styled to match one instead. */
+.link-button {
+  font: inherit; color: var(--accent); background: none; border: none; padding: 0;
+  cursor: pointer; text-decoration: none;
+}
+.link-button:hover { text-decoration: underline; }
+
+.odds-preview-modal {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px 22px; width: min(640px, 100%); max-height: min(80vh, 720px); overflow-y: auto;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+}
+.odds-preview-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.odds-preview-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.odds-preview-actions button[aria-label="Close"] {
+  font-size: 18px; line-height: 1; padding: 4px 8px; color: var(--muted);
+}
+
+/* Pick rows highlight on hover so the eye can follow one across twelve columns, but the row itself
+   is not a control: only the pick's own name navigates. See bet-row.tsx for why. */
+tr.bet-row:hover > td { background: var(--panel-2); }
+.pick-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 
 /* Marks a pick taken in-play, which never gets a CLV verdict. */
 .live-chip {
@@ -524,11 +543,16 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
 
 /* --- settings side nav --- */
 .settings-layout { display: flex; gap: 28px; align-items: flex-start; }
-.settings-nav {
-  /* Offset by the fixed site header's own height (plus a gap) so the sidebar sticks just below
-     it instead of scrolling up underneath it and getting clipped by its opaque background. */
+/* The "Settings" heading used to sit above both columns, outside anything sticky, so it scrolled
+   under the fixed site header like any other page heading -- but visually it reads as part of the
+   sidebar (it's the same width, right above the section links), so losing it while the links
+   beside it stayed put read as a bug. Moving the sticky positioning up to this wrapper (instead of
+   `.settings-nav` alone) keeps the heading and the links sticking together. */
+.settings-sidebar {
   flex: 0 0 176px; position: sticky; top: calc(var(--header-height) + 20px);
   max-height: calc(100vh - var(--header-height) - 40px); overflow-y: auto;
+}
+.settings-nav {
   display: flex; flex-direction: column; gap: 3px;
 }
 .settings-nav a {
@@ -547,7 +571,8 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
 .settings-content .chart-card:target { animation: settings-target-flash 1.6s ease-out; }
 @media (max-width: 780px) {
   .settings-layout { flex-direction: column; }
-  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; max-height: none; }
+  .settings-sidebar { position: static; max-height: none; }
+  .settings-nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
 }
 
 /* --- overview: metric picker + explainer --- */
@@ -559,3 +584,16 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
   background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); cursor: pointer;
 }
 .copy-btn:hover { color: var(--text); border-color: var(--accent); }
+
+/* Headline numbers above the Odds modal's book table. Wraps rather than scrolls: on a narrow
+   window three stats and a timestamp do not fit on one line, and a cut-off average price is worse
+   than a second line. */
+.odds-summary {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px;
+  font-size: 12px; margin: 12px 0 4px;
+}
+.odds-stat { display: inline-flex; align-items: baseline; gap: 6px; }
+.odds-stat-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+}
+.odds-stat strong { font-size: 14px; }

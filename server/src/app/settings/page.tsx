@@ -38,6 +38,19 @@ const UNIT_HOURS: Record<string, number> = {
   years: 24 * 365,
 };
 
+/**
+ * The cutoff a purge deletes back to.
+ *
+ * `amount` arrives as a Server Action argument, which is to say from the client -- so it is
+ * validated here rather than trusted from the form that normally sends it. A NaN would otherwise
+ * become an Invalid Date and take the action down with a Prisma error instead of deleting nothing.
+ */
+function purgeCutoff(amount: number, unit: string): Date {
+  const n = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
+  const hours = (UNIT_HOURS[unit] ?? 24) * n;
+  return new Date(Date.now() - hours * 3600_000);
+}
+
 export default async function SettingsPage() {
   const [total, oldest, newest, demo, books, bookSettings] = await Promise.all([
     prisma.bet.count(),
@@ -82,8 +95,7 @@ export default async function SettingsPage() {
   /** Counts what a purge would remove, so the confirmation can name a real number. */
   async function countPurge(amount: number, unit: string, onlyTestData: boolean): Promise<number> {
     "use server";
-    const hours = (UNIT_HOURS[unit] ?? 24) * amount;
-    const cutoff = new Date(Date.now() - hours * 3600_000);
+    const cutoff = purgeCutoff(amount, unit);
     return prisma.bet.count({
       where: {
         openCapturedAt: { gte: cutoff },
@@ -95,8 +107,7 @@ export default async function SettingsPage() {
   /** Deletes picks captured within the last N days/weeks/months/years. Snapshots cascade. */
   async function purgeRecent(amount: number, unit: string, onlyTestData: boolean): Promise<number> {
     "use server";
-    const hours = (UNIT_HOURS[unit] ?? 24) * amount;
-    const cutoff = new Date(Date.now() - hours * 3600_000);
+    const cutoff = purgeCutoff(amount, unit);
     const { count } = await prisma.bet.deleteMany({
       where: {
         openCapturedAt: { gte: cutoff },
@@ -171,10 +182,11 @@ export default async function SettingsPage() {
 
   return (
     <main>
-      <h2 style={{ marginTop: 0 }}>Settings</h2>
-
       <div className="settings-layout">
-        <SettingsNav sections={SECTIONS} />
+        <div className="settings-sidebar">
+          <h2 style={{ marginTop: 0 }}>Settings</h2>
+          <SettingsNav sections={SECTIONS} />
+        </div>
 
         <div className="settings-content">
 

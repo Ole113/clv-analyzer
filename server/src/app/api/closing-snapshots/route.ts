@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { applyClosingReport } from "@/lib/apply-closing";
+import { outcomeSchema } from "@/lib/closing-outcome-schema";
 
 export const dynamic = "force-dynamic";
 
+// row/bookLine shapes for the legacy (pre-`outcome`) fields below only -- the current shape's
+// validation lives in `outcomeSchema`, shared with `/api/odds-preview-work`.
 const bookLineSchema = z.object({
   bookKey: z.string().min(1),
   label: z.string().nullable(),
@@ -43,30 +46,6 @@ const rowSchema = z.object({
   bookLines: z.array(bookLineSchema),
   rawText: z.string(),
 });
-
-const sourceSchema = z.object({
-  site: z.literal("PROPPROFESSOR_SCREEN"),
-  url: z.string(),
-  league: z.string(),
-  market: z.string(),
-});
-
-const outcomeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("MATCHED"), row: rowSchema, source: sourceSchema }),
-  z.object({
-    kind: z.literal("SELECTION_ABSENT"),
-    source: sourceSchema,
-    candidateCount: z.number(),
-    sampleNames: z.array(z.string()).default([]),
-  }),
-  z.object({
-    kind: z.literal("MARKET_NOT_OFFERED"),
-    source: sourceSchema,
-    availableMarkets: z.array(z.string()).default([]),
-  }),
-  z.object({ kind: z.literal("NO_CLOSING_MARKET"), reason: z.string() }),
-  z.object({ kind: z.literal("READ_FAILED"), reason: z.string() }),
-]);
 
 /**
  * The legacy fields stay optional for one release so an extension that has not been reloaded yet

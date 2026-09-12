@@ -131,12 +131,20 @@ requestAnimationFrame(repositionLoop);
 const OVERLAY_STYLES = `
 #${OVERLAY_ID} { position: fixed; top: 0; left: 0; width: 0; height: 0; pointer-events: none; z-index: 2147483000; }
 .clva-slot {
-  position: fixed; width: ${LANE}px; pointer-events: auto;
-  display: flex; align-items: center; justify-content: center;
+  position: fixed !important; box-sizing: border-box !important; overflow: hidden !important;
+  width: ${LANE}px !important; min-width: ${LANE}px !important; max-width: ${LANE}px !important;
+  pointer-events: auto; display: flex !important; align-items: center; justify-content: center;
 }
 /* Reserves the strip the slots render into. A plain margin (not width/padding on some AG-Grid-
    internal element) so this works identically on every board layout without depending on which
-   columns a given board happens to pin. */
+   columns a given board happens to pin.
+   KNOWN ISSUE (plain Dabble board, no pinned actions column): reported as a checkbox that renders
+   too wide and covers the board's own "add to slip" control. Not yet reproduced live -- one
+   plausible mechanism is that this margin only shifts the grid's own box, not a same-site control
+   that is itself fixed/sticky to the viewport rather than laid out inside the grid, so the two end
+   up occupying the same screen position instead of the checkbox landing in genuinely empty space.
+   If this still happens after reloading the extension, the fix likely needs to stop reserving
+   space this way entirely rather than adjusting the offset -- flag it with a screenshot. */
 [role="grid"] { margin-left: ${LANE}px; }
 `;
 

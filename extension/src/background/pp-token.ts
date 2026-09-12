@@ -9,12 +9,25 @@
  * The token is kept in `chrome.storage.session`, which lives in memory and is cleared when the
  * browser closes -- deliberately, so a credential is never written to disk.
  *
+ * The token is also relayed to the CLV server (`POST /api/pp-token`), which is what lets the Odds
+ * modal answer a "current odds" click in one round trip instead of parking it in a queue until this
+ * worker's next alarm. Only the change is relayed, not every observation -- the bridge sees the
+ * header on every request PropProfessor's own app makes -- plus a re-push whenever the server says
+ * it has none, since the server holds it in memory and a restart forgets it.
+ *
+ * `ensureServerToken` is the front door for all of that and is called *ahead* of need: on browser
+ * startup, on every closing alarm, and the moment the dashboard is opened. The modal's slow
+ * "waiting on your browser extension" path still exists, but it should now only be reached when
+ * PropProfessor itself cannot be signed into.
+ *
  * Opening a tab is a step back toward what this redesign removed, and it is worth being precise
  * about why it is acceptable here where it was not for OddsJam. It only ever targets
  * propprofessor.com, which the user has said is expendable; it happens roughly once per token
  * lifetime rather than once per pick; and it is skipped entirely whenever a cached token still
  * works. OddsJam is not reachable from this path at all.
  */
+
+import { apiUrl, loadSettings } from "../content/shared/config";
 
 const TOKEN_KEY = "clv:pp-token";
 const SCREEN_PAGE = "https://www.propprofessor.com/screen";
@@ -30,6 +43,90 @@ export async function storeToken(token: string): Promise<void> {
   const current = await readToken();
   if (current?.token === token) return;
   await chrome.storage.session.set({ [TOKEN_KEY]: { token, capturedAt: Date.now() } });
+  void relayToken(token);
+}
+
+/** Hands the token to the CLV server. Best effort: a server that cannot be reached just means the
+ *  Odds modal falls back to the queue, which is exactly what it did before this existed. */
+async function relayToken(token: string): Promise<void> {
+  try {
+    const settings = await loadSettings();
+    if (!settings.backendUrl || !settings.apiKey) return;
+    await fetch(apiUrl(settings.backendUrl, "/api/pp-token"), {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+      body: JSON.stringify({ token }),
+    });
+  } catch {
+    // Offline, or the backend is down. Nothing to do: `ensureServerToken` retries on the next alarm.
+  }
+}
+
+const MINT_ATTEMPT_KEY = "clv:pp-token-mint-attempt";
+/**
+ * How long to wait before opening another tab to mint a token, after an attempt that produced none.
+ *
+ * A failed mint means something a retry cannot fix -- signed out of PropProfessor, or the
+ * subscription lapsed -- and `ensureServerToken` runs on a 60-second alarm. Without this it would
+ * open a background tab every single minute, forever, at the one site this project is allowed to
+ * touch automatically. Ten minutes keeps the recovery quick once the user does sign in, while
+ * making the pathological case cost six tab-opens an hour rather than sixty.
+ */
+const MINT_BACKOFF_MS = 10 * 60_000;
+
+async function mintedRecently(): Promise<boolean> {
+  const stored = await chrome.storage.session.get(MINT_ATTEMPT_KEY);
+  const last = stored[MINT_ATTEMPT_KEY] as number | undefined;
+  return typeof last === "number" && Date.now() - last < MINT_BACKOFF_MS;
+}
+
+/**
+ * Makes sure the server can read the odds screen, before anyone asks it to.
+ *
+ * This is what turns the Odds modal's "waiting on your browser extension" state from the normal
+ * case into an unusual one. Nothing here is new capability -- the token was always obtainable, and
+ * always relayed once obtained -- it is purely a matter of *when*: this runs on browser startup, on
+ * every closing alarm, and the moment the dashboard is opened, rather than lazily on the first
+ * click that needs it.
+ *
+ * Two distinct gaps to close, hence two branches:
+ *
+ *  - **The browser has a token, the server does not.** The usual case, since the server holds it in
+ *    memory and forgets it on restart. Cheap: ask, and relay only if it says no.
+ *  - **Nobody has a token.** `chrome.storage.session` is cleared when Chrome closes, so this is
+ *    every fresh browser session in which the user has not visited PropProfessor. Minting means
+ *    loading the screen in a background tab and waiting for the app to make its own request, which
+ *    is exactly what `getScreenToken` already does on demand -- just done up front, once, instead
+ *    of inside the first click's latency budget.
+ */
+export async function ensureServerToken(): Promise<boolean> {
+  try {
+    const settings = await loadSettings();
+    if (!settings.backendUrl || !settings.apiKey) return false;
+
+    const stored = await readToken();
+    if (stored) {
+      // Asks first rather than pushing blindly, so the credential crosses the network only when it
+      // is actually needed.
+      const response = await fetch(apiUrl(settings.backendUrl, "/api/pp-token"), {
+        headers: { "x-api-key": settings.apiKey },
+      });
+      if (!response.ok) return false;
+      const body = (await response.json()) as { hasToken?: boolean };
+      if (body.hasToken === true) return true;
+      await relayToken(stored.token);
+      return true;
+    }
+
+    if (await mintedRecently()) return false;
+    await chrome.storage.session.set({ [MINT_ATTEMPT_KEY]: Date.now() });
+    // `storeToken` relays it as a side effect of caching it, so there is nothing to do with the
+    // return value except report whether the server is now equipped.
+    return (await captureFreshToken()) !== null;
+  } catch {
+    // Offline, or the backend is down. Best effort: the next alarm tries again.
+    return false;
+  }
 }
 
 async function readToken(): Promise<StoredToken | null> {

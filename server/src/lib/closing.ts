@@ -1,6 +1,12 @@
 import type { ParsedRow } from "@clv/shared";
 import { isSportsbookForAverage, isSportsbookForClose } from "@clv/shared";
-import { averageClosingLine, averageClosingProbability, computeClv, findLineOutliers } from "./clv";
+import {
+  averageClosingLine,
+  averageClosingPrice,
+  averageClosingProbability,
+  computeClv,
+  findLineOutliers,
+} from "./clv";
 import type { MarketType, Side } from "./constants";
 
 /**
@@ -29,6 +35,22 @@ export interface ClosingVerdict {
   closeLines: ClosingLineRecord[];
   avgClosingLine: number | null;
   closingBookCount: number;
+  /**
+   * What the field is charging for the taken side right now, in American odds.
+   *
+   * Separate from `avgClosingLine` because on many markets the line cannot move and the price is
+   * the only thing that does -- a passing-touchdowns prop sits on 2.5 all week while its price
+   * travels from -110 to -145, which `avgClosingLine` and `edge` both report as "nothing happened".
+   * Averaged in probability space; see `averageClosingPrice` for why American odds cannot be added
+   * up directly. Vigged on purpose: this is the price on the screen, not a fair-value estimate --
+   * `closeFairProb` is the de-vigged one.
+   */
+  avgClosingPrice: number | null;
+  /** The same number as a 0-1 implied probability, vig included. */
+  avgClosingProbability: number | null;
+  /** How many books quoted the taken side at all. Always <= closingBookCount and often under it:
+   *  a book is kept in the line average whenever it quotes the market, even on one side only. */
+  closingPriceBookCount: number;
   edge: number | null;
   beatClv: boolean | null;
   /**
@@ -106,6 +128,16 @@ export function buildClosingVerdict(
     options.useLiquidityWeighting === true
   );
 
+  // Over exactly the same field as the line average, so the two can never describe different sets
+  // of books. Computed unconditionally rather than only on the CLOSED path: a market whose line
+  // could not be formed at all can still have a perfectly readable price, and that is precisely the
+  // case where a price is the only thing left to say.
+  const {
+    avg: avgClosingPrice,
+    avgProbability: avgClosingProbability,
+    count: closingPriceBookCount,
+  } = averageClosingPrice(closeLines, bookWeights, 1, options.useLiquidityWeighting === true);
+
   // --- the market's fair price at close --------------------------------------------------------
   //
   // Over exactly the books that are already trusted for the line average: the allowlist has removed
@@ -146,6 +178,9 @@ export function buildClosingVerdict(
       closeLines,
       avgClosingLine: null,
       closingBookCount: 0,
+      avgClosingPrice,
+      avgClosingProbability,
+      closingPriceBookCount,
       edge: null,
       beatClv: null,
       priceEdge,
@@ -167,6 +202,9 @@ export function buildClosingVerdict(
     avgClosingLine: closingLine,
     // The board line is a single number, not a consensus of several books.
     closingBookCount: useBoardLine ? 1 : count,
+    avgClosingPrice,
+    avgClosingProbability,
+    closingPriceBookCount,
     edge,
     beatClv,
     priceEdge,

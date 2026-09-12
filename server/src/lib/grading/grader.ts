@@ -69,7 +69,14 @@ export async function gradeBet(betId: string): Promise<{ result: string; reason?
     return { result: "UNGRADEABLE", reason };
   };
 
-  const markRetryable = async (reason: string) => {
+  const markRetryable = async (
+    reason: string,
+    // Set whenever a game was actually found before the failure happened (the box score just
+    // didn't have what was needed in it) -- e.g. the player wasn't in the box score, or the score
+    // wasn't final yet. Lets the eventual GRADE_FAILED still point at the real page a person could
+    // go check by hand, instead of only ever linking out on a grade that already succeeded.
+    game?: { webUrl: string | null; description: string }
+  ) => {
     const attempts = bet.gradeAttempts + 1;
     const exhausted = attempts >= config.maxGradeAttempts;
     await prisma.bet.update({
@@ -81,6 +88,9 @@ export async function gradeBet(betId: string): Promise<{ result: string; reason?
         // A repeated failure is a problem to look at, not an inherent limitation of the market,
         // so it lands in GRADE_FAILED rather than being filed alongside CS2 and tennis.
         ...(exhausted ? { gradeResult: "GRADE_FAILED", gradedAt: new Date() } : {}),
+        ...(game
+          ? { gradeRawJson: JSON.stringify({ game: game.description, webUrl: game.webUrl }) }
+          : {}),
       },
     });
     return { result: exhausted ? "GRADE_FAILED" : "RETRY", reason };
@@ -102,11 +112,11 @@ export async function gradeBet(betId: string): Promise<{ result: string; reason?
       return markVoid(`Game was postponed, suspended or cancelled (${found.game.description}).`);
     }
     if (!found.game.isFinal) {
-      return markRetryable(`Game is not final yet (${found.game.description}).`);
+      return markRetryable(`Game is not final yet (${found.game.description}).`, found.game);
     }
 
     const scored = await getFinalScores(subject, found.game.externalGameId);
-    if ("reason" in scored) return markRetryable(scored.reason);
+    if ("reason" in scored) return markRetryable(scored.reason, found.game);
 
     const sides: SideScore[] = scored.scores.map((s) => ({
       variants: teamVariants(s.team),
@@ -186,11 +196,11 @@ export async function gradeBet(betId: string): Promise<{ result: string; reason?
 
   // Grading an unfinished game would settle against a partial stat line.
   if (!found.game.isFinal) {
-    return markRetryable(`Game is not final yet (${found.game.description}).`);
+    return markRetryable(`Game is not final yet (${found.game.description}).`, found.game);
   }
 
   const value = await source.getPlayerValue(found.game.externalGameId, subject, mapping);
-  if ("reason" in value) return markRetryable(value.reason);
+  if ("reason" in value) return markRetryable(value.reason, found.game);
 
   // Dressed but did not appear -> there is no result to settle against, so the pick is void
   // rather than a zero that would auto-win every UNDER.

@@ -32,7 +32,7 @@
  *     spread quotes +7 to one team and -7 to the other in the same selection.
  */
 
-import { normalizeBookKey } from "../books";
+import { bookLogoUrl, normalizeBookKey } from "../books";
 import type { ClosingWorkItem, MarketType, ParseResult, ParsedRow, PickSide } from "../types";
 import { resolveClosingMarket } from "../markets";
 import { devigTwoWay } from "../devig";
@@ -365,8 +365,9 @@ function buildRow(
     .filter((b) => plan.marketType === "MONEYLINE" || b.nearMarket)
     .map((b) => {
       const alts = b.selectionsSeen.filter((l) => l !== b.line);
+      const bookKey = normalizeBookKey(b.label) ?? "unknown";
       return {
-        bookKey: normalizeBookKey(b.label) ?? "unknown",
+        bookKey,
         label: b.label,
         // A moneyline has no number to move, so the price *is* the tracked line -- the same
         // convention the OddsJam parser uses, which keeps computeClv's arithmetic unchanged.
@@ -382,7 +383,10 @@ function buildRow(
         // pick'em column quoting -119/-119 de-vigs to a meaningless flat 50% and must not be
         // allowed to drag the fair price to the middle.
         fairProbability: devigTwoWay(b.price, b.otherSidePrice),
-        logoUrl: null,
+        // The screen is JSON and ships no images, so unlike the DOM parsers there is no logo to
+        // scrape -- it is looked up from the book's name instead. Null for a book we have no
+        // domain for, which the tables already render as "name, no icon".
+        logoUrl: bookLogoUrl(bookKey, b.label),
         rawText:
           `${b.line ?? "-"} @ ${b.price ?? "no price this side"}` +
           (alts.length > 0 ? ` (also quoted ${alts.join(", ")})` : ""),

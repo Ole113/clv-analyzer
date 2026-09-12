@@ -33,6 +33,10 @@ function table(): HTMLTableElement | null {
 const adapter: SiteAdapter = {
   site: "ODDSJAM",
 
+  // The cell here is a real <td> with the row's full height, so the odds button stacks above the
+  // checkbox without widening the column. See `SiteAdapter.oddsButton`.
+  oddsButton: true,
+
   fantasyBook() {
     const match = location.pathname.match(/\/fantasy-odds\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : "unknown";

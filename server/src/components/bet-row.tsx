@@ -1,50 +1,31 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-
 /**
- * A pick row you can click anywhere to open.
+ * One pick's row in the /bets table.
  *
- * The outbound board/odds links inside the row keep working: a click that lands on (or inside) an
- * anchor or button is left alone, so "odds ↗" still opens the sportsbook rather than navigating
- * into the pick. Text selection is preserved too -- dragging to select does not count as a click.
+ * The row used to be clickable anywhere, with a handler that skipped clicks landing on an anchor or
+ * button. Two things were wrong with that, and both are why it is gone:
+ *
+ *  - It swallowed clicks it had no business seeing. The Odds dialog opens from a button inside this
+ *    row, so clicking anywhere in that dialog -- a table cell, blank space -- navigated to the pick
+ *    instead. Portalling the dialog to `document.body` does not by itself fix that: React routes a
+ *    portal's events through the React tree rather than the DOM tree, so it still bubbles to
+ *    whatever rendered it. A row-wide handler is a standing trap for anything mounted inside it.
+ *  - "Clickable unless it isn't" is not discoverable. The pick's name is a real link, with a real
+ *    href, that middle-clicks and previews on hover like every other link in the app.
+ *
+ * So the row now carries only its right-click menu; navigation belongs to the anchor in the Pick
+ * cell (see `bets-table.tsx`), which is the one thing on the row that looks like it navigates.
  */
 export function BetRow({
-  id,
-  label,
   onContextMenu,
   children,
 }: {
-  id: string;
-  label: string;
   onContextMenu?: (event: React.MouseEvent) => void;
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-
-  const navigate = () => router.push(`/bets/${id}`);
-
   return (
-    <tr
-      className="row-link"
-      tabIndex={0}
-      role="link"
-      aria-label={`Open ${label}`}
-      onClick={(event) => {
-        const target = event.target as HTMLElement;
-        if (target.closest("a, button, input, select, label")) return;
-        // A drag that selected text is not a click-through.
-        if (window.getSelection()?.toString()) return;
-        navigate();
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        if ((event.target as HTMLElement).closest("a, button, input, select")) return;
-        event.preventDefault();
-        navigate();
-      }}
-      onContextMenu={onContextMenu}
-    >
+    <tr className="bet-row" onContextMenu={onContextMenu}>
       {children}
     </tr>
   );

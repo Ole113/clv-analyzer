@@ -7,6 +7,7 @@ import type {
   UntrackResponse,
 } from "./messages";
 import { DEFAULT_CHECKBOX_COLOR, loadSettings } from "./config";
+import { ODDS_MODAL_STYLES, oddsButton, openOddsModal, pickFromRow } from "./odds-modal";
 
 export interface SiteAdapter {
   site: SiteId;
@@ -29,6 +30,16 @@ export interface SiteAdapter {
   mount(row: Element): HTMLElement | null;
   /** Extra CSS this site needs (e.g. reserving a column lane). Injected once. */
   extraStyles?: string;
+  /**
+   * Whether each row also gets the little odds button above its checkbox.
+   *
+   * Opt-in per board rather than always on, because the two boards give this column very different
+   * room. OddsJam's is a real `<td>` this adapter inserts, with the row's full height to work with.
+   * PropProfessor's is a 24px overlay lane positioned per animation frame, and its width is already
+   * the subject of open layout complaints -- adding a second control there is worth doing on its
+   * own, with that lane looked at properly, not as a side effect of this.
+   */
+  oddsButton?: boolean;
 }
 
 const MARK = "data-clv-injected";
@@ -44,10 +55,10 @@ const STYLES = `
 .clva-cell { text-align: center; vertical-align: middle; white-space: nowrap; padding: 0 4px; }
 .clva-head { color: var(--clva-accent) !important; font-weight: 700; letter-spacing: 0.04em; }
 .clva-box {
-  appearance: none; width: 16px; height: 16px; border-radius: 4px; cursor: pointer;
+  appearance: none; width: 16px !important; height: 16px !important; border-radius: 4px; cursor: pointer;
   border: 2px solid var(--clva-accent); background: transparent; position: relative;
-  vertical-align: middle; flex: 0 0 auto; margin: 0;
-  transition: background 120ms ease, border-color 120ms ease;
+  vertical-align: middle; flex: 0 0 auto !important; margin: 0;
+  box-sizing: border-box; transition: background 120ms ease, border-color 120ms ease;
 }
 .clva-box:hover { background: color-mix(in srgb, var(--clva-accent) 25%, transparent); }
 .clva-box:checked { background: var(--clva-accent); }
@@ -113,7 +124,7 @@ function ensureStyles(extra?: string): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = STYLES + (extra ?? "");
+  style.textContent = STYLES + ODDS_MODAL_STYLES + (extra ?? "");
   document.documentElement.appendChild(style);
 }
 
@@ -342,6 +353,28 @@ function labelFor(row: ParsedRow | null): string {
   return `${row.statMarket ?? "This market"} ${row.takenLine ?? ""}`.trim();
 }
 
+/**
+ * Opens the odds modal for one row.
+ *
+ * Re-parses at click time rather than closing over a row captured at injection time, for the same
+ * reason `capture` does: both boards re-render constantly, and the row that was under this button
+ * when it was created may not be the row under it now. The board's own row id is the only stable
+ * handle.
+ */
+function showOdds(adapter: SiteAdapter, key: string | null): void {
+  const parsed = adapter.parse();
+  const row = key && parsed.ok ? (parsed.rows.find((r) => r.externalPropId === key) ?? null) : null;
+  if (!row) {
+    toast("error", "Could not read this row", "The board may have re-sorted; try again.");
+    return;
+  }
+  if (!row.statMarket) {
+    toast("error", "This row has no market to look up", "Nothing to ask the odds screen about.");
+    return;
+  }
+  openOddsModal(pickFromRow(row), labelFor(row));
+}
+
 function injectRows(adapter: SiteAdapter): void {
   for (const { el, key } of adapter.rows()) {
     const host = adapter.mount(el);
@@ -370,7 +403,20 @@ function injectRows(adapter: SiteAdapter): void {
       }
       void capture(adapter, box.getAttribute(KEY_ATTR), box);
     });
-    host.appendChild(box);
+
+    if (!adapter.oddsButton) {
+      host.appendChild(box);
+      continue;
+    }
+
+    // Stacked into one wrapper so the column's width is unchanged -- see `.clva-stack`. The
+    // checkbox keeps its own marker attribute, so the re-render check above still finds it through
+    // the wrapper.
+    const stack = document.createElement("div");
+    stack.className = "clva-stack";
+    stack.appendChild(oddsButton(() => showOdds(adapter, box.getAttribute(KEY_ATTR))));
+    stack.appendChild(box);
+    host.appendChild(stack);
   }
 }
 

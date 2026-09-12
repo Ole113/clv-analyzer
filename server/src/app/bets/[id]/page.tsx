@@ -12,77 +12,10 @@ import { gradeBet, gradeManually } from "@/lib/grading/grader";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
 import { MathBreakdown } from "@/components/math-breakdown";
+import { SnapshotTable } from "@/components/snapshot-table";
+import { OddsPreviewButton } from "@/components/odds-preview-modal";
 
 export const dynamic = "force-dynamic";
-
-interface LineRow {
-  id: string;
-  bookKey: string;
-  label: string | null;
-  line: number | null;
-  price: number | null;
-  logoUrl: string | null;
-  includedInAverage: boolean;
-}
-
-/**
- * Same component for both sides of the comparison so the open and close tables line up visually
- * and the movement is readable at a glance.
- */
-function SnapshotTable({
-  title,
-  when,
-  lines,
-  emptyNote,
-}: {
-  title: string;
-  when: string;
-  lines: LineRow[];
-  emptyNote: string;
-}) {
-  return (
-    <div className="card">
-      <h3>{title}</h3>
-      <div className="when">{when}</div>
-      {lines.length === 0 ? (
-        <p className="muted">{emptyNote}</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Book</th>
-              <th className="num">Line</th>
-              <th className="num">Price</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((l) => (
-              <tr key={l.id} className={l.includedInAverage ? "" : "excluded"}>
-                <td>
-                  <span className="book">
-                    {/* The board serves these, so the dashboard needs no icon set of its own. A
-                        missing logo just leaves the name, which is why there is no placeholder. */}
-                    {l.logoUrl && (
-                      <img className="book-logo" src={l.logoUrl} alt="" width={16} height={16} loading="lazy" />
-                    )}
-                    <span>{l.label ?? l.bookKey}</span>
-                    {!l.includedInAverage && (
-                      <span className="muted" style={{ fontSize: 11 }}>
-                        · not averaged
-                      </span>
-                    )}
-                  </span>
-                </td>
-                <td className="num">{l.line ?? "--"}</td>
-                <td className="num">{fmtOdds(l.price)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
 
 export default async function BetDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -216,7 +149,7 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
     lagMinutes !== null && -lagMinutes > config.closingReadOpensMinutesBefore ? -lagMinutes : null;
 
   const provenance = bet.gradeRawJson
-    ? (JSON.parse(bet.gradeRawJson) as { webUrl?: string | null })
+    ? (JSON.parse(bet.gradeRawJson) as { webUrl?: string | null; game?: string | null })
     : null;
 
   /**
@@ -296,24 +229,22 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
           open board on {bet.site === "ODDSJAM" ? "OddsJam" : "PropProfessor"} ↗
         </a>{" "}
         ·{" "}
-        <a href={oddsScreenUrlFor(bet).url} target="_blank" rel="noopener noreferrer">
-          current odds ↗
-        </a>
+        <OddsPreviewButton
+          betId={bet.id}
+          label={`${bet.player ?? bet.subjectTeam ?? bet.statMarket} ${sideLabel(bet.side) ?? ""} ${bet.takenLine ?? ""}`.trim()}
+          fallbackUrl={oddsScreenUrlFor(bet).url}
+          fallbackNote={
+            oddsScreenUrlFor(bet).filteredTo === "sport"
+              ? `If that doesn't turn up anything: this link lands on the ${bet.sport} odds page — choose ${bet.statMarket} there and search for the player.`
+              : "If that doesn't turn up anything: PropProfessor keeps its screen filters in memory rather than the URL — set them there and search for the player."
+          }
+        />
       </p>
-      <p className="muted" style={{ fontSize: 12, marginTop: -8 }}>
-        {oddsScreenUrlFor(bet).filteredTo === "sport" ? (
-          <>
-            That link lands on the {bet.sport} odds page — neither site lets a market or a player be
-            set from a URL, so choose {bet.statMarket} there and search for the player.
-          </>
-        ) : (
-          <>
-            PropProfessor keeps its screen filters in memory rather than the URL, so they cannot be
-            pre-filled from a link — set them there and search for the player.
-          </>
-        )}{" "}
-        {bet.player && <CopyButton value={bet.player} label="Copy player name" />}
-      </p>
+      {bet.player && (
+        <p className="muted" style={{ fontSize: 12, marginTop: -8 }}>
+          <CopyButton value={bet.player} label="Copy player name" />
+        </p>
+      )}
 
       <div className="verdict">
         <div className="headline">
@@ -334,11 +265,25 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
         {bet.gradeReason && <p className="err">{bet.gradeReason}</p>}
         {provenance?.webUrl && (
           <p className="muted" style={{ fontSize: 12 }}>
-            Graded from the {bet.gradeSource === "mlb" ? "MLB" : "ESPN"} box score{" "}
-            {fmtDateTime(bet.gradedAt)} ·{" "}
-            <a href={provenance.webUrl} target="_blank" rel="noopener noreferrer">
-              check it ↗
-            </a>
+            {bet.gradeReason ? (
+              // A game was found, but grading it still failed (player not in the box score, score
+              // not final yet, ...) -- the page it failed on is exactly what's worth checking by
+              // hand, so the link stays even though there is no successful grade to attribute it to.
+              <>
+                The game it couldn&apos;t be settled from:{" "}
+                <a href={provenance.webUrl} target="_blank" rel="noopener noreferrer">
+                  {provenance.game ?? "check it"} ↗
+                </a>
+              </>
+            ) : (
+              <>
+                Graded from the {bet.gradeSource === "mlb" ? "MLB" : "ESPN"} box score{" "}
+                {fmtDateTime(bet.gradedAt)} ·{" "}
+                <a href={provenance.webUrl} target="_blank" rel="noopener noreferrer">
+                  check it ↗
+                </a>
+              </>
+            )}
           </p>
         )}
 

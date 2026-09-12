@@ -1,26 +1,21 @@
 ## Future Additions
 
-*** There might be a better way to calculate odds at closing time.... maybe we use something like https://picktheodds.app/en/odds-screen/MLB?group=PLAYER_PROP_RUN&time=PLAYER_PROP_RUN&betGroup=PLAYER_PROP or https://4codds.com/football/nfl/props#p-6a71858e10c4a746d32aa8f2***
-- Might be worth doing some testing of calculating some odds with these and some the old way with PP and see how much of a difference it makes. 
-** Maybe even a plugin with these odds pages to search up players. Somethign like where you triple click on the row and it pulls a injected table of all teh lines on it from these softwares
+**_ There might be a better way to calculate odds at closing time.... maybe we use something like https://picktheodds.app/en/odds-screen/MLB?group=PLAYER_PROP_RUN&time=PLAYER_PROP_RUN&betGroup=PLAYER_PROP or https://4codds.com/football/nfl/props#p-6a71858e10c4a746d32aa8f2_**
 
+- Might be worth doing some testing of calculating some odds with these and some the old way with PP and see how much of a difference it makes.
+  \*\* Maybe even a plugin with these odds pages to search up players. Somethign like where you triple click on the row and it pulls a injected table of all teh lines on it from these softwares
 
 - Add some way to use the width of a market to do some analyzing. Could even just be an "i" stat next to book line on the book snapshots
-
-
-- Dry-run mode for closing reads: `POST /api/closing-snapshots?dryRun=1` returning the verdict it *would* record without writing, so a live slate can be compared against the old method before trusting the new one.
+- Dry-run mode for closing reads: `POST /api/closing-snapshots?dryRun=1` returning the verdict it _would_ record without writing, so a live slate can be compared against the old method before trusting the new one.
 - Surface alt-line picks: a DFS pick taken at 40.5 against a 62.5 consensus produces a very large edge that is arguably correct but will distort a chart. The per-book alt lines are already recorded on each row.
 
-
 Add a way to export your pikkit betting information and back test your bets. you can't find your CLV but you can find win % and some other analytical data I'm sure.
-  * Per sport win %
-  * Per book win %
-  * Per prop type win %
 
+- Per sport win %
+- Per book win %
+- Per prop type win %
 
-Tell Claude we are about to release this app and we need a full double check of all systems components etc. Make sure it follows best practices 
-
-
+Tell Claude we are about to release this app and we need a full double check of all systems components etc. Make sure it follows best practices
 
 Brainstorm additions to the project
 
@@ -29,13 +24,15 @@ Brainstorm additions to the project
 - Any additional pages to add that might be useful for my analytical analysis of my +ev betting.
 - Any additional integrations to add that might be useful for my analytical analysis of my +ev betting
 
-
 Add the ability to hide certain markets. There should be a way to easily add markets to the list by clicking on a bet. Should easily be able to hide/show all hidden markets.
-  * Sig strikes
-  * Fantasy score
-  * 1q/1h receiving, rushing etc
 
+- Sig strikes
+- Fantasy score
+- 1q/1h receiving, rushing etc
 
 Grade 1st-quarter/1st-half (and other partial-game) markets automatically, for NFL and NBA at least. Currently anything matching that pattern is refused up front (`unsupportedReason` in `server/src/lib/grading/stat-map.ts`) because the box-score source only has full-game cumulative stats. Split by what's actually being asked:
-  * Team score/total/spread scoped to a quarter or half (e.g. "1st Half Total") is plausibly gradable already -- ESPN's scoreboard likely exposes per-period team scores (`linescores`) on the same event object `getFinalScores` already reads in `sources/espn.ts`, just not wired up or verified live yet.
-  * A player stat prop scoped to a quarter/half (e.g. "1st Quarter Passing Yards") is a much bigger lift -- the free ESPN endpoint used here has no per-period player stat lines at all, so this would need a different data source entirely (play-by-play parsing, or a paid provider), not just a mapping addition.
+
+- Team score/total/spread scoped to a quarter or half (e.g. "1st Half Total") is plausibly gradable already -- ESPN's scoreboard likely exposes per-period team scores (`linescores`) on the same event object `getFinalScores` already reads in `sources/espn.ts`, just not wired up or verified live yet.
+- A player stat prop scoped to a quarter/half (e.g. "1st Quarter Passing Yards") is a much bigger lift -- the free ESPN endpoint used here has no per-period player stat lines at all, so this would need a different data source entirely (play-by-play parsing, or a paid provider), not just a mapping addition.
+
+Currently when you click the "Odds" link on a prop it just routes you to the PP odds screen which isn't much help. Build a feature where clicking the odds link opens up a modal that pulls the current odds from prop professor like how it is done and displayed for the snapshot right before the game starts. There should be a refresh button.

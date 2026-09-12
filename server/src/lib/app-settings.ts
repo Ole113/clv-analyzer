@@ -98,8 +98,15 @@ export async function saveBookWeights(
 }
 
 /** Title-cases a bare book key ("fanduel" -> "Fanduel") for when no captured label exists. */
+/** Splits on hyphens/underscores first ("dogg-house" -> "Dogg House") -- a raw book key is
+ *  kebab- or snake-cased, not one word, so capitalizing only the first letter left the rest
+ *  of a multi-word key lowercase and hyphenated. */
 export function titleCase(key: string): string {
-  return key.length ? key[0].toUpperCase() + key.slice(1) : key;
+  return key
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 /**

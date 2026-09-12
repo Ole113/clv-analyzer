@@ -8,9 +8,12 @@ import type {
   UntrackMessage,
   UntrackResponse,
   PpTokenMessage,
+  OddsLookupMessage,
+  OddsLookupResponse,
 } from "../content/shared/messages";
 import { runClosingWork } from "./closing-worker";
-import { storeToken } from "./pp-token";
+import { runOddsPreviewWork } from "./odds-preview-worker";
+import { ensureServerToken, storeToken } from "./pp-token";
 
 const QUEUE_KEY = "clv:queue";
 const ALARM = "clv:flush";
@@ -21,6 +24,17 @@ interface QueueItem {
   queuedAt: string;
   attempts: number;
 }
+
+/**
+ * How many times a queued capture is retried before it is dropped.
+ *
+ * The queue exists for transport failures -- a laptop off the tailnet for a moment -- and those
+ * clear. A payload the server *rejects* (a spread with no team on it, say) never will, and without
+ * a cap it was re-POSTed every 60 seconds for as long as the browser stayed open, with the user
+ * already told at capture time why it failed. Twenty minutes of retries is far longer than any
+ * real outage this queue is meant to cover.
+ */
+const MAX_QUEUE_ATTEMPTS = 20;
 
 async function getQueue(): Promise<QueueItem[]> {
   const stored = await chrome.storage.local.get(QUEUE_KEY);
@@ -77,12 +91,24 @@ async function flushQueue(): Promise<void> {
   if (queue.length === 0) return;
 
   const remaining: QueueItem[] = [];
+  const retry = (item: QueueItem, why: string) => {
+    const attempts = item.attempts + 1;
+    if (attempts >= MAX_QUEUE_ATTEMPTS) {
+      console.warn(
+        `[CLV Analyzer] giving up on a queued capture after ${attempts} attempts (${why}):`,
+        item.payload.row.player ?? item.payload.row.selectionName ?? item.payload.row.statMarket
+      );
+      return;
+    }
+    remaining.push({ ...item, attempts });
+  };
+
   for (const item of queue) {
     try {
       const result = await post(item.payload);
-      if (!result.ok) remaining.push({ ...item, attempts: item.attempts + 1 });
-    } catch {
-      remaining.push({ ...item, attempts: item.attempts + 1 });
+      if (!result.ok) retry(item, result.error ?? "rejected");
+    } catch (error) {
+      retry(item, error instanceof Error ? error.message : "network error");
     }
   }
   await setQueue(remaining);
@@ -95,6 +121,48 @@ async function configured(): Promise<{ backendUrl: string; apiKey: string } | nu
   return { backendUrl: settings.backendUrl, apiKey: settings.apiKey };
 }
 
+const WARMER_ID = "clv-dashboard-warm";
+
+/**
+ * Runs the one-line warm-up script on the dashboard, whatever origin it lives at.
+ *
+ * It cannot be a manifest `content_scripts` entry because the manifest is static and the backend
+ * URL is not -- it is a tailnet host, a localhost port, or whatever the user typed. So it is
+ * registered here from the saved setting, and re-registered whenever that setting changes.
+ *
+ * Silently does nothing when Chrome has not granted host access to that origin (the options page
+ * asks for it on Save). That is the correct outcome rather than an error: without the grant the
+ * captures do not work either, and the user is already told so there.
+ */
+async function registerDashboardWarmer(): Promise<void> {
+  try {
+    const settings = await loadSettings();
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [WARMER_ID] });
+    if (existing.length > 0) await chrome.scripting.unregisterContentScripts({ ids: [WARMER_ID] });
+
+    if (!settings.backendUrl) return;
+    const origin = `${new URL(settings.backendUrl).origin}/*`;
+    if (!(await chrome.permissions.contains({ origins: [origin] }))) return;
+
+    await chrome.scripting.registerContentScripts([
+      {
+        id: WARMER_ID,
+        matches: [origin],
+        js: ["content/dashboard-warm.js"],
+        runAt: "document_idle",
+      },
+    ]);
+  } catch (error) {
+    console.warn("[CLV Analyzer] could not register the dashboard warmer:", error);
+  }
+}
+
+// The backend URL is saved from the options page, which runs in its own context -- so the worker
+// finds out the same way anything else does, and re-points the warmer at the new origin.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "sync" && changes.backendUrl) void registerDashboardWarmer();
+});
+
 chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }, sender, sendResponse) => {
   if (message?.type === "clv:pp-token") {
     // Only from a content script actually running on PropProfessor. A message claiming to carry
@@ -104,6 +172,48 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
       void storeToken((message as PpTokenMessage).token);
     }
     return false;
+  }
+
+  if (message?.type === "clv:warm") {
+    // The dashboard was just opened. Make sure the server can read the odds screen before anyone
+    // clicks anything, rather than discovering it cannot on the first click.
+    void ensureServerToken();
+    return false;
+  }
+
+  if (message?.type === "clv:odds-lookup") {
+    (async () => {
+      try {
+        const settings = await configured();
+        if (!settings) {
+          sendResponse({ ok: false, error: "not configured -- open the extension options" });
+          return;
+        }
+        // The server does the read, but only this extension can supply the session it needs, so
+        // the token is pushed ahead of the request rather than after it fails. Awaited, unlike
+        // everywhere else it is called: here it is on the critical path of something a person is
+        // watching.
+        await ensureServerToken();
+
+        const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-lookup"), {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+          body: JSON.stringify((message as OddsLookupMessage).pick),
+        });
+        if (!response.ok) {
+          sendResponse({ ok: false, error: `server ${response.status}` });
+          return;
+        }
+        const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
+        sendResponse({ ok: true, preview: body.preview } satisfies OddsLookupResponse);
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "odds lookup failed",
+        } satisfies OddsLookupResponse);
+      }
+    })();
+    return true;
   }
 
   if (message?.type === "clv:capture") {
@@ -227,11 +337,31 @@ chrome.alarms.create(CLOSING_ALARM, { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) void flushQueue();
   if (alarm.name === CLOSING_ALARM) {
-    void runClosingWork().catch((error) => console.warn("[CLV Analyzer] closing work failed:", error));
+    // Cheap, and it is what keeps the Odds modal on its fast path: the server holds the screen
+    // token in memory only, so a restart leaves it unable to read until this pushes it back.
+    void ensureServerToken();
+    // The real closing reads run first, always: an on-demand odds-preview burst must never delay
+    // a read a pick only gets one scheduled shot at.
+    void runClosingWork()
+      .catch((error) => console.warn("[CLV Analyzer] closing work failed:", error))
+      .then(() => runOddsPreviewWork())
+      .catch((error) => console.warn("[CLV Analyzer] odds preview work failed:", error));
   }
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void flushQueue();
+  // Up front rather than on demand: `chrome.storage.session` is cleared when Chrome closes, so at
+  // this moment nothing anywhere has a screen token, and without this the first Odds click of the
+  // day would be the thing that goes and fetches one.
+  void ensureServerToken();
+  // Registered scripts normally survive a browser restart, so this is a repair rather than the
+  // usual path -- but a registration lost to a crash or a profile copy would otherwise stay lost.
+  void registerDashboardWarmer();
   void runClosingWork().catch(() => undefined);
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  void ensureServerToken();
+  void registerDashboardWarmer();
 });

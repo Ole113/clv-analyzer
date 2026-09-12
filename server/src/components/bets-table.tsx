@@ -1,26 +1,48 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { listBets } from "@/lib/queries";
 import { VerdictBadge, ResultBadge, fmtDateTime, fmtOdds, sideLabel, betTitle } from "@/components/ui";
 import { BetRow } from "@/components/bet-row";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
 import { useBetContextMenu } from "@/components/bet-context-menu";
+import { OddsPreviewButton } from "@/components/odds-preview-modal";
 
 type Bet = Awaited<ReturnType<typeof listBets>>[number] & {
   boardUrl: string;
   oddsScreenUrl: { url: string; filteredTo: string };
 };
 
-type SortKey = "kickoff" | "taken" | "avgClose" | "edge" | "ev" | "actual";
+type SortKey =
+  | "pick"
+  | "market"
+  | "side"
+  | "taken"
+  | "avgClose"
+  | "edge"
+  | "ev"
+  | "actual"
+  | "kickoff"
+  | "board"
+  | "clv"
+  | "result";
+const SORT_KEYS = new Set<SortKey>([
+  "pick", "market", "side", "taken", "avgClose", "edge", "ev", "actual", "kickoff", "board", "clv", "result",
+]);
 type Sort = { key: SortKey; dir: "asc" | "desc" } | null;
 
-/** Value each sortable column actually sorts on -- the raw number/date, not its formatted text. */
-function sortValue(b: Bet, key: SortKey): number | null {
+/** Every column's own comparable value -- a lowercased string for text columns, a plain number for
+ *  everything else, so one comparator (below) can sort either without column-specific branching. */
+function sortValue(b: Bet, key: SortKey): string | number | null {
   switch (key) {
-    case "kickoff":
-      return b.gameStartTime ? b.gameStartTime.getTime() : null;
+    case "pick":
+      return (b.player ?? b.selectionName ?? b.statMarket ?? "").toLowerCase();
+    case "market":
+      return (b.statMarket ?? "").toLowerCase();
+    case "side":
+      return (sideLabel(b.side) ?? "").toLowerCase();
     case "taken":
       return b.takenLine;
     case "avgClose":
@@ -31,18 +53,30 @@ function sortValue(b: Bet, key: SortKey): number | null {
       return b.closeEvPercent ?? b.openEvPercent;
     case "actual":
       return b.actualValue;
+    case "kickoff":
+      return b.gameStartTime ? b.gameStartTime.getTime() : null;
+    case "board":
+      return b.site === "ODDSJAM" ? "oddsjam" : "propprofessor";
+    case "clv":
+      return b.beatClv === null ? null : b.beatClv ? 1 : 0;
+    case "result":
+      return (b.gradeResult ?? "").toLowerCase();
   }
 }
 
-/** Nulls sort last regardless of direction -- "no value yet" is not meaningfully high or low. */
+/** Nulls (and empty strings) sort last regardless of direction -- "no value yet" is not
+ *  meaningfully high or low. */
 function compareBets(a: Bet, b: Bet, sort: Sort): number {
   if (!sort) return 0;
   const av = sortValue(a, sort.key);
   const bv = sortValue(b, sort.key);
-  if (av === null && bv === null) return 0;
-  if (av === null) return 1;
-  if (bv === null) return -1;
-  return sort.dir === "asc" ? av - bv : bv - av;
+  const aEmpty = av === null || av === "";
+  const bEmpty = bv === null || bv === "";
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+  const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+  return sort.dir === "asc" ? cmp : -cmp;
 }
 
 function SortIndicator({ dir }: { dir: "asc" | "desc" }) {
@@ -53,17 +87,21 @@ function SortableTh({
   sortKey,
   sort,
   onSort,
+  numeric = true,
   children,
 }: {
   sortKey: SortKey;
   sort: Sort;
   onSort: (key: SortKey) => void;
+  /** Text columns (Pick, Market, ...) keep their natural left alignment; only the numeric ones
+   *  right-align, matching every other header in this table. */
+  numeric?: boolean;
   children: React.ReactNode;
 }) {
   const active = sort?.key === sortKey;
   return (
     <th
-      className="num sortable"
+      className={numeric ? "num sortable" : "sortable"}
       role="button"
       tabIndex={0}
       onClick={() => onSort(sortKey)}
@@ -80,10 +118,6 @@ function SortableTh({
   );
 }
 
-const DAY_STATUSES = {
-  waiting: new Set(["PENDING", "DUE", "NEEDS_GAME_TIME"]),
-};
-
 function dayKey(b: Bet): string {
   const when = b.gameStartTime ?? b.openCapturedAt;
   return when ? when.toISOString().slice(0, 10) : "unknown";
@@ -98,28 +132,67 @@ function formatDayHeading(key: string): string {
   return `${date.toLocaleDateString(undefined, { month: "long" })} ${day}${ordinal}`;
 }
 
-function dayCounts(rows: Bet[]): { waiting: number; settled: number; graded: number } {
+const WAITING_STATUSES = new Set(["PENDING", "DUE", "NEEDS_GAME_TIME"]);
+
+function statusCounts(rows: Bet[]): { waiting: number; settled: number; graded: number } {
   let waiting = 0;
   let settled = 0;
   let graded = 0;
   for (const b of rows) {
     if (b.status === "CLOSED") settled++;
-    if (DAY_STATUSES.waiting.has(b.status)) waiting++;
+    if (WAITING_STATUSES.has(b.status)) waiting++;
     if (b.gradeResult === "WIN" || b.gradeResult === "LOSS") graded++;
   }
   return { waiting, settled, graded };
 }
 
 export function BetsTable({ bets }: { bets: Bet[] }) {
-  const [sort, setSort] = useState<Sort>(null);
-  const [groupByDay, setGroupByDay] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { openContextMenu, contextMenuElement } = useBetContextMenu();
 
+  /**
+   * Sort and group live in the URL, not local state, for one reason: it is what makes them survive
+   * a real navigation. Following "odds ↗" -- no, following a pick to `/bets/[id]` and pressing
+   * Back returns to this exact URL; if sort/group were `useState` here, a fresh `BetsTable`
+   * instance would mount on that return trip with nothing remembered. The filter bar already works
+   * this way (see filter-bar.tsx's `submit`), so this keeps the whole page's state in one place.
+   */
+  const sort: Sort = useMemo(() => {
+    const key = searchParams.get("sort");
+    const dir = searchParams.get("dir");
+    if (!key || !SORT_KEYS.has(key as SortKey) || (dir !== "asc" && dir !== "desc")) return null;
+    return { key: key as SortKey, dir };
+  }, [searchParams]);
+  const groupByDay = searchParams.get("group") === "day";
+  const q = searchParams.get("q");
+
+  const updateParams = (mutate: (params: URLSearchParams) => void) => {
+    const params = new URLSearchParams(searchParams.toString());
+    mutate(params);
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
+
   const onSort = (key: SortKey) => {
-    setSort((prev) => {
-      if (!prev || prev.key !== key) return { key, dir: "asc" };
-      if (prev.dir === "asc") return { key, dir: "desc" };
-      return null;
+    updateParams((params) => {
+      if (params.get("sort") !== key) {
+        params.set("sort", key);
+        params.set("dir", "asc");
+      } else if (params.get("dir") === "asc") {
+        params.set("dir", "desc");
+      } else {
+        params.delete("sort");
+        params.delete("dir");
+      }
+    });
+  };
+
+  const toggleGroup = () => {
+    updateParams((params) => {
+      if (params.get("group") === "day") params.delete("group");
+      else params.set("group", "day");
     });
   };
 
@@ -140,11 +213,19 @@ export function BetsTable({ bets }: { bets: Bet[] }) {
     return [...byDay.entries()].sort(([a], [b]) => (a === "unknown" ? 1 : b === "unknown" ? -1 : a.localeCompare(b)));
   }, [sorted, groupByDay]);
 
+  const overall = statusCounts(bets);
+
   const head = (
     <tr>
-      <th>Pick</th>
-      <th>Market</th>
-      <th>Side</th>
+      <SortableTh sortKey="pick" sort={sort} onSort={onSort} numeric={false}>
+        Pick
+      </SortableTh>
+      <SortableTh sortKey="market" sort={sort} onSort={onSort} numeric={false}>
+        Market
+      </SortableTh>
+      <SortableTh sortKey="side" sort={sort} onSort={onSort} numeric={false}>
+        Side
+      </SortableTh>
       <SortableTh sortKey="taken" sort={sort} onSort={onSort}>
         Taken
       </SortableTh>
@@ -177,28 +258,30 @@ export function BetsTable({ bets }: { bets: Bet[] }) {
           finished, shown against the line you took.
         </Info>
       </SortableTh>
-      <SortableTh sortKey="kickoff" sort={sort} onSort={onSort}>
+      <SortableTh sortKey="kickoff" sort={sort} onSort={onSort} numeric={false}>
         Kickoff
       </SortableTh>
-      <th>Board</th>
-      <th>CLV</th>
-      <th>Result</th>
+      <SortableTh sortKey="board" sort={sort} onSort={onSort} numeric={false}>
+        Board
+      </SortableTh>
+      <SortableTh sortKey="clv" sort={sort} onSort={onSort} numeric={false}>
+        CLV
+      </SortableTh>
+      <SortableTh sortKey="result" sort={sort} onSort={onSort} numeric={false}>
+        Result
+      </SortableTh>
     </tr>
   );
 
   const row = (b: Bet) => (
-    <BetRow
-      key={b.id}
-      id={b.id}
-      label={betTitle(b)}
-      onContextMenu={(e) => openContextMenu(e, b.id, betTitle(b))}
-    >
+    <BetRow key={b.id} onContextMenu={(e) => openContextMenu(e, b.id, betTitle(b))}>
       <td>
-        <a href={`/bets/${b.id}`}>{b.player ?? b.selectionName ?? b.statMarket}</a>
-        <div className="muted" style={{ fontSize: 12 }}>
-          {b.matchup ?? b.sport ?? ""}
-          {b.isLive && <span className="live-chip">LIVE</span>}
-        </div>
+        {/* The only thing on the row that navigates to the pick. */}
+        <a className="pick-link" href={`/bets/${b.id}`}>
+          {b.player ?? b.selectionName ?? b.statMarket}
+        </a>
+        {b.isLive && <span className="live-chip">LIVE</span>}
+        <div className="muted" style={{ fontSize: 12 }}>{b.matchup ?? b.sport ?? ""}</div>
       </td>
       <td>{b.statMarket}</td>
       <td>{sideLabel(b.side) || <span className="muted">--</span>}</td>
@@ -251,19 +334,18 @@ export function BetsTable({ bets }: { bets: Bet[] }) {
           {b.site === "ODDSJAM" ? "OddsJam" : "PropProf"} ↗
         </a>
         <div>
-          <a
-            className="ext"
-            href={b.oddsScreenUrl.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={
+          <OddsPreviewButton
+            betId={b.id}
+            label={`${b.player ?? b.subjectTeam ?? b.statMarket} ${sideLabel(b.side) ?? ""} ${b.takenLine ?? ""}`.trim()}
+            fallbackUrl={b.oddsScreenUrl.url}
+            fallbackNote={
               b.oddsScreenUrl.filteredTo === "sport"
-                ? `${b.sport} odds — pick the market there, then search for the player`
-                : "Odds screen — set the filters there, then search for the player"
+                ? `If that doesn't turn up anything: lands on the ${b.sport} odds page — search for the player there.`
+                : "If that doesn't turn up anything: set PropProfessor's screen filters there and search for the player."
             }
-          >
-            odds ↗
-          </a>
+            triggerLabel="odds ↗"
+            triggerClassName="ext link-button"
+          />
         </div>
       </td>
       <td>
@@ -278,14 +360,19 @@ export function BetsTable({ bets }: { bets: Bet[] }) {
   return (
     <>
       <div className="bets-toolbar">
-        <button type="button" className={groupByDay ? "primary" : undefined} onClick={() => setGroupByDay((v) => !v)}>
+        <p className="result-count">
+          {bets.length} pick{bets.length === 1 ? "" : "s"}
+          {q ? ` matching “${q}”` : ""} · {overall.waiting} awaiting close · {overall.settled} settled ·{" "}
+          {overall.graded} graded
+        </p>
+        <button type="button" className={groupByDay ? "primary" : undefined} onClick={toggleGroup}>
           {groupByDay ? "Ungroup" : "Group by day"}
         </button>
       </div>
 
       {groups ? (
         groups.map(([key, rows]) => {
-          const counts = dayCounts(rows);
+          const counts = statusCounts(rows);
           return (
             <div key={key} className="day-group">
               <h3 className="day-heading">

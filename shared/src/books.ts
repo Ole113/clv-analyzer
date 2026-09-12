@@ -217,3 +217,88 @@ export function isFantasyBook(bookKey: string, label: string | null): boolean {
   const haystack = `${bookKey.toLowerCase()} ${normalizeBookKey(label) ?? ""}`;
   return FANTASY_BOOK_HINTS.some((hint) => haystack.includes(hint));
 }
+
+/**
+ * Where each book's icon comes from, keyed by normalized book key.
+ *
+ * The DOM parsers get a logo for free -- the board renders one and `logoUrl` is scraped off the
+ * `<img>`. The odds screen is JSON and carries no images at all, so every row read through
+ * `sources/propprofessor-screen.ts` came back logo-less and the Odds modal rendered a wall of bare
+ * text next to numbers the snapshot tables show with icons. This maps the book names the screen
+ * actually returns (verified against the captured fixtures in `src/__fixtures__/`) onto the domain
+ * whose favicon is that book's icon, and the favicon is fetched through Google's proxy rather than
+ * each book's own CDN path -- that path is scraped from a live DOM on the parser paths, and nothing
+ * here has a stable copy of it.
+ *
+ * A book missing from this map simply renders without an icon, exactly as before.
+ */
+const BOOK_DOMAINS: Record<string, string> = {
+  fanduel: "fanduel.com",
+  draftkings: "draftkings.com",
+  draftkings6: "draftkings.com",
+  betmgm: "betmgm.com",
+  // The sportsbook subdomain, not the parent casino group: caesars.com's favicon is the Caesars
+  // Entertainment crown rather than the sportsbook app's icon.
+  caesars: "sportsbook.caesars.com",
+  pinnacle: "pinnacle.com",
+  betonline: "betonline.ag",
+  bovada: "bovada.lv",
+  fliff: "getfliff.com",
+  rebet: "rebet.app",
+  betrivers: "betrivers.com",
+  espnbet: "espnbet.com",
+  fanatics: "fanatics.com",
+  hardrock: "hardrock.bet",
+  ballybet: "ballybet.com",
+  betparx: "betparx.com",
+  novig: "novig.us",
+  prophetx: "prophetx.co",
+  prophet: "prophetx.co",
+  circa: "circasports.com",
+  kalshi: "kalshi.com",
+  polymarket: "polymarket.com",
+  polymarketus: "polymarket.com",
+  pointsbet: "pointsbet.com",
+  superbook: "superbook.com",
+  thescore: "thescore.bet",
+  sportzino: "sportzino.com",
+  onyxodds: "onyxodds.com",
+  prizepicks: "prizepicks.com",
+  underdog: "underdogfantasy.com",
+  betr: "betr.app",
+  dabble: "dabble.com",
+  sleeper: "sleeper.com",
+  parlayplay: "parlayplay.io",
+  boomfantasy: "boomfantasy.com",
+  chalkboard: "chalkboard.io",
+  propbuilder: "propbuilder.com",
+  propsbuilder: "propbuilder.com",
+};
+
+/**
+ * A book's icon URL, or null when we have no domain for it.
+ *
+ * Matching is by longest key first, for the same reason `isSportsbookForAverage` checks its
+ * allowlist before the pick'em hints: the keys are substrings of one another. "draftkings6"
+ * contains "draftkings", and an alt-line column normalizes to "betralt", which must still find
+ * "betr" -- but "betrivers" must not be answered by "betr".
+ */
+const BOOK_DOMAIN_KEYS = Object.keys(BOOK_DOMAINS).sort((a, b) => b.length - a.length);
+
+export function bookLogoUrl(bookKey: string, label: string | null = null): string | null {
+  const normalized = normalizeBookKey(bookKey) ?? "";
+  const fromLabel = normalizeBookKey(label) ?? "";
+  for (const candidate of [normalized, fromLabel]) {
+    if (!candidate) continue;
+    const exact = BOOK_DOMAINS[candidate];
+    if (exact) return faviconUrl(exact);
+  }
+  for (const key of BOOK_DOMAIN_KEYS) {
+    if (normalized.startsWith(key) || fromLabel.startsWith(key)) return faviconUrl(BOOK_DOMAINS[key]);
+  }
+  return null;
+}
+
+function faviconUrl(domain: string): string {
+  return `https://www.google.com/s2/favicons?sz=64&domain=${domain}`;
+}
