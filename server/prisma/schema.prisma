@@ -242,3 +242,102 @@ model IngestFailure {
 
   @@index([occurredAt])
 }
+
+// ---------------------------------------------------------------------------------------------
+// Pikkit import.
+//
+// A second, deliberately disjoint dataset. `Bet` above is a pick the extension captured, and every
+// number on it is line-based: it knows the closing consensus and nothing about money. A Pikkit row
+// is the opposite -- it knows exactly what was staked and returned, and (for most books) nothing
+// about the close. Fusing them into one table would mean a row where more than half the columns
+// are structurally null and every aggregate needs a "which kind is this" branch, so they stay
+// apart and the analysis page switches between them instead.
+// ---------------------------------------------------------------------------------------------
+
+/// One bet as exported by Pikkit -- a whole slip, not a leg.
+model PikkitBet {
+  id String @id @default(cuid())
+
+  /// The export's own `bet_id`. Unique, because the import upserts on it: dropping in a newer
+  /// export settles the bets that were still PLACED last time rather than duplicating them.
+  externalId String @unique
+
+  sportsbook String
+  /// STRAIGHT | PARLAY, from the export's `type`.
+  betType    String
+  /// WIN | LOSS | VOID | PENDING, narrowed from the export's SETTLED_WIN/LOSS/VOID and PLACED.
+  result     String
+
+  /// Decimal, as exported. Pikkit stores decimal odds even for American-priced books.
+  oddsDecimal    Float
+  /// The closing price, decimal. Null on roughly two thirds of rows -- most DFS books publish no
+  /// close to Pikkit at all -- so every metric built on it reports its own coverage.
+  closingDecimal Float?
+  /// Pikkit's own EV as a fraction (0.0484 = +4.84%), where it computed one.
+  pikkitEv       Float?
+
+  stake  Float
+  /// Net profit: a 15 stake at 6.0 that wins reads 75, not 90. Zero on a void.
+  profit Float
+
+  placedAt  DateTime
+  settledAt DateTime?
+
+  /// The whole `bet_info` string verbatim, legs joined by " | ". Kept even though the legs are
+  /// also parsed out below, because leg parsing is per-book regex and a format that changes must
+  /// stay re-parseable from what was imported rather than needing a fresh export.
+  betInfo String
+  isLive  Boolean @default(false)
+
+  /// The export's `sports` / `leagues` columns, verbatim. They are deduplicated *sets*, not one
+  /// entry per leg -- a three-leg slip can list two leagues -- so they are bet-level tags and a
+  /// leg can never be attributed to one of them. Split on " | " at read time.
+  sportsRaw  String
+  leaguesRaw String
+
+  legCount Int
+
+  /// A loss that cost nothing: `result` is LOSS but `profit` is 0, which in practice means a
+  /// promo or free bet rather than real money at risk. Flagged rather than dropped, because it
+  /// would otherwise quietly inflate the win rate's denominator while contributing no loss to ROI.
+  noRisk Boolean @default(false)
+
+  importedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  legs PikkitLeg[]
+
+  @@index([placedAt])
+  @@index([sportsbook])
+  @@index([result])
+}
+
+/// One leg of a Pikkit slip, parsed out of `bet_info`.
+///
+/// There is no per-leg result anywhere in the export -- only the slip settles -- so these rows can
+/// never carry a win or a loss of their own. They exist to answer exposure questions ("what did
+/// slips containing a receiving-yards leg return"), which is a different and weaker claim than a
+/// leg hit rate, and the UI says so wherever it uses them.
+model PikkitLeg {
+  id    String    @id @default(cuid())
+  betId String
+  bet   PikkitBet @relation(fields: [betId], references: [id], onDelete: Cascade)
+
+  legIndex Int
+  rawText  String
+
+  /// OVER | UNDER, collapsed from every spelling the books use: Over/Under, Higher/Lower, O/U.
+  /// Null when the leg is a game market with no side (a spread carries its direction in the line).
+  side   String?
+  line   Float?
+  player String?
+  /// The market as the book spelled it, e.g. "Receiving Yds".
+  market String?
+  /// `marketFilterKey(market)` -- what collapses "Receiving Yds", "receiving-yards" and
+  /// "Player Receiving Yards" onto one bucket so a breakdown is not seven rows of one concept.
+  marketKey String?
+  matchup   String?
+
+  @@index([betId])
+  @@index([marketKey])
+}

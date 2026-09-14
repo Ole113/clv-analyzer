@@ -9,11 +9,16 @@
 - Dry-run mode for closing reads: `POST /api/closing-snapshots?dryRun=1` returning the verdict it _would_ record without writing, so a live slate can be compared against the old method before trusting the new one.
 - Surface alt-line picks: a DFS pick taken at 40.5 against a 62.5 consensus produces a very large edge that is arguably correct but will distort a chart. The per-book alt lines are already recorded on each row.
 
-Add a way to export your pikkit betting information and back test your bets. you can't find your CLV but you can find win % and some other analytical data I'm sure.
+~~Add a way to export your pikkit betting information and back test your bets.~~ Done: import the
+Pikkit CSV on /analysis?source=pikkit. Per sport, book and prop type are all there, in ROI rather
+than win % (a win % means little across books paying 1.8 and 6.0), plus price, stake, day-of-week
+and hour-of-day bands, streaks, and a confidence interval on the ROI. Still open from this:
 
-- Per sport win %
-- Per book win %
-- Per prop type win %
+- Per-leg results. The export settles the slip only, so leg breakdowns are exposure, not hit rate.
+  Nothing short of a different data source can fix that.
+- The leg parser finds a market from a vocabulary (`server/src/lib/pikkit/markets.ts`). A book that
+  starts spelling one a new way needs an entry there, or those legs drop out of the market
+  breakdown -- silently, since the slip still counts everywhere else.
 
 Brainstorm additions to the project
 
