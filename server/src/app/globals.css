@@ -597,3 +597,28 @@ button.danger:hover { border-color: var(--bad); background: rgba(248,81,73,0.12)
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
 }
 .odds-stat strong { font-size: 14px; }
+
+/* --- Pikkit import ------------------------------------------------------
+   The one file input in the app. The native control is unstyleable and looks
+   nothing like the rest of the toolbar, so it is hidden behind a label that
+   borrows the standard button treatment; the chosen filename sits beside it
+   because a file picker that reports nothing back is the classic way to
+   upload the wrong export twice. */
+.pikkit-import { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.file-field { display: inline-flex; align-items: center; gap: 10px; }
+.file-field input[type="file"] {
+  position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+}
+.file-button {
+  display: inline-block; padding: 7px 14px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  font-size: 13px; cursor: pointer;
+}
+.file-field:hover .file-button { border-color: var(--accent); }
+/* The real input is visually hidden, so its focus ring has to be re-published on
+   the label that stands in for it or the control is unreachable by keyboard. */
+.file-field input[type="file"]:focus-visible + .file-button {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.import-failures { flex-basis: 100%; margin-top: 4px; }
+.import-failures ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }

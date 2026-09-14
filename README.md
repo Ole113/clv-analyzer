@@ -16,6 +16,26 @@ main line, averages them, and records whether the pick beat closing line value.
 | `server/` | Next.js app: ingest API, the schedule of what is due, and the dashboard. |
 | `shared/` | Row parsers, prop matching, the market alias table, and the odds-screen reader. |
 
+### The two datasets
+
+The dashboard analyses two histories that never mix, chosen with the source switch at the top of
+**Analysis** and **Picks**:
+
+* **Captured picks** — everything the extension ticks. Measured against the closing line: beat-CLV
+  rate, edge, EV%. It knows what the market did and nothing about money, because a captured pick
+  has no stake.
+* **Pikkit history** — a `transactions.csv` exported from Pikkit and imported on the Analysis page.
+  Measured in money: ROI, profit, win rate, by book, league, market, price, stake, day and hour.
+  The exact mirror image — it knows what was risked and returned, and for most books nothing about
+  the close.
+
+They are separate tables (`PikkitBet` / `PikkitLeg`) and a separate engine
+(`server/src/lib/pikkit/`) because they share no metric at all. Imports upsert on Pikkit's own bet
+id, so exports can be dropped in year after year and a bet that was open last time simply settles.
+A Pikkit export settles the whole slip and never its legs, so leg-level breakdowns are *exposure*
+("slips containing a receiving-yards leg returned this"), never a per-leg hit rate, and the page
+says so where it matters.
+
 Capture and close are **different** code paths, deliberately. Capture parses a board's DOM;
 the close reads a JSON endpoint. The seam between them is `ParsedRow[]`, so everything downstream
 of matching is shared and identical.
