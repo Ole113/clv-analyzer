@@ -11,6 +11,15 @@ export interface BarDatum {
   value: number;
   /** Shown in the tooltip and after the label, e.g. sample size. */
   note?: string;
+  /**
+   * The sample size behind `value`, printed right on the chart next to the number rather than only
+   * in the hover tooltip. A ranking that hides the count invites exactly the misreading a thin
+   * sample causes -- a 54-bet sport sitting above a 390-bet one on ROI alone looks like "my best
+   * sport" until the size of each sample is right there to compare.
+   */
+  count?: number;
+  /** Rendered at reduced opacity -- a visual "don't weight this too heavily" alongside the count. */
+  dim?: boolean;
 }
 
 export interface HistogramDatum {
@@ -99,7 +108,7 @@ export function Histogram({
 const ROW_H = 26;
 const BAR_H = 13;
 const LABEL_W = 190;
-const VALUE_W = 66;
+const VALUE_W = 92;
 
 export function DivergingBars({
   data,
@@ -138,7 +147,7 @@ export function DivergingBars({
         const x = d.value >= 0 ? zeroX : zeroX - w;
         const positive = d.value >= 0;
         return (
-          <g key={d.label}>
+          <g key={d.label} style={d.dim ? { opacity: 0.5 } : undefined}>
             {/* One text child: multiple JSX expressions here produce differing text nodes
                 between server and client and trip React's hydration check. */}
             <title>{`${d.label}: ${d.value > 0 ? "+" : ""}${d.value.toFixed(2)}${unit}${d.note ? ` (${d.note})` : ""}`}</title>
@@ -154,9 +163,11 @@ export function DivergingBars({
               className={positive ? "bar-pos" : "bar-neg"}
             />
             {/* Values live in their own right-hand column rather than at the bar end: a long
-                negative bar used to push its label back over the category name. */}
+                negative bar used to push its label back over the category name. The sample count
+                rides right along with the number rather than only in the tooltip -- the whole
+                point is that it be seen without hovering. */}
             <text x={LABEL_W + plotW + 10} y={y + BAR_H - 1} className="bars-value">
-              {`${d.value > 0 ? "+" : ""}${d.value.toFixed(2)}${unit}`}
+              {`${d.value > 0 ? "+" : ""}${d.value.toFixed(2)}${unit}${d.count !== undefined ? ` (${d.count})` : ""}`}
             </text>
           </g>
         );

@@ -1,4 +1,5 @@
 import type { SeriesPoint } from "@/lib/pikkit/analysis";
+import { fmtMoney } from "@/components/ui";
 
 const W = 720;
 const H = 220;
@@ -59,7 +60,7 @@ export function ProfitCurve({ series }: { series: SeriesPoint[] }) {
         <g key={i}>
           <line x1={PAD.left} y1={y(t)} x2={W - PAD.right} y2={y(t)} className="ts-grid" />
           <text x={PAD.left - 8} y={y(t) + 3} className="ts-axis" textAnchor="end">
-            {`${t < 0 ? "-" : ""}$${Math.abs(t).toFixed(0)}`}
+            {fmtMoney(t, 0)}
           </text>
         </g>
       ))}
@@ -72,18 +73,18 @@ export function ProfitCurve({ series }: { series: SeriesPoint[] }) {
       {showDots &&
         series.map((p, i) => (
           <circle key={p.date} cx={x(i)} cy={y(p.cumulativeProfit)} r={3.5} className="ts-dot">
-            <title>{`${p.date}: ${p.cumulativeProfit >= 0 ? "+" : ""}$${p.cumulativeProfit.toFixed(2)} after ${p.bets} settled bet${p.bets === 1 ? "" : "s"}`}</title>
+            <title>{`${p.date}: ${p.cumulativeProfit >= 0 ? "+" : ""}${fmtMoney(p.cumulativeProfit)} after ${p.bets} settled bet${p.bets === 1 ? "" : "s"}`}</title>
           </circle>
         ))}
 
       {!showDots && (
         <circle cx={x(series.length - 1)} cy={y(last.cumulativeProfit)} r={3.5} className="ts-dot">
-          <title>{`${last.date}: ${last.cumulativeProfit >= 0 ? "+" : ""}$${last.cumulativeProfit.toFixed(2)}`}</title>
+          <title>{`${last.date}: ${last.cumulativeProfit >= 0 ? "+" : ""}${fmtMoney(last.cumulativeProfit)}`}</title>
         </circle>
       )}
 
       <text x={x(series.length - 1) + 8} y={y(last.cumulativeProfit) + 4} className="bars-value">
-        {`${last.cumulativeProfit >= 0 ? "+" : "-"}$${Math.abs(last.cumulativeProfit).toFixed(0)}`}
+        {`${last.cumulativeProfit >= 0 ? "+" : ""}${fmtMoney(last.cumulativeProfit, 0)}`}
       </text>
 
       {series.map((p, i) =>

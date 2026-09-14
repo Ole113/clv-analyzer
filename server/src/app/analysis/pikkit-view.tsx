@@ -14,7 +14,8 @@ import { ProfitCurve } from "@/components/profit-curve";
 import { DivergingBars, type BarDatum } from "@/components/bars";
 import { Signed } from "@/components/value";
 import { Info } from "@/components/info";
-import { fmtPct } from "@/components/ui";
+import { fmtPct, fmtMoney } from "@/components/ui";
+import { SortableTable } from "@/components/sortable-table";
 
 /**
  * The Pikkit half of /analysis: a real betting history, measured in money.
@@ -25,7 +26,7 @@ import { fmtPct } from "@/components/ui";
  */
 
 function money(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(value).toFixed(2)}`;
+  return fmtMoney(value);
 }
 
 /** Money coloured by sign, in the same good/bad/flat vocabulary `Signed` uses for edges. */
@@ -58,49 +59,81 @@ function Thin({ row }: { row: BreakdownRow }) {
 
 function BreakdownTable({ rows, unit = "Group" }: { rows: BreakdownRow[]; unit?: string }) {
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>{unit}</th>
-          <th className="num">Bets</th>
-          <th className="num">W-L</th>
-          <th className="num">Win %</th>
-          <th className="num">Staked</th>
-          <th className="num">Profit</th>
-          <th className="num">ROI</th>
-          <th className="num">Avg odds</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.key}>
-            <td>
+    <SortableTable
+      rows={rows}
+      rowKey={(r) => r.key}
+      columns={[
+        {
+          key: "label",
+          label: unit,
+          sortValue: (r) => r.label.toLowerCase(),
+          render: (r) => (
+            <>
               {r.label}
               <Thin row={r} />
-            </td>
-            <td className="num">{r.bets}</td>
-            <td className="num">
-              {r.wins}-{r.losses}
-            </td>
-            <td className="num">{fmtPct(r.winRate)}</td>
-            <td className="num">{money(r.turnover)}</td>
-            <td className="num"><Money value={r.profit} /></td>
-            <td className="num"><Roi value={r.roi} /></td>
-            <td className="num">{r.avgOdds === null ? "--" : r.avgOdds.toFixed(2)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+            </>
+          ),
+        },
+        { key: "bets", label: "Bets", numeric: true, sortValue: (r) => r.bets, render: (r) => r.bets },
+        {
+          key: "wl",
+          label: "W-L",
+          numeric: true,
+          sortValue: (r) => r.wins,
+          render: (r) => `${r.wins}-${r.losses}`,
+        },
+        {
+          key: "winRate",
+          label: "Win %",
+          numeric: true,
+          sortValue: (r) => r.winRate,
+          render: (r) => fmtPct(r.winRate),
+        },
+        {
+          key: "staked",
+          label: "Staked",
+          numeric: true,
+          sortValue: (r) => r.turnover,
+          render: (r) => money(r.turnover),
+        },
+        {
+          key: "profit",
+          label: "Profit",
+          numeric: true,
+          sortValue: (r) => r.profit,
+          render: (r) => <Money value={r.profit} />,
+        },
+        { key: "roi", label: "ROI", numeric: true, sortValue: (r) => r.roi, render: (r) => <Roi value={r.roi} /> },
+        {
+          key: "avgOdds",
+          label: "Avg odds",
+          numeric: true,
+          sortValue: (r) => r.avgOdds,
+          render: (r) => (r.avgOdds === null ? "--" : r.avgOdds.toFixed(2)),
+        },
+      ]}
+    />
   );
 }
 
-/** ROI bars, in percentage points, with the sample and the money behind each in the tooltip. */
+/**
+ * ROI bars, in percentage points, with the sample size printed beside the number and the money
+ * behind it in the tooltip.
+ *
+ * Rows are still ranked by raw ROI -- that ranking is the whole point of the chart -- but ROI alone
+ * cannot tell a real edge from a small sample that ran hot, and hiding the count behind a hover is
+ * how "best performing sport" ends up meaning "54-bet sport that got lucky" next to a 390-bet one
+ * sitting lower with a smaller number. The count travels with the value instead, and a row under
+ * the reliability floor is dimmed so the eye already knows to discount it before reading the label.
+ */
 function roiBars(rows: BreakdownRow[]): BarDatum[] {
   return rows
     .filter((r) => r.roi !== null)
     .map((r) => ({
       label: r.label,
       value: (r.roi as number) * 100,
+      count: r.decided,
+      dim: !r.reliable,
       note: `${r.decided} decided, ${money(r.profit)}${r.reliable ? "" : ", thin sample"}`,
     }));
 }
@@ -278,28 +311,35 @@ export async function PikkitAnalysisView({ params }: { params: URLSearchParams }
         <ProfitCurve series={analysis.series} />
         <details>
           <summary>Show the numbers</summary>
-          <table>
-            <thead>
-              <tr>
-                <th>Day</th>
-                <th className="num">Bets</th>
-                <th className="num">Profit</th>
-                <th className="num">Running total</th>
-                <th className="num">Running ROI</th>
-              </tr>
-            </thead>
-            <tbody>
-              {analysis.series.map((p) => (
-                <tr key={p.date}>
-                  <td>{p.date}</td>
-                  <td className="num">{p.bets}</td>
-                  <td className="num"><Money value={p.profit} /></td>
-                  <td className="num"><Money value={p.cumulativeProfit} /></td>
-                  <td className="num"><Roi value={p.cumulativeRoi} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <SortableTable
+            rows={analysis.series}
+            rowKey={(p) => p.date}
+            columns={[
+              { key: "day", label: "Day", sortValue: (p) => p.date, render: (p) => p.date },
+              { key: "bets", label: "Bets", numeric: true, sortValue: (p) => p.bets, render: (p) => p.bets },
+              {
+                key: "profit",
+                label: "Profit",
+                numeric: true,
+                sortValue: (p) => p.profit,
+                render: (p) => <Money value={p.profit} />,
+              },
+              {
+                key: "running",
+                label: "Running total",
+                numeric: true,
+                sortValue: (p) => p.cumulativeProfit,
+                render: (p) => <Money value={p.cumulativeProfit} />,
+              },
+              {
+                key: "runningRoi",
+                label: "Running ROI",
+                numeric: true,
+                sortValue: (p) => p.cumulativeRoi,
+                render: (p) => <Roi value={p.cumulativeRoi} />,
+              },
+            ]}
+          />
         </details>
       </section>
 

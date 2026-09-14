@@ -7,6 +7,7 @@ import { fmtEdge, fmtPct, sideLabel } from "@/components/ui";
 import { Signed, Rate } from "@/components/value";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { Info } from "@/components/info";
+import { SortableTable } from "@/components/sortable-table";
 
 function Legend() {
   return (
@@ -76,39 +77,63 @@ export async function ClvAnalysisView({ params }: { params: URLSearchParams }) {
   const bestSide = [...analysis.bySide].sort((a, b) => (b.avgEv ?? -Infinity) - (a.avgEv ?? -Infinity))[0];
 
   const propTable = (rows: typeof analysis.byStat) => (
-    <table>
-      <thead>
-        <tr>
-          <th>Prop</th>
-          <th className="num">Picks</th>
-          <th className="num">Beat CLV</th>
-          <th className="num">Hit rate</th>
-          <th className="num">Avg edge</th>
-          <th className="num">Avg EV%</th>
-          <th className="num">EV gained</th>
-          <th className="num">EV lost</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.key}>
-            <td>{r.key}</td>
-            <td className="num">{r.n}</td>
-            <td className="num"><Rate value={r.beatRate} /></td>
-            <td className="num">
+    <SortableTable
+      rows={rows}
+      rowKey={(r) => r.key}
+      columns={[
+        { key: "prop", label: "Prop", sortValue: (r) => r.key.toLowerCase(), render: (r) => r.key },
+        { key: "picks", label: "Picks", numeric: true, sortValue: (r) => r.n, render: (r) => r.n },
+        {
+          key: "beatRate",
+          label: "Beat CLV",
+          numeric: true,
+          sortValue: (r) => r.beatRate,
+          render: (r) => <Rate value={r.beatRate} />,
+        },
+        {
+          key: "hitRate",
+          label: "Hit rate",
+          numeric: true,
+          sortValue: (r) => r.hitRate,
+          render: (r) => (
+            <>
               <Rate value={r.hitRate} threshold={BREAK_EVEN_RATE} />
               {r.decided > 0 && (
                 <span className="muted" style={{ fontSize: 11 }}> ({r.wins}-{r.losses})</span>
               )}
-            </td>
-            <td className="num"><Signed value={r.avgEdge} /></td>
-            <td className="num"><Signed value={r.avgEv} unit="%" /></td>
-            <td className="num"><Signed value={r.evGained} unit="%" digits={1} /></td>
-            <td className="num"><Signed value={r.evLost} unit="%" digits={1} /></td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+            </>
+          ),
+        },
+        {
+          key: "avgEdge",
+          label: "Avg edge",
+          numeric: true,
+          sortValue: (r) => r.avgEdge,
+          render: (r) => <Signed value={r.avgEdge} />,
+        },
+        {
+          key: "avgEv",
+          label: "Avg EV%",
+          numeric: true,
+          sortValue: (r) => r.avgEv,
+          render: (r) => <Signed value={r.avgEv} unit="%" />,
+        },
+        {
+          key: "evGained",
+          label: "EV gained",
+          numeric: true,
+          sortValue: (r) => r.evGained,
+          render: (r) => <Signed value={r.evGained} unit="%" digits={1} />,
+        },
+        {
+          key: "evLost",
+          label: "EV lost",
+          numeric: true,
+          sortValue: (r) => r.evLost,
+          render: (r) => <Signed value={r.evLost} unit="%" digits={1} />,
+        },
+      ]}
+    />
   );
 
   return (
@@ -212,24 +237,21 @@ export async function ClvAnalysisView({ params }: { params: URLSearchParams }) {
           unit=""
           emptyNote="No closing book lines captured yet."
           table={
-            <table>
-              <thead>
-                <tr>
-                  <th>Book</th>
-                  <th className="num">Lines</th>
-                  <th className="num">Avg vs consensus</th>
-                </tr>
-              </thead>
-              <tbody>
-                {analysis.worstBooks.map((b) => (
-                  <tr key={b.bookKey}>
-                    <td>{b.label}</td>
-                    <td className="num">{b.n}</td>
-                    <td className="num"><Signed value={b.avgFavorability} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <SortableTable
+              rows={analysis.worstBooks}
+              rowKey={(b) => b.bookKey}
+              columns={[
+                { key: "book", label: "Book", sortValue: (b) => b.label.toLowerCase(), render: (b) => b.label },
+                { key: "lines", label: "Lines", numeric: true, sortValue: (b) => b.n, render: (b) => b.n },
+                {
+                  key: "avgVsConsensus",
+                  label: "Avg vs consensus",
+                  numeric: true,
+                  sortValue: (b) => b.avgFavorability,
+                  render: (b) => <Signed value={b.avgFavorability} />,
+                },
+              ]}
+            />
           }
         />
 
@@ -285,24 +307,21 @@ export async function ClvAnalysisView({ params }: { params: URLSearchParams }) {
         {analysis.edgeHistogram.some((b) => b.picks > 0) && (
           <details>
             <summary>Show the numbers</summary>
-            <table>
-              <thead>
-                <tr>
-                  <th>Edge</th>
-                  <th className="num">Picks</th>
-                  <th className="num">Share</th>
-                </tr>
-              </thead>
-              <tbody>
-                {analysis.edgeHistogram.map((b) => (
-                  <tr key={b.key}>
-                    <td>{b.key}</td>
-                    <td className="num">{b.picks}</td>
-                    <td className="num">{(b.share * 100).toFixed(1)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <SortableTable
+              rows={analysis.edgeHistogram}
+              rowKey={(b) => b.key}
+              columns={[
+                { key: "edge", label: "Edge", sortValue: (b) => b.key, render: (b) => b.key },
+                { key: "picks", label: "Picks", numeric: true, sortValue: (b) => b.picks, render: (b) => b.picks },
+                {
+                  key: "share",
+                  label: "Share",
+                  numeric: true,
+                  sortValue: (b) => b.share,
+                  render: (b) => `${(b.share * 100).toFixed(1)}%`,
+                },
+              ]}
+            />
           </details>
         )}
       </section>
@@ -323,30 +342,42 @@ export async function ClvAnalysisView({ params }: { params: URLSearchParams }) {
         unit=""
         emptyNote="No settled pick carries both a kickoff time and a CLV verdict yet."
         table={
-          <table>
-            <thead>
-              <tr>
-                <th>Before kickoff</th>
-                <th className="num">Picks</th>
-                <th className="num">Beat CLV</th>
-                <th className="num">Hit rate</th>
-                <th className="num">Avg edge</th>
-                <th className="num">Avg EV%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {analysis.timing.map((t) => (
-                <tr key={t.key}>
-                  <td>{t.key}</td>
-                  <td className="num">{t.picks}</td>
-                  <td className="num"><Rate value={t.beatRate} /></td>
-                  <td className="num"><Rate value={t.hitRate} threshold={BREAK_EVEN_RATE} /></td>
-                  <td className="num"><Signed value={t.avgEdge} /></td>
-                  <td className="num"><Signed value={t.avgEv} unit="%" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <SortableTable
+            rows={analysis.timing}
+            rowKey={(t) => t.key}
+            columns={[
+              { key: "before", label: "Before kickoff", sortValue: (t) => t.key.toLowerCase(), render: (t) => t.key },
+              { key: "picks", label: "Picks", numeric: true, sortValue: (t) => t.picks, render: (t) => t.picks },
+              {
+                key: "beatRate",
+                label: "Beat CLV",
+                numeric: true,
+                sortValue: (t) => t.beatRate,
+                render: (t) => <Rate value={t.beatRate} />,
+              },
+              {
+                key: "hitRate",
+                label: "Hit rate",
+                numeric: true,
+                sortValue: (t) => t.hitRate,
+                render: (t) => <Rate value={t.hitRate} threshold={BREAK_EVEN_RATE} />,
+              },
+              {
+                key: "avgEdge",
+                label: "Avg edge",
+                numeric: true,
+                sortValue: (t) => t.avgEdge,
+                render: (t) => <Signed value={t.avgEdge} />,
+              },
+              {
+                key: "avgEv",
+                label: "Avg EV%",
+                numeric: true,
+                sortValue: (t) => t.avgEv,
+                render: (t) => <Signed value={t.avgEv} unit="%" />,
+              },
+            ]}
+          />
         }
       />
 
@@ -521,34 +552,44 @@ export async function ClvAnalysisView({ params }: { params: URLSearchParams }) {
             unit="pp"
             emptyNote="Not enough picks with both a CLV verdict and a result yet."
             table={
-              <table>
-                <thead>
-                  <tr>
-                    <th>Sport</th>
-                    <th className="num">Beat CLV hit rate</th>
-                    <th className="num">Missed CLV hit rate</th>
-                    <th className="num">Lift</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[analysis.clvVsResult.overall, ...analysis.clvVsResult.bySport].map((b) => (
-                    <tr key={b.key}>
-                      <td>{b.key}</td>
-                      <td className="num">
+              <SortableTable
+                rows={[analysis.clvVsResult.overall, ...analysis.clvVsResult.bySport]}
+                rowKey={(b) => b.key}
+                columns={[
+                  { key: "sport", label: "Sport", sortValue: (b) => b.key.toLowerCase(), render: (b) => b.key },
+                  {
+                    key: "beatHitRate",
+                    label: "Beat CLV hit rate",
+                    numeric: true,
+                    sortValue: (b) => b.beat.hitRate,
+                    render: (b) => (
+                      <>
                         <Rate value={b.beat.hitRate} threshold={BREAK_EVEN_RATE} />
                         <span className="muted" style={{ fontSize: 11 }}> (n={b.beat.n})</span>
-                      </td>
-                      <td className="num">
+                      </>
+                    ),
+                  },
+                  {
+                    key: "missedHitRate",
+                    label: "Missed CLV hit rate",
+                    numeric: true,
+                    sortValue: (b) => b.missed.hitRate,
+                    render: (b) => (
+                      <>
                         <Rate value={b.missed.hitRate} threshold={BREAK_EVEN_RATE} />
                         <span className="muted" style={{ fontSize: 11 }}> (n={b.missed.n})</span>
-                      </td>
-                      <td className="num">
-                        <Signed value={b.lift} unit="pp" digits={1} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </>
+                    ),
+                  },
+                  {
+                    key: "lift",
+                    label: "Lift",
+                    numeric: true,
+                    sortValue: (b) => b.lift,
+                    render: (b) => <Signed value={b.lift} unit="pp" digits={1} />,
+                  },
+                ]}
+              />
             }
           />
           <p className="muted" style={{ fontSize: 12 }}>

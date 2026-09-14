@@ -1,5 +1,5 @@
 import type { PikkitBetRow } from "@/lib/pikkit/queries";
-import { fmtDateTime } from "@/components/ui";
+import { fmtDateTime, fmtMoney } from "@/components/ui";
 import { splitTagSet } from "@/lib/pikkit/parse";
 
 /**
@@ -12,7 +12,7 @@ import { splitTagSet } from "@/lib/pikkit/parse";
  * else is context.
  */
 function money(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(value).toFixed(2)}`;
+  return fmtMoney(value);
 }
 
 function ResultCell({ result }: { result: string }) {

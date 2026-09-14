@@ -5,6 +5,7 @@ import { CopyButton } from "@/components/copy-button";
 import { BackLink } from "@/components/back-link";
 import { ActionButton, type ActionResult } from "@/components/action-button";
 import { ActionForm } from "@/components/action-form";
+import { AutoSaveNumberInput } from "@/components/auto-save-number-input";
 import { prisma } from "@/lib/prisma";
 import { config, scheduledFetchAtFor, CLOSING_WINDOW_DESCRIPTION} from "@/lib/constants";
 import { VerdictBadge, ResultBadge, fmtDateTime, fmtEdge, fmtOdds, betTitle, sideLabel } from "@/components/ui";
@@ -295,12 +296,10 @@ export default async function BetDetailPage({ params }: { params: Promise<{ id: 
             submitLabel={bet.actualValue === null ? "Save result" : "Correct result"}
             className="inline"
           >
-            <input
-              type="number"
-              step="any"
+            <AutoSaveNumberInput
               name="actualValue"
               placeholder="actual result"
-              defaultValue={bet.actualValue ?? ""}
+              defaultValue={bet.actualValue}
             />
           </ActionForm>
 

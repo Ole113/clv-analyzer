@@ -314,6 +314,7 @@ tr.bet-row:hover > td { background: var(--panel-2); }
   border-radius: 8px; line-height: 1.2;
 }
 .filters .reset:hover { color: var(--text); border-color: var(--accent); text-decoration: none; }
+.filters .reset-disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 .filters-status { display: flex; align-items: center; gap: 10px; min-height: 33px; }
 
 /* --- combobox filter dropdowns --- */

@@ -133,6 +133,7 @@ export const PROPPROFESSOR_MARKETS: Record<string, string> = {
   "three pointers made": "Player Threes Made",
   "3 pointers made": "Player Threes Made",
   "threes made": "Player Threes Made",
+  "made threes": "Player Threes Made",
   "three pointers attempted": "Player Threes Attempted",
   "threes attempted": "Player Threes Attempted",
   "points plus assists": "Player Points + Assists",
@@ -213,6 +214,9 @@ export const PROPPROFESSOR_MARKETS: Record<string, string> = {
   "pitcher walks allowed": "Pitcher Walks Allowed",
   "outs recorded": "Pitcher Outs Recorded",
   "pitcher outs recorded": "Pitcher Outs Recorded",
+  // DFS-app shorthand for the same market.
+  outs: "Pitcher Outs Recorded",
+  "pitcher outs": "Pitcher Outs Recorded",
   "pitches thrown": "Pitcher Pitches Thrown",
   "pitcher pitches thrown": "Pitcher Pitches Thrown",
 

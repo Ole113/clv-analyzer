@@ -127,19 +127,26 @@ export function PikkitFilterBar({
         <input type="date" name="to" defaultValue={values.to ?? ""} onChange={submit} />
       </label>
 
-      {(hasFilters || pending) && (
-        <div className="field actions">
-          <span aria-hidden="true">&nbsp;</span>
-          <span className="filters-status">
-            {pending && <span className="spinner" aria-hidden="true" />}
-            {hasFilters && (
-              <a href={`${action}?source=pikkit`} className="reset">
-                Clear filters
-              </a>
-            )}
-          </span>
-        </div>
-      )}
+      {/* Always present rather than only appearing once a filter is set -- a control that pops
+          in and out is easy to miss entirely on a page with this many fields. Disabled in look
+          and behaviour when there is nothing to clear. */}
+      <div className="field actions">
+        <span aria-hidden="true">&nbsp;</span>
+        <span className="filters-status">
+          {pending && <span className="spinner" aria-hidden="true" />}
+          <a
+            href={`${action}?source=pikkit`}
+            className={hasFilters ? "reset" : "reset reset-disabled"}
+            aria-disabled={!hasFilters}
+            tabIndex={hasFilters ? undefined : -1}
+            onClick={(e) => {
+              if (!hasFilters) e.preventDefault();
+            }}
+          >
+            Clear filters
+          </a>
+        </span>
+      </div>
     </form>
   );
 }

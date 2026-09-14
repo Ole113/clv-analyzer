@@ -90,6 +90,17 @@ export function fmtPct(rate: number | null): string {
   return rate === null ? "--" : `${(rate * 100).toFixed(1)}%`;
 }
 
+/** A dollar amount with thousands separators -- "$1,234.56", not "$1234.56", once a Pikkit total
+ *  crosses four figures. `digits` defaults to cents; the profit-curve axis passes 0 for whole
+ *  dollars. */
+export function fmtMoney(value: number, digits = 2): string {
+  const formatted = Math.abs(value).toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  return `${value < 0 ? "-" : ""}$${formatted}`;
+}
+
 /**
  * The pick's real outcome, kept visually distinct from the CLV verdict beside it. A hand-entered
  * grade is marked so it is never mistaken for one verified against a box score.
