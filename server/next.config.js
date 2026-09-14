@@ -6,5 +6,12 @@ const nextConfig = {
   // @clv/shared ships TypeScript source so the extension and the closing fetcher share one parser.
   transpilePackages: ["@clv/shared"],
   serverExternalPackages: ["@prisma/client"],
+  // Default server action body limit is 1MB; a multi-year Pikkit export's transactions.csv can
+  // exceed that comfortably (store.ts's MAX_ROWS caps at 50,000 rows) well before it's unreasonable.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
+  },
 };
 module.exports = nextConfig;
