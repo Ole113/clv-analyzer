@@ -57,6 +57,8 @@ export interface OddsLookupLine {
   label: string | null;
   line: number | null;
   price: number | null;
+  /** This book's price at the row's own line, where it quotes it -- see `atLine` on the verdict. */
+  priceAtLine: number | null;
   logoUrl: string | null;
   includedInAverage: boolean;
 }
@@ -100,6 +102,14 @@ export interface OddsLookupResponse {
       closingBookCount: number;
       avgClosingPrice: number | null;
       closingPriceBookCount: number;
+      /**
+       * The row's own line, when the books are sitting somewhere else and were therefore asked
+       * about it separately. Null when there is nothing extra to show -- see the server's
+       * `ClosingVerdict.atLine`.
+       */
+      atLine: number | null;
+      avgPriceAtLine: number | null;
+      priceAtLineBookCount: number;
       edge: number | null;
       note: string | null;
       closeLines: OddsLookupLine[];

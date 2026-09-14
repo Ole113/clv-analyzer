@@ -41,6 +41,7 @@ function toLineRows(preview: OddsPreview): LineRow[] {
     label: l.label,
     line: l.line,
     price: l.price,
+    priceAtLine: l.priceAtLine,
     logoUrl: l.logoUrl,
     includedInAverage: l.includedInAverage,
   }));
@@ -63,6 +64,8 @@ function toLineRows(preview: OddsPreview): LineRow[] {
 function OddsSummary({ verdict, fetchedAt }: { verdict: OddsPreview["verdict"]; fetchedAt: string }) {
   if (!verdict) return null;
   const { avgClosingLine, avgClosingPrice, closingBookCount, closingPriceBookCount, edge } = verdict;
+  const { atLine, avgPriceAtLine, priceAtLineBookCount } = verdict;
+
 
   return (
     <div className="odds-summary">
@@ -84,6 +87,19 @@ function OddsSummary({ verdict, fetchedAt }: { verdict: OddsPreview["verdict"]; 
           <strong>{fmtOdds(avgClosingPrice)}</strong>
           <span className="muted">
             {closingPriceBookCount} book{closingPriceBookCount === 1 ? "" : "s"}
+          </span>
+        </span>
+      )}
+
+      {/* What the field charges at the pick's own number, shown only when the books have moved off
+          it. `Avg price` above is priced at each book's own line and answers the CLV question;
+          this answers "what would this bet cost me at the books right now". */}
+      {atLine !== null && avgPriceAtLine !== null && (
+        <span className="odds-stat">
+          <span className="odds-stat-label">At {atLine}</span>
+          <strong>{fmtOdds(avgPriceAtLine)}</strong>
+          <span className="muted">
+            {priceAtLineBookCount} book{priceAtLineBookCount === 1 ? "" : "s"}
           </span>
         </span>
       )}
@@ -283,6 +299,7 @@ export function OddsPreviewButton({
               title="Live read"
               when="Pulled just now from PropProfessor's odds screen"
               lines={toLineRows(state.preview)}
+              atLine={state.preview.verdict.atLine}
               emptyNote="No book columns came back for this market."
             />
           </>

@@ -6,6 +6,8 @@ export interface LineRow {
   label: string | null;
   line: number | null;
   price: number | null;
+  /** This book's price at `atLine`, where it quotes that line. Only the live read fills it. */
+  priceAtLine?: number | null;
   logoUrl: string | null;
   includedInAverage: boolean;
 }
@@ -14,17 +16,23 @@ export interface LineRow {
  * Renders one side of a book-line comparison -- "When you took it" / "At market close" on a bet's
  * own page, and the live read in the Odds modal (`odds-preview-modal.tsx`). Kept as one component
  * so all three read the same way and a change to one doesn't quietly drift from the others.
+ *
+ * `atLine` is what adds the fourth column: the pick's own number, priced separately, for when the
+ * books have moved off it. Left out everywhere else, so the two snapshot tables on a bet page are
+ * exactly the three columns they have always been.
  */
 export function SnapshotTable({
   title,
   when,
   lines,
   emptyNote,
+  atLine = null,
 }: {
   title: string;
   when: string;
   lines: LineRow[];
   emptyNote: string;
+  atLine?: number | null;
 }) {
   return (
     <div className="card">
@@ -39,6 +47,7 @@ export function SnapshotTable({
               <th>Book</th>
               <th className="num">Line</th>
               <th className="num">Price</th>
+              {atLine !== null && <th className="num">At {atLine}</th>}
             </tr>
           </thead>
           <tbody>
@@ -61,6 +70,7 @@ export function SnapshotTable({
                 </td>
                 <td className="num">{l.line ?? "--"}</td>
                 <td className="num">{fmtOdds(l.price)}</td>
+                {atLine !== null && <td className="num">{fmtOdds(l.priceAtLine ?? null)}</td>}
               </tr>
             ))}
           </tbody>

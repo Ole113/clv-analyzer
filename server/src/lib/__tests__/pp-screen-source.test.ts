@@ -36,8 +36,8 @@ function planFor(sport: string, statMarket: string, marketType = "PLAYER_PROP" a
   return plan;
 }
 
-function parse(name: string, plan: ScreenReadPlan): ParseResult {
-  const result = normalizeScreenMarket(fixture(name), plan);
+function parse(name: string, plan: ScreenReadPlan, options?: { atLine?: number | null }): ParseResult {
+  const result = normalizeScreenMarket(fixture(name), plan, options);
   expect(result.ok).toBe(true);
   return result;
 }
@@ -107,6 +107,30 @@ describe("market resolution", () => {
     expect(resolveClosingMarket("MLB", "Strikeouts")).toMatchObject({ market: "Player Strikeouts" });
   });
 
+  it("names the league from a soccer competition, which is all the board gives it", () => {
+    // Real sports stored on the user's own bets. OddsJam's game boards write soccer as the country
+    // and the competition rather than as a league code, so none of these could be looked up and
+    // every one came back "no PropProfessor league" -- the same failure as the LIVE badge, from the
+    // other direction. PropProfessor has one Soccer league covering all of them.
+    for (const sport of ["Germany - Bundesliga", "Portugal - Primeira Liga", "Brazil - Serie A"]) {
+      expect(resolveClosingMarket(sport, "Game Total", "GAME_TOTAL")).toMatchObject({
+        ok: true,
+        league: "Soccer",
+        market: "Total Goals",
+      });
+    }
+    expect(resolveClosingMarket("England - Premier League", "Shots On Goal")).toMatchObject({
+      ok: true,
+      league: "Soccer",
+      market: "Player Shots On Goal",
+    });
+    // The rule is a list of competitions, not "<country> - <anything>": OddsJam spells other
+    // sports' domestic leagues the same way, and they are not soccer. Those resolve when the part
+    // after the country is a league PropProfessor names, and stay loudly unmapped when it is not.
+    expect(resolveClosingMarket("Japan - NPB", "Hits")).toMatchObject({ ok: true, league: "NPB" });
+    expect(resolveClosingMarket("Germany - BBL", "Points")).toMatchObject({ kind: "unmapped" });
+  });
+
   it("names a game total after the league, unless the board named the total itself", () => {
     // Previously every GAME_TOTAL fell through to the player-prop table and came back unmapped.
     expect(resolveClosingMarket("NFL", "Game Total", "GAME_TOTAL")).toMatchObject({
@@ -142,6 +166,79 @@ describe("market resolution", () => {
     const plan = planFor("NCAAF", "Rushing Yards");
     expect(plan.url).toBe("https://backend.propprofessor.com/screen");
     expect(plan.body).toMatchObject({ participants: [], games: [], is_live: false });
+  });
+});
+
+describe("the price at the line actually taken", () => {
+  /**
+   * The bug this covers: on a DFS or sweepstakes board the row in front of you is "Over 24.5", and
+   * the sportsbooks have settled on 21.5. Everything the modal showed was read off 21.5 -- which is
+   * the right number for CLV and the wrong one for deciding whether to take the bet, because the
+   * price you would actually be laying is the one quoted at 24.5. PropProfessor's own page answers
+   * this by changing the line in a dropdown; the response already carries every line, so the read
+   * answers both questions at once instead.
+   */
+  const plan = planFor("NCAAF", "Rushing Yards");
+  const over = (result: ParseResult) =>
+    result.rows.find((r) => r.player === "Xavier Robinson" && r.side === "OVER")!;
+
+  it("prices each book at the asked line without moving its own", () => {
+    const row = over(parse("ncaaf-rushing-yards", plan, { atLine: 24.5 }));
+    const dk = row.bookLines.find((b) => b.bookKey === "draftkings")!;
+    // Its real number is still the consensus 21.5 ...
+    expect(dk.line).toBe(21.5);
+    // ... and it is quoting +105 on the 24.5 the board is showing.
+    expect(dk.priceAtLine).toBe(105);
+    expect(dk.rawText).toMatch(/at 24\.5: 105/);
+    // A book that is not quoting 24.5 at all says so, rather than borrowing its neighbour's price.
+    expect(row.bookLines.find((b) => b.bookKey === "prizepicks")?.priceAtLine ?? null).toBeNull();
+  });
+
+  it("summarises the field at that line, leaving the closing numbers alone", () => {
+    const row = over(parse("ncaaf-rushing-yards", plan, { atLine: 24.5 }));
+    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 24.5, row, null, "PP_SCREEN");
+
+    expect(verdict.atLine).toBe(24.5);
+    // theScore, Hardrock, OnyxOdds and DraftKings are all +105 on the Over at 24.5, DraftKings6's
+    // alt column -112: the field pays about even money for it. The same five books charge -120 at
+    // the 21.5 they are actually sitting on, which is the number that used to be shown here and is
+    // more than 200 cents away from the bet in front of the user.
+    expect(verdict.priceAtLineBookCount).toBe(5);
+    expect(verdict.avgPriceAtLine).toBe(101);
+    expect(verdict.avgClosingPrice).toBe(-120);
+    // The consensus line, and therefore the edge, is exactly what it was before any of this.
+    expect(verdict.avgClosingLine).toBeCloseTo(21.61, 2);
+    expect(verdict.edge).toBeCloseTo(-2.89, 2);
+  });
+
+  it("says nothing when the field is not quoting that side at that line", () => {
+    // The real stored bet: UNDER 24.5. Seven books quote the Over there and not one quotes the
+    // Under, so there is no at-line price to show and the modal renders three columns, not four.
+    const row = parse("ncaaf-rushing-yards", plan, { atLine: 24.5 }).rows.find(
+      (r) => r.player === "Xavier Robinson" && r.side === "UNDER"
+    )!;
+    const verdict = buildClosingVerdict("PLAYER_PROP", "UNDER", 24.5, row, null, "PP_SCREEN");
+    expect(verdict.atLine).toBeNull();
+    expect(verdict.avgPriceAtLine).toBeNull();
+    // ... and the closing read is bit-for-bit the one asserted above, in the Xavier Robinson block.
+    expect(verdict.avgClosingLine).toBeCloseTo(21.61, 2);
+    expect(verdict.edge).toBeCloseTo(2.89, 2);
+  });
+
+  it("asks nothing extra of a batched closing read", () => {
+    // The scheduled reader batches every pick on a (league, market) into one parse, and those picks
+    // were taken at different numbers -- so it passes no line, and nothing about the row changes.
+    const row = over(parse("ncaaf-rushing-yards", plan));
+    expect(row.bookLines.every((b) => b.priceAtLine === null)).toBe(true);
+    expect(buildClosingVerdict("PLAYER_PROP", "OVER", 24.5, row, null, "PP_SCREEN").atLine).toBeNull();
+  });
+
+  it("does not ask about a line on a market that has none", () => {
+    // A moneyline's "line" is its price; asking for the price at a price is meaningless.
+    const mlPlan = planFor("ATP", "Alexander Zverev", "MONEYLINE" as never);
+    const rows = parse("tennis-moneyline", mlPlan, { atLine: -150 }).rows;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.bookLines.every((b) => b.priceAtLine === null))).toBe(true);
   });
 });
 

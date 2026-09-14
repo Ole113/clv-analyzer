@@ -80,14 +80,15 @@ const HIDDEN_ATTR = "data-clv-hidden";
 const FILTER_STYLES = `
 tr[${HIDDEN_ATTR}] { display: none !important; }
 html.clva-reveal tr[${HIDDEN_ATTR}] { display: revert !important; opacity: 0.45; }
-/* Beside OddsJam's own "Reset Filters" button, as a sibling of that button's group rather than a
-   member of it -- dropping it inside the group inherits the group's own button spacing and
-   wrapping rules and makes it read as one of OddsJam's controls. */
+/* Immediately after OddsJam's "More Books" button, in that button's own container. The margin is
+   the gap the board's own buttons do not give us: without it the pills read as part of the board's
+   control group rather than as something sitting beside it. The flex sizing is what stops a flex
+   toolbar from stretching or squashing the control. */
 .clva-filter-inline {
-  display: inline-flex; align-items: center; gap: 8px; margin-left: 10px;
-  vertical-align: middle; flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 8px; margin-left: 14px;
+  vertical-align: middle; flex: 0 0 auto; align-self: center;
 }
-/* Fallback bar, used only when the Reset Filters button cannot be found. */
+/* Fallback bar, used only when the More Books button cannot be found. */
 .clva-filter-bar {
   display: flex; justify-content: flex-end; align-items: center; gap: 8px;
   padding: 8px 4px; box-sizing: border-box;
@@ -97,36 +98,62 @@ html.clva-reveal tr[${HIDDEN_ATTR}] { display: revert !important; opacity: 0.45;
 const BAR_CLASS = "clva-filter-bar";
 const INLINE_CLASS = "clva-filter-inline";
 
-/** OddsJam's own "Reset Filters" control, whatever element it happens to be rendered as. */
-function resetFiltersButton(): HTMLElement | null {
+/**
+ * OddsJam's own "More Books" control, whatever element it happens to be rendered as.
+ *
+ * Deliberately *not* "Reset Filters", which is where this used to anchor. That button lives in the
+ * filter panel, and the panel can be collapsed: hiding it takes the anchor out of the layout and
+ * leaves the control wherever the surrounding elements happen to reflow to -- which is the whole of
+ * the "the pills moved to the left of the checkbox" report. More Books sits in the board's own
+ * toolbar and is there whether the filter panel is open or shut.
+ *
+ * Matched on a prefix rather than the whole string because the board writes a count into the label
+ * ("More Books (12)"), and only a rendered element counts -- OddsJam ships a second copy of its
+ * toolbar for narrow viewports, and matching the hidden one mounts the control out of sight.
+ */
+function moreBooksButton(): HTMLElement | null {
   const candidates = Array.from(
     document.querySelectorAll<HTMLElement>('button, [role="button"], a')
-  );
-  return (
-    candidates.find((el) => /^reset\s+filters$/i.test((el.textContent ?? "").trim())) ?? null
-  );
+  )
+    .filter((el) => /^more\s+books\b/i.test((el.textContent ?? "").replace(/\s+/g, " ").trim()))
+    .filter((el) => el.getClientRects().length > 0);
+  if (candidates.length <= 1) return candidates[0] ?? null;
+
+  // More than one rendered copy: take the one in the toolbar over the board.
+  const bounds = table()?.getBoundingClientRect();
+  if (!bounds) return candidates[0];
+  const overBoard = candidates.filter((el) => {
+    const r = el.getBoundingClientRect();
+    return r.bottom <= bounds.top + 1 && r.right > bounds.left && r.left < bounds.right;
+  });
+  return overBoard[0] ?? candidates[0];
 }
 
 /**
- * Where the control goes: immediately to the right of OddsJam's "Reset Filters" button, inserted
- * after the group that button belongs to rather than into it.
+ * Where the control goes: immediately after OddsJam's "More Books" button, as that button's own
+ * next sibling, separated by a margin so it does not read as one of the board's own buttons.
+ *
+ * The anchor is the part that took three tries. Beside "Reset Filters" it moved or disappeared with
+ * the filter panel it belongs to, which can be collapsed; More Books is in the toolbar over the
+ * board and stays put either way.
+ *
+ * Being inside OddsJam's own container is safe because mounting is a repeated check: `keepMounted`
+ * in `market-filter.ts` re-runs every second and re-mounts if a re-render dropped the node.
  *
  * The fallback -- its own bar above the table -- is kept for the boards (or future layouts) with no
- * Reset Filters control at all. It deliberately goes outside whatever horizontally scrolling
- * wrapper holds the table, since inside it the control would slide off-screen as soon as the board
- * was scrolled sideways to reach a sportsbook column.
+ * More Books control at all. It deliberately goes outside whatever horizontally scrolling wrapper
+ * holds the table, since inside it the control would slide off-screen as soon as the board was
+ * scrolled sideways to reach a sportsbook column.
  */
 function filterBar(): HTMLElement | null {
   const existing = document.querySelector<HTMLElement>(`.${INLINE_CLASS}, .${BAR_CLASS}`);
   if (existing?.isConnected) return existing;
 
-  const reset = resetFiltersButton();
-  const group = reset?.parentElement;
-  if (group?.parentElement) {
+  const anchor = moreBooksButton();
+  if (anchor?.parentElement) {
     const host = document.createElement("div");
     host.className = INLINE_CLASS;
-    // After the whole group, so the control sits beside OddsJam's buttons without joining them.
-    group.parentElement.insertBefore(host, group.nextSibling);
+    anchor.parentElement.insertBefore(host, anchor.nextSibling);
     return host;
   }
 

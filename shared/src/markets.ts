@@ -367,6 +367,71 @@ export const PROPPROFESSOR_LEAGUES: Record<string, string> = {
 };
 
 /**
+ * Soccer competitions, which the boards name instead of naming the sport.
+ *
+ * OddsJam's game boards write the competition and the country -- "Germany - Bundesliga",
+ * "Portugal - Primeira Liga", "Brazil - Serie A" -- where every other sport gets a league code, so
+ * none of them can be listed in `PROPPROFESSOR_LEAGUES` above without enumerating every country and
+ * division in the world. PropProfessor has exactly one "Soccer" league covering all of them, so
+ * recognising the competition is enough to name the league.
+ *
+ * Matched as words inside the normalized sport rather than as whole values, which is what lets one
+ * entry cover "Germany - Bundesliga" and "Austria - Bundesliga" alike. Deliberately a list of
+ * competitions and not a "<country> - <anything>" rule: OddsJam spells basketball and baseball
+ * competitions the same way ("Germany - BBL", "Japan - NPB"), and a structural rule would quietly
+ * file those under Soccer.
+ */
+const SOCCER_COMPETITIONS = [
+  "bundesliga",
+  "primeira liga",
+  "serie a",
+  "la liga",
+  "laliga",
+  "premier league",
+  "ligue 1",
+  "eredivisie",
+  "mls",
+  "major league soccer",
+  "champions league",
+  "europa league",
+  "conference league",
+  "liga mx",
+  "brasileirao",
+  "super lig",
+  "allsvenskan",
+  "eliteserien",
+  "copa",
+  "efl",
+  "world cup",
+  "euro qualifiers",
+  "nations league",
+];
+
+/** The league a board's sport column resolves to, competition names included. */
+function propProfessorLeague(sport: string | null): string | null {
+  const normalized = normalizeMarketName(sport);
+  if (!normalized) return null;
+  const direct = PROPPROFESSOR_LEAGUES[normalized];
+  if (direct) return direct;
+
+  // "Japan - NPB", "USA - NBA": the same country-first spelling as the soccer competitions, on a
+  // sport whose league PropProfessor does name. Only the part after the qualifier is retried, and
+  // only against the table above -- an unrecognised tail stays unmapped rather than being guessed
+  // at, so a genuine gap is still loud.
+  const tail = (sport ?? "").split(/\s[-\u2013]\s/).pop();
+  const qualified = tail ? PROPPROFESSOR_LEAGUES[normalizeMarketName(tail)] : undefined;
+  if (qualified) return qualified;
+
+  // Word-bounded so "serie a" does not also claim a hypothetical "serie ateam", and so a
+  // competition sitting at either end of the string still matches.
+  return SOCCER_COMPETITIONS.some((competition) =>
+    new RegExp(`(^| )${competition}( |$)`).test(normalized)
+  )
+    ? "Soccer"
+    : null;
+}
+
+/**
  * What "the total" is called, per league.
  *
  * A game total is the one market whose screen name is decided by the sport rather than by anything
@@ -442,7 +507,7 @@ export function resolveClosingMarket(
     };
   }
 
-  const league = PROPPROFESSOR_LEAGUES[normalizeMarketName(sport)];
+  const league = propProfessorLeague(sport);
   if (!league) {
     return { ok: false, kind: "unmapped", detail: `no PropProfessor league for sport "${sport}"` };
   }
