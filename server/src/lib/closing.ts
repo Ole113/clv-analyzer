@@ -26,6 +26,14 @@ export interface ClosingLineRecord {
   logoUrl: string | null;
   liquidity: number | null;
   fairProbability: number | null;
+  /**
+   * What this book pays for the taken side at the line actually taken, where it quotes that line.
+   *
+   * Null on every path but an on-demand odds read, and null there for a book that is not quoting
+   * that number at all. `line`/`price` above remain the book's own main line, which is what the
+   * closing average is formed from -- this is shown beside it, never instead of it.
+   */
+  priceAtLine: number | null;
   rawText: string;
   includedInAverage: boolean;
 }
@@ -51,6 +59,20 @@ export interface ClosingVerdict {
   /** How many books quoted the taken side at all. Always <= closingBookCount and often under it:
    *  a book is kept in the line average whenever it quotes the market, even on one side only. */
   closingPriceBookCount: number;
+  /**
+   * The line the books were *additionally* asked to price: the pick's own number.
+   *
+   * Non-null only when there is something extra to say -- an on-demand read where at least one book
+   * quotes that line and at least one trusted book's own main line is a different number. On a
+   * market where the field is already sitting on the taken line the two prices are the same number
+   * twice, so this stays null and the caller shows one column, not two.
+   */
+  atLine: number | null;
+  /** The field's price at `atLine`, averaged over exactly the books `avgClosingPrice` uses. Null
+   *  whenever `atLine` is. */
+  avgPriceAtLine: number | null;
+  /** How many books were still quoting that line. */
+  priceAtLineBookCount: number;
   edge: number | null;
   beatClv: boolean | null;
   /**
@@ -109,6 +131,7 @@ export function buildClosingVerdict(
     logoUrl: b.logoUrl,
     liquidity: b.liquidity ?? null,
     fairProbability: b.fairProbability ?? null,
+    priceAtLine: b.priceAtLine ?? null,
     rawText: b.rawText,
     includedInAverage: classify(b.bookKey, b.label, typeof b.line === "number"),
   }));
@@ -137,6 +160,32 @@ export function buildClosingVerdict(
     avgProbability: avgClosingProbability,
     count: closingPriceBookCount,
   } = averageClosingPrice(closeLines, bookWeights, 1, options.useLiquidityWeighting === true);
+
+  // --- what the field pays at the line actually taken -------------------------------------------
+  //
+  // `avgClosingPrice` above is each book's price at *its own* main line, which is the right number
+  // for CLV: it is the price attached to the line the consensus is formed from. It is not the
+  // number in front of someone looking at an Over 15.5 on a DFS board while the sportsbooks sit on
+  // 14.5 -- the price they can actually compare their payout against is the one quoted at 15.5, and
+  // reading it off the 14.5 column overstates or understates it by however far the line moved.
+  //
+  // Same books, same weights: a quote dropped from the line average (a pick'em column, a stale
+  // outlier) is no more trustworthy at an alt line than at its own.
+  const atLineLines = closeLines
+    .filter((l): l is ClosingLineRecord & { priceAtLine: number } => typeof l.priceAtLine === "number")
+    .map((l) => ({ ...l, price: l.priceAtLine }));
+  const { avg: avgPriceAtLine, count: priceAtLineBookCount } = averageClosingPrice(
+    atLineLines,
+    bookWeights,
+    1,
+    options.useLiquidityWeighting === true
+  );
+  // Worth showing only when it differs from what the Line column already says.
+  const atLine =
+    priceAtLineBookCount > 0 &&
+    closeLines.some((l) => l.includedInAverage && l.line !== null && l.line !== takenLine)
+      ? takenLine
+      : null;
 
   // --- the market's fair price at close --------------------------------------------------------
   //
@@ -181,6 +230,9 @@ export function buildClosingVerdict(
       avgClosingPrice,
       avgClosingProbability,
       closingPriceBookCount,
+      atLine,
+      avgPriceAtLine: atLine === null ? null : avgPriceAtLine,
+      priceAtLineBookCount: atLine === null ? 0 : priceAtLineBookCount,
       edge: null,
       beatClv: null,
       priceEdge,
@@ -205,6 +257,9 @@ export function buildClosingVerdict(
     avgClosingPrice,
     avgClosingProbability,
     closingPriceBookCount,
+    atLine,
+    avgPriceAtLine: atLine === null ? null : avgPriceAtLine,
+    priceAtLineBookCount: atLine === null ? 0 : priceAtLineBookCount,
     edge,
     beatClv,
     priceEdge,

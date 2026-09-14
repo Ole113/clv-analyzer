@@ -66,6 +66,8 @@ const globalForCache = globalThis as unknown as { clvaScreenCache?: Map<string, 
 const cache = globalForCache.clvaScreenCache ?? new Map<string, CacheEntry>();
 globalForCache.clvaScreenCache = cache;
 
+/** Keyed on the request, not on what is later asked of the response: one market's payload carries
+ *  every line, so two picks on different numbers still share the one fetch. */
 function cacheKey(plan: ScreenReadPlan): string {
   return `${plan.body.league}::${plan.body.market}`;
 }
@@ -194,7 +196,11 @@ export async function readScreenNow(
 
   const raw = await fetchScreen(plan, options.allowCache !== false);
   const source = sourceFor(plan);
-  const parsed = normalizeScreenMarket(raw, plan);
+  // One pick per read here, so the line it was taken at is a thing that can be asked about: each
+  // book is additionally reported at *that* number, which is what someone looking at an Over 15.5
+  // needs while the sportsbooks sit on 14.5. The extension's reader deliberately does not, because
+  // it batches a whole market's picks -- taken at different lines -- into a single response.
+  const parsed = normalizeScreenMarket(raw, plan, { atLine: item.takenLine });
 
   if (!parsed.ok) return { kind: "READ_FAILED", reason: parsed.reason ?? "unreadable response" };
   if (parsed.rows.length === 0) return { kind: "MARKET_NOT_OFFERED", source, availableMarkets: [] };

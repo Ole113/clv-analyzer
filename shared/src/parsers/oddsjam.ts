@@ -260,10 +260,28 @@ export const parseOddsJamTable = (): ParseResult => {
     return vs.length === 2 ? { team: vs[0].trim(), opponent: vs[1].trim() } : { team: null, opponent: null };
   };
 
-  const splitMeta = (meta: string | null): { sport: string | null; timeText: string | null } => {
-    if (!meta) return { sport: null, timeText: null };
-    const parts = meta.split(/[\u2022\u00b7|]/).map((p) => p.trim()).filter(Boolean);
-    return { sport: parts[0] ?? null, timeText: parts.slice(1).join(" ") || null };
+  /**
+   * The league, the kick-off time and whether the game is already under way, out of the small print
+   * under a matchup.
+   *
+   * Pre-match that print is one line -- "NFL • Sun, Sep 13 : 2:25 PM" -- but an in-play row drops
+   * the time and renders the league and a LIVE badge as *separate* lines, so reading only the last
+   * one recorded the sport as the literal string "LIVE". Everything keyed on sport then failed on
+   * exactly the rows the user was looking at: no PropProfessor league, so the odds modal could not
+   * even form a request, and no grading league either. Hence every line after the matchup is
+   * considered, and the badge is recognised for what it is rather than mistaken for a league.
+   */
+  const splitMeta = (
+    metaLines: string[]
+  ): { sport: string | null; timeText: string | null; isLive: boolean } => {
+    const isLiveMarker = (part: string): boolean => /^(live|in[\s-]?play|in progress)$/i.test(part);
+    const parts = metaLines
+      .flatMap((line) => line.split(/[\u2022\u00b7|]/))
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const isLive = parts.some(isLiveMarker);
+    const rest = parts.filter((p) => !isLiveMarker(p));
+    return { sport: rest[0] ?? null, timeText: rest.slice(1).join(" ") || null, isLive };
   };
 
   bodyRows.forEach((rowEl, rowIndex) => {
@@ -274,7 +292,7 @@ export const parseOddsJamTable = (): ParseResult => {
       // --- whole-game markets (rebet, fliff) ---------------------------------
       const gameLines = lines(cells[gameCol] ?? null);
       const matchup = gameLines[0] ?? null;
-      const { sport, timeText } = splitMeta(gameLines[gameLines.length - 1] ?? null);
+      const { sport, timeText, isLive } = splitMeta(gameLines.slice(1));
       const { team, opponent } = splitMatchup(matchup);
 
       const statMarket = cellText(cells, marketCol) || null;
@@ -349,7 +367,7 @@ export const parseOddsJamTable = (): ParseResult => {
         player,
         selectionName: betName,
         subjectTeam,
-        isLive: false,
+        isLive,
         team,
         opponent,
         matchup,
@@ -374,7 +392,7 @@ export const parseOddsJamTable = (): ParseResult => {
     const playerLines = lines(cells[playerCol] ?? null);
     const player = playerLines[0] ?? null;
     const matchup = playerLines[1] ?? null;
-    const { sport, timeText } = splitMeta(playerLines[2] ?? null);
+    const { sport, timeText, isLive } = splitMeta(playerLines.slice(2));
     const { team, opponent } = splitMatchup(matchup);
 
     const sideText = cellText(cells, ouCol);
@@ -399,7 +417,7 @@ export const parseOddsJamTable = (): ParseResult => {
       player,
       selectionName: player && side && takenLine !== null ? `${player} ${side === "OVER" ? "Over" : "Under"} ${takenLine}` : player,
       subjectTeam: null,
-      isLive: false,
+      isLive,
       team,
       opponent,
       matchup,

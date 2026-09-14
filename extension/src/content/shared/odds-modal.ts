@@ -137,6 +137,15 @@ function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>
   if (verdict.avgClosingPrice !== null) {
     stat("Avg price", fmtOdds(verdict.avgClosingPrice), books(verdict.closingPriceBookCount));
   }
+  // The number this modal is actually opened for on a board: the books' price at *your* line, not
+  // at whatever line they happen to be sitting on. Shown only when those are different lines.
+  if (verdict.atLine !== null && verdict.avgPriceAtLine !== null) {
+    stat(
+      `At ${verdict.atLine}`,
+      fmtOdds(verdict.avgPriceAtLine),
+      books(verdict.priceAtLineBookCount)
+    );
+  }
   if (verdict.edge !== null) {
     stat(
       "Edge",
@@ -152,12 +161,22 @@ function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>
   return wrap;
 }
 
-function table(lines: OddsLookupLine[]): HTMLElement {
+/**
+ * The book-by-book table.
+ *
+ * `atLine` adds one column and only one: what each book pays at the row's own number. It is the
+ * whole point of opening this on a DFS board -- the Line/Price pair says where the sportsbooks are,
+ * which is the CLV question, and this says what they would charge for the bet in front of you,
+ * which is the one you are about to act on. Passed as null whenever the field is already quoting
+ * that line, so the common case stays a three-column table.
+ */
+function table(lines: OddsLookupLine[], atLine: number | null): HTMLElement {
   const t = el("table", "clva-odds-table");
   const head = el("tr");
   head.appendChild(el("th", undefined, "Book"));
   head.appendChild(el("th", "clva-num", "Line"));
   head.appendChild(el("th", "clva-num", "Price"));
+  if (atLine !== null) head.appendChild(el("th", "clva-num", `At ${atLine}`));
   const thead = el("thead");
   thead.appendChild(head);
   t.appendChild(thead);
@@ -182,6 +201,8 @@ function table(lines: OddsLookupLine[]): HTMLElement {
     tr.appendChild(name);
     tr.appendChild(el("td", "clva-num", line.line === null ? "--" : String(line.line)));
     tr.appendChild(el("td", "clva-num", fmtOdds(line.price)));
+    // "--" reads correctly here: this book is quoting the market, just not at that number.
+    if (atLine !== null) tr.appendChild(el("td", "clva-num", fmtOdds(line.priceAtLine)));
     body.appendChild(tr);
   }
   t.appendChild(body);
@@ -285,7 +306,7 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
         if (verdict.closeLines.length === 0) {
           wrap.appendChild(el("p", "clva-odds-msg", "No book columns came back for this market."));
         } else {
-          wrap.appendChild(table(verdict.closeLines));
+          wrap.appendChild(table(verdict.closeLines, verdict.atLine));
         }
         if (verdict.note) wrap.appendChild(el("p", "clva-odds-note", verdict.note));
         wrap.appendChild(

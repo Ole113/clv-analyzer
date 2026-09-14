@@ -200,6 +200,13 @@ interface BookMainLine {
   nearMarket: boolean;
   /** Every distinct line this book was seen quoting, so alt-line collapsing stays auditable. */
   selectionsSeen: number[];
+  /**
+   * The taken side's price at the line the caller asked about, when this book quotes that line.
+   *
+   * Independent of `line`/`price` above, which stay the book's own main number: a book on 14.5 that
+   * also hangs 15.5 contributes both, and neither displaces the other.
+   */
+  priceAtLine: number | null;
 }
 
 /**
@@ -233,7 +240,8 @@ interface BookMainLine {
  */
 function mainLineByBook(
   selections: Record<string, RawSelection>,
-  side: 1 | 2
+  side: 1 | 2,
+  atLine: number | null
 ): Map<string, BookMainLine> {
   type Candidate = {
     line: number | null;
@@ -310,6 +318,9 @@ function mainLineByBook(
     const chosen =
       atConsensus ??
       candidates.reduce((best, c) => (c.lopsidedness < best.lopsidedness ? c : best));
+    // Read off the same candidate list rather than a second pass: every selection this book quotes
+    // is already here, which is the whole reason the alt line asked about can be answered at all.
+    const asked = atLine === null ? undefined : candidates.find((c) => c.line === atLine);
     out.set(bookName, {
       label: chosen.label,
       line: chosen.line,
@@ -317,6 +328,7 @@ function mainLineByBook(
       otherSidePrice: chosen.otherSidePrice,
       liquidity: chosen.liquidity,
       nearMarket: chosen.nearMarket,
+      priceAtLine: asked?.price ?? null,
       selectionsSeen: [...new Set(candidates.map((c) => c.line).filter((l): l is number => l !== null))].sort(
         (a, b) => a - b
       ),
@@ -329,12 +341,13 @@ function buildRow(
   datum: RawGameDatum,
   plan: ScreenReadPlan,
   side: 1 | 2,
-  rowIndex: number
+  rowIndex: number,
+  atLine: number | null
 ): ParsedRow | null {
   const selections = datum.selections;
   if (!selections || typeof selections !== "object") return null;
 
-  const books = mainLineByBook(selections, side);
+  const books = mainLineByBook(selections, side, atLine);
   if (books.size === 0) return null;
 
   const home = str(datum.homeTeam);
@@ -383,13 +396,19 @@ function buildRow(
         // pick'em column quoting -119/-119 de-vigs to a meaningless flat 50% and must not be
         // allowed to drag the fair price to the middle.
         fairProbability: devigTwoWay(b.price, b.otherSidePrice),
+        // What this book pays at the line the caller is looking at, where it quotes it at all. Sits
+        // alongside `line`/`price` rather than replacing them; see the field's own comment.
+        priceAtLine: b.priceAtLine,
         // The screen is JSON and ships no images, so unlike the DOM parsers there is no logo to
         // scrape -- it is looked up from the book's name instead. Null for a book we have no
         // domain for, which the tables already render as "name, no icon".
         logoUrl: bookLogoUrl(bookKey, b.label),
         rawText:
           `${b.line ?? "-"} @ ${b.price ?? "no price this side"}` +
-          (alts.length > 0 ? ` (also quoted ${alts.join(", ")})` : ""),
+          (alts.length > 0 ? ` (also quoted ${alts.join(", ")})` : "") +
+          (atLine !== null && b.line !== atLine
+            ? `; at ${atLine}: ${b.priceAtLine ?? "not quoted"}`
+            : ""),
       };
     });
 
@@ -450,8 +469,19 @@ function buildRow(
  *
  * Never throws -- a malformed payload returns `{ ok: false, reason }` the same way the DOM parsers
  * do, so one bad response cannot take down a closing run.
+ *
+ * `options.atLine` asks each book, additionally, what it pays at one specific line -- what clicking
+ * PropProfessor's own line dropdown does. It is an option rather than a property of the plan
+ * because a plan is shared: the closing reader batches every pick on a (league, market) into one
+ * request, and those picks were taken at different numbers, so there is no single line a plan could
+ * name. The on-demand modal reads one pick at a time and passes that pick's line. Nothing about the
+ * closing average changes either way -- see `priceAtLine` on `BookLine`.
  */
-export function normalizeScreenMarket(raw: unknown, plan: ScreenReadPlan): ParseResult {
+export function normalizeScreenMarket(
+  raw: unknown,
+  plan: ScreenReadPlan,
+  options: { atLine?: number | null } = {}
+): ParseResult {
   try {
     const body = raw as { game_data?: unknown };
     const data = body?.game_data;
@@ -459,11 +489,16 @@ export function normalizeScreenMarket(raw: unknown, plan: ScreenReadPlan): Parse
       return { ok: false, reason: "response had no game_data array", headers: [], rows: [] };
     }
 
+    // A moneyline has no line to ask about: its "line" is its price, so an alt-line lookup there
+    // would be comparing a price against itself.
+    const atLine =
+      plan.marketType === "MONEYLINE" || typeof options.atLine !== "number" ? null : options.atLine;
+
     const rows: ParsedRow[] = [];
     for (const datum of data as RawGameDatum[]) {
       if (!datum || typeof datum !== "object") continue;
       for (const side of [1, 2] as const) {
-        const row = buildRow(datum, plan, side, rows.length);
+        const row = buildRow(datum, plan, side, rows.length, atLine);
         if (row) rows.push(row);
       }
     }

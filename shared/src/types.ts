@@ -28,6 +28,17 @@ export interface BookLine {
    * only the `/screen` JSON exposes the opposite side. Null means "not derivable here", never 50%.
    */
   fairProbability?: number | null;
+  /**
+   * This book's price for the taken side at one *specific* line the caller asked about, rather than
+   * at this book's own main line.
+   *
+   * Optional and normally absent: only PropProfessor's `/screen` JSON carries every alt line, and
+   * only an on-demand read asks for one. `line`/`price` above stay the book's own number -- the
+   * consensus of those is what CLV is measured in -- and this answers the different question a
+   * person on a DFS board is actually asking: the sportsbooks sit on 14.5, but what do they pay at
+   * the 15.5 in front of me? Null means the book quotes the market but not at that line.
+   */
+  priceAtLine?: number | null;
   rawText: string;
 }
 

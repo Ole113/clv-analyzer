@@ -15,6 +15,9 @@ const bookLineSchema = z.object({
   logoUrl: z.string().nullable().optional().default(null),
   liquidity: z.number().nullable().optional().default(null),
   fairProbability: z.number().nullable().optional().default(null),
+  /** Only an on-demand read asks for it, and only the server currently makes one -- accepted here
+   *  so the extension's own reader can pass it through unchanged if it ever does. */
+  priceAtLine: z.number().nullable().optional().default(null),
   rawText: z.string(),
 });
 
