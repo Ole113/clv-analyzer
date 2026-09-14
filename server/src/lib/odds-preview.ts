@@ -2,7 +2,7 @@ import type { ClosingReadOutcome, ClosingWorkItem } from "@clv/shared";
 import { prisma } from "./prisma";
 import type { MarketType, Side } from "./constants";
 import { buildClosingVerdict, type ClosingVerdict } from "./closing";
-import { getAppSettings } from "./app-settings";
+import { getAppSettings, sortByBookOrder } from "./app-settings";
 import { NoTokenError, readScreenNow } from "./pp-screen-read";
 
 /**
@@ -129,6 +129,8 @@ export async function recordPreviewResult(betId: string, outcome: ClosingReadOut
     "PP_SCREEN",
     { openFairProb: bet.openFairProb, useLiquidityWeighting: settings.useLiquidityWeighting }
   );
+  // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
+  verdict.closeLines = sortByBookOrder(verdict.closeLines, settings.bookOrder);
 
   rememberResult(betId, { fetchedAt, ok: true, reason: null, verdict });
 }
@@ -229,6 +231,8 @@ export async function lookupOddsNow(
     "PP_SCREEN",
     { useLiquidityWeighting: settings.useLiquidityWeighting }
   );
+  // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
+  verdict.closeLines = sortByBookOrder(verdict.closeLines, settings.bookOrder);
 
   return { fetchedAt, ok: true, reason: null, verdict };
 }

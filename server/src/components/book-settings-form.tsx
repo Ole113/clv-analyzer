@@ -6,6 +6,7 @@ import { useToast } from "./toast";
 export interface BookRow {
   bookKey: string;
   label: string;
+  logoUrl: string | null;
 }
 
 /**
@@ -36,6 +37,7 @@ export function BookSettingsForm({
 }) {
   const { push } = useToast();
   const labelOf = (key: string) => books.find((b) => b.bookKey === key)?.label ?? key;
+  const logoOf = (key: string) => books.find((b) => b.bookKey === key)?.logoUrl ?? null;
 
   const [order, setOrder] = useState<string[]>(initialOrder);
   const [weights, setWeights] = useState<Record<string, number>>(initialWeights);
@@ -101,6 +103,12 @@ export function BookSettingsForm({
         the automatic one. Affects closing reads taken from here on, not verdicts already recorded.
       </p>
 
+      <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+        This same order is also what the Odds modal — the live sportsbook read opened from a pick or
+        from a board row in the extension — and the closing/taken-line tables show the books in.
+        Drag a row (or use the arrows) to reorder it everywhere at once.
+      </p>
+
       <table className="math-table">
         <tbody>
           {order.map((key, i) => (
@@ -144,7 +152,20 @@ export function BookSettingsForm({
                   ↓
                 </button>
               </td>
-              <td>{labelOf(key)}</td>
+              <td>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                  {logoOf(key) && (
+                    <img
+                      src={logoOf(key) as string}
+                      alt=""
+                      width={16}
+                      height={16}
+                      style={{ borderRadius: 3, objectFit: "contain" }}
+                    />
+                  )}
+                  {labelOf(key)}
+                </span>
+              </td>
               <td className="num" style={{ width: 1, whiteSpace: "nowrap" }}>
                 <input
                   type="number"

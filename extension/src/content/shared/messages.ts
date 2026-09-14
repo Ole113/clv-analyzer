@@ -61,6 +61,10 @@ export interface OddsLookupLine {
   priceAtLine: number | null;
   logoUrl: string | null;
   includedInAverage: boolean;
+  /** The money resting behind this book's quote. Only exchanges (Novig, Prophet X, Kalshi,
+   *  Polymarket) report this in a way worth showing; a traditional sportsbook's depth is not public,
+   *  so this is null there. */
+  liquidity: number | null;
 }
 
 /** The fields the server needs to find one market on PropProfessor's odds screen. */

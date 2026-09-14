@@ -1,5 +1,8 @@
-import type { ParsedRow } from "@clv/shared";
+import { isExchange, type ParsedRow } from "@clv/shared";
 import type { OddsLookupLine, OddsLookupMessage, OddsLookupPick, OddsLookupResponse } from "./messages";
+
+/** Where a human click on this modal can go to see PropProfessor's odds screen for themselves. */
+const PP_ODDS_SCREEN_URL = "https://www.propprofessor.com/screen";
 
 /**
  * "What is this market priced at right now", shown on the board itself.
@@ -41,44 +44,64 @@ export const ODDS_MODAL_STYLES = `
 .clva-odds-modal {
   background: #131a23; color: #e6edf6; border: 1px solid #243040; border-radius: 11px;
   padding: 18px 20px; width: min(620px, calc(100vw - 40px));
-  max-height: min(80vh, 720px); overflow-y: auto;
+  max-height: min(84vh, 760px); overflow-y: auto;
   box-shadow: 0 22px 55px rgba(0,0,0,0.65);
-  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
-.clva-odds-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
-.clva-odds-head h3 { margin: 0; font-size: 15px; }
-.clva-odds-head .clva-sub { color: #8b9bb0; font-size: 12px; margin-top: 2px; }
+/* Positioned with left/top once dragged, so it must not still be centred by margin: auto -- see
+   the pointerdown handler below, which sets these to the modal's current on-screen position before
+   switching position to fixed. */
+.clva-odds-modal.clva-odds-dragged { position: fixed; margin: 0; }
+.clva-odds-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 14px;
+  cursor: grab; user-select: none; margin: -2px -2px 0; padding: 2px 2px 0;
+}
+.clva-odds-head:active { cursor: grabbing; }
+.clva-odds-head h3 { margin: 0; font-size: 16px; }
+.clva-odds-head .clva-sub { color: #8b9bb0; font-size: 13px; margin-top: 2px; }
 .clva-odds-head-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .clva-odds-modal button {
   font: inherit; padding: 6px 12px; border-radius: 8px; cursor: pointer;
   background: #182231; color: #e6edf6; border: 1px solid #243040;
 }
 .clva-odds-modal button:disabled { opacity: 0.55; cursor: default; }
+.clva-odds-icon-btn {
+  padding: 6px 8px; display: inline-flex; align-items: center; justify-content: center;
+}
+.clva-odds-icon-btn svg { width: 13px; height: 13px; display: block; }
 
 .clva-odds-summary {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin: 14px 0 10px;
 }
 .clva-odds-stat { display: inline-flex; align-items: baseline; gap: 6px; }
 .clva-odds-stat i {
-  font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  font-style: normal; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
   color: #8b9bb0;
 }
-.clva-odds-stat b { font-size: 14px; font-weight: 600; }
-.clva-odds-stat s { text-decoration: none; color: #8b9bb0; font-size: 11px; }
+.clva-odds-stat b { font-size: 15px; font-weight: 600; }
+.clva-odds-stat s { text-decoration: none; color: #8b9bb0; font-size: 12px; }
 .clva-good { color: #3fb950; }
 .clva-bad { color: #f85149; }
+.clva-info {
+  display: inline-flex; align-items: center; justify-content: center; align-self: center;
+  width: 13px; height: 13px; border-radius: 50%; border: 1px solid #8b9bb0;
+  color: #8b9bb0; font-size: 9px; font-style: italic; font-family: Georgia, "Times New Roman", serif;
+  cursor: help; line-height: 1; flex: 0 0 auto;
+}
+.clva-info:hover, .clva-info:focus { color: var(--clva-accent); border-color: var(--clva-accent); }
 
 .clva-odds-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
 .clva-odds-table th, .clva-odds-table td {
-  text-align: left; padding: 6px 8px; border-bottom: 1px solid #1d2633; font-size: 12px;
+  text-align: left; padding: 6px 8px; border-bottom: 1px solid #1d2633; font-size: 13px;
 }
-.clva-odds-table th { color: #8b9bb0; font-weight: 500; font-size: 10px;
+.clva-odds-table th { color: #8b9bb0; font-weight: 500; font-size: 11px;
   text-transform: uppercase; letter-spacing: 0.06em; }
 .clva-odds-table td.clva-num, .clva-odds-table th.clva-num { text-align: right; font-variant-numeric: tabular-nums; }
 .clva-odds-table tr.clva-excluded td { opacity: 0.5; }
 .clva-odds-book { display: inline-flex; align-items: center; gap: 7px; }
-.clva-odds-book img { width: 15px; height: 15px; border-radius: 3px; object-fit: contain; }
-.clva-odds-note { color: #8b9bb0; font-size: 11px; margin: 12px 0 0; }
+.clva-odds-book img { width: 16px; height: 16px; border-radius: 3px; object-fit: contain; }
+.clva-odds-note { color: #8b9bb0; font-size: 12px; margin: 12px 0 0; }
+.clva-odds-note a { color: var(--clva-accent); }
 .clva-odds-msg { color: #ff9b95; margin: 18px 0; }
 .clva-odds-wait { color: #8b9bb0; margin: 24px 0; text-align: center; }
 `;
@@ -100,6 +123,34 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+function link(text: string, href: string): HTMLAnchorElement {
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.textContent = text;
+  return a;
+}
+
+/** A circular-arrow glyph, built node by node for the same Trusted-Types reason `oddsButton`
+ *  below is: an `innerHTML` assignment is rejected outright on a page that enforces them. */
+function refreshIcon(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.6");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  arc.setAttribute("d", "M13.5 8A5.5 5.5 0 1 1 11.6 4");
+  const arrow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  arrow.setAttribute("d", "M13.5 3v3.5H10");
+  svg.append(arc, arrow);
+  return svg;
+}
+
 /** The identity the server needs to find this market, taken from the board's own parse. */
 export function pickFromRow(row: ParsedRow): OddsLookupPick {
   return {
@@ -118,11 +169,24 @@ export function pickFromRow(row: ParsedRow): OddsLookupPick {
 function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>["verdict"]>, fetchedAt: string): HTMLElement {
   const wrap = el("div", "clva-odds-summary");
 
-  const stat = (label: string, value: string, sub?: string, tone?: "good" | "bad") => {
+  const stat = (
+    label: string,
+    value: string,
+    sub?: string,
+    tone?: "good" | "bad",
+    infoTitle?: string
+  ) => {
     const s = el("span", "clva-odds-stat");
     s.appendChild(el("i", undefined, label));
     const b = el("b", tone === "good" ? "clva-good" : tone === "bad" ? "clva-bad" : undefined, value);
     s.appendChild(b);
+    if (infoTitle) {
+      const info = el("span", "clva-info", "i");
+      info.title = infoTitle;
+      info.setAttribute("aria-label", infoTitle);
+      info.tabIndex = 0;
+      s.appendChild(info);
+    }
     if (sub) s.appendChild(el("s", undefined, sub));
     wrap.appendChild(s);
   };
@@ -130,7 +194,7 @@ function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>
   const books = (n: number) => `${n} book${n === 1 ? "" : "s"}`;
 
   if (verdict.avgClosingLine !== null) {
-    stat("Avg line", verdict.avgClosingLine.toFixed(2), books(verdict.closingBookCount));
+    stat("Avg line", verdict.avgClosingLine.toFixed(1), books(verdict.closingBookCount));
   }
   // The reason this modal is worth opening on a whole-number market: the line on a passing-
   // touchdowns prop cannot move off 2.5, so the price is the only thing that ever does.
@@ -151,7 +215,9 @@ function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>
       "Edge",
       `${verdict.edge > 0 ? "+" : ""}${verdict.edge.toFixed(2)}`,
       undefined,
-      verdict.edge > 0 ? "good" : verdict.edge < 0 ? "bad" : undefined
+      verdict.edge > 0 ? "good" : verdict.edge < 0 ? "bad" : undefined,
+      "How far the line has moved in your favor (positive) or against you (negative) since you " +
+        "took this pick, in line points."
     );
   }
 
@@ -161,28 +227,56 @@ function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>
   return wrap;
 }
 
+/** The money resting behind an exchange's quote, or "--" for a book that doesn't report one. */
+function fmtLiquidity(liquidity: number | null): string {
+  if (liquidity === null || liquidity <= 0) return "--";
+  return `$${Math.round(liquidity).toLocaleString()}`;
+}
+
 /**
  * The book-by-book table.
  *
- * `atLine` adds one column and only one: what each book pays at the row's own number. It is the
- * whole point of opening this on a DFS board -- the Line/Price pair says where the sportsbooks are,
- * which is the CLV question, and this says what they would charge for the bet in front of you,
- * which is the one you are about to act on. Passed as null whenever the field is already quoting
- * that line, so the common case stays a three-column table.
+ * When the field has moved off the row's own number, `atLine` is that number and every line is
+ * rewritten to it before rendering: a book's `line`/`price` become the row's own taken line and
+ * whatever that book pays there (`priceAtLine`), and a book with nothing to say about that exact
+ * number is dropped rather than shown quoting some other line, which is not the bet in front of
+ * anyone reading this table. `atLine` is null whenever the field is already sitting on that
+ * number, so the common case shows every book's own line/price unchanged.
  */
 function table(lines: OddsLookupLine[], atLine: number | null): HTMLElement {
+  const rows =
+    atLine === null
+      ? lines
+      : lines
+          .map((l) => ({
+            ...l,
+            line: l.line === atLine ? l.line : l.priceAtLine !== null ? atLine : null,
+            price: l.line === atLine ? l.price : l.priceAtLine,
+          }))
+          // A book quoting nothing at the exact line has nothing to contribute to this table --
+          // its own (different) line is not the market anyone here is asking about.
+          .filter((l) => l.line !== null);
+
+  // Every book had moved off the row's own line by the time this table was asked to show only
+  // that number -- rare, but an empty table with headers and no rows is worse than saying so.
+  if (rows.length === 0) {
+    return el("p", "clva-odds-msg", `No book is currently quoting a price at ${atLine}.`);
+  }
+
+  const showLiquidity = rows.some((l) => isExchange(l.bookKey, l.label));
+
   const t = el("table", "clva-odds-table");
   const head = el("tr");
   head.appendChild(el("th", undefined, "Book"));
   head.appendChild(el("th", "clva-num", "Line"));
   head.appendChild(el("th", "clva-num", "Price"));
-  if (atLine !== null) head.appendChild(el("th", "clva-num", `At ${atLine}`));
+  if (showLiquidity) head.appendChild(el("th", "clva-num", "Liquidity"));
   const thead = el("thead");
   thead.appendChild(head);
   t.appendChild(thead);
 
   const body = el("tbody");
-  for (const line of lines) {
+  for (const line of rows) {
     const tr = el("tr", line.includedInAverage ? undefined : "clva-excluded");
     const name = el("td");
     const box = el("span", "clva-odds-book");
@@ -201,8 +295,11 @@ function table(lines: OddsLookupLine[], atLine: number | null): HTMLElement {
     tr.appendChild(name);
     tr.appendChild(el("td", "clva-num", line.line === null ? "--" : String(line.line)));
     tr.appendChild(el("td", "clva-num", fmtOdds(line.price)));
-    // "--" reads correctly here: this book is quoting the market, just not at that number.
-    if (atLine !== null) tr.appendChild(el("td", "clva-num", fmtOdds(line.priceAtLine)));
+    if (showLiquidity) {
+      tr.appendChild(
+        el("td", "clva-num", isExchange(line.bookKey, line.label) ? fmtLiquidity(line.liquidity) : "--")
+      );
+    }
     body.appendChild(tr);
   }
   t.appendChild(body);
@@ -230,8 +327,11 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   head.appendChild(titles);
 
   const actions = el("div", "clva-odds-head-actions");
-  const refresh = el("button", undefined, "Refresh");
+  const refresh = el("button", "clva-odds-icon-btn");
   refresh.type = "button";
+  refresh.title = "Refresh";
+  refresh.setAttribute("aria-label", "Refresh odds");
+  refresh.appendChild(refreshIcon());
   const close = el("button", undefined, "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -243,11 +343,39 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   modal.appendChild(content);
   scrim.appendChild(modal);
 
+  // Dragging: pins the modal to wherever it is on pointerdown, then follows the pointer. Skipped
+  // when the press lands on a button in the header (Refresh/Close), so those stay clickable.
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+  const onPointerMove = (e: PointerEvent) => {
+    const maxLeft = Math.max(0, window.innerWidth - modal.offsetWidth);
+    const maxTop = Math.max(0, window.innerHeight - modal.offsetHeight);
+    modal.style.left = `${Math.min(Math.max(0, e.clientX - dragOffsetX), maxLeft)}px`;
+    modal.style.top = `${Math.min(Math.max(0, e.clientY - dragOffsetY), maxTop)}px`;
+  };
+  const onPointerUp = () => {
+    document.removeEventListener("pointermove", onPointerMove);
+    document.removeEventListener("pointerup", onPointerUp);
+  };
+  head.addEventListener("pointerdown", (e) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    const rect = modal.getBoundingClientRect();
+    modal.classList.add("clva-odds-dragged");
+    modal.style.left = `${rect.left}px`;
+    modal.style.top = `${rect.top}px`;
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+  });
+
   let requestId = 0;
   const done = () => {
     requestId++; // abandons anything still in flight
     scrim.remove();
     document.removeEventListener("keydown", onKey, true);
+    onPointerUp();
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -309,14 +437,13 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
           wrap.appendChild(table(verdict.closeLines, verdict.atLine));
         }
         if (verdict.note) wrap.appendChild(el("p", "clva-odds-note", verdict.note));
-        wrap.appendChild(
-          el(
-            "p",
-            "clva-odds-note",
-            "Sportsbook lines from PropProfessor's odds screen, averaged the same way a closing " +
-              "read is."
-          )
+        const note = el("p", "clva-odds-note");
+        note.append(
+          "Sportsbook lines from ",
+          link("PropProfessor's odds screen ↗", PP_ODDS_SCREEN_URL),
+          ", averaged the same way a closing read is."
         );
+        wrap.appendChild(note);
         return wrap;
       });
     })();

@@ -9,6 +9,7 @@ import { ActionButton, type ActionResult } from "@/components/action-button";
 import { runDueGrades } from "@/lib/grading/grader";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { generateTestData, TEST_DATA_SOURCE_DEVICES, MAX_TEST_DATA_PER_REQUEST } from "@/lib/test-data";
+import { bookLogoUrl } from "@clv/shared";
 import {
   getAppSettings,
   knownBooks,
@@ -244,12 +245,12 @@ export default async function SettingsPage() {
         <h3>Books</h3>
         <p className="lede">
           Controls the book order shown in the &quot;When you took it&quot; / &quot;At market
-          close&quot; tables on a pick, and optionally how much each book counts toward the
-          closing average used for CLV.
+          close&quot; tables on a pick, in the Odds modal, and optionally how much each book counts
+          toward the closing average used for CLV.
         </p>
         <BookSettingsForm
           initialOrder={orderedBookKeys}
-          books={books}
+          books={books.map((b) => ({ ...b, logoUrl: bookLogoUrl(b.bookKey, b.label) }))}
           initialWeights={bookSettings.bookWeights}
           initialUseWeighted={bookSettings.useWeightedAverage}
           initialUseLiquidity={bookSettings.useLiquidityWeighting}
