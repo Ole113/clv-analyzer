@@ -1,6 +1,4 @@
-"use client";
-
-import { useMemo, useState } from "react";
+import { SortableTableClient } from "./sortable-table-client";
 
 /**
  * A `<table>` whose headers sort the rows client-side, for the small breakdown tables tucked behind
@@ -13,12 +11,13 @@ import { useMemo, useState } from "react";
  * `<details>` closes, and it means one table's sort can never collide with another's in the query
  * string.
  *
- * Same interaction and CSS classes as `bets-table.tsx` (`.sortable`, `.sort-indicator`) so a header
- * click behaves identically everywhere in the app: first click ascending, second descending, third
- * back to the data's own order.
+ * No "use client" here on purpose: every caller is a Server Component (the /analysis views) and
+ * every column's `render`/`sortValue` is a plain closure over its own data. Those closures cannot
+ * cross into `SortableTableClient` -- a Client Component's props must be serializable, and a bare
+ * function is not -- so this module runs them itself, on the server, and hands the *result*
+ * (already-rendered cells, plain sort keys) across the boundary instead. Only that inner component
+ * carries "use client"; this one is free to hold onto whatever functions its caller gives it.
  */
-
-export type SortDir = "asc" | "desc";
 
 export interface SortableColumn<T> {
   key: string;
@@ -34,18 +33,6 @@ export interface SortableColumn<T> {
   render: (row: T) => React.ReactNode;
 }
 
-/** Nulls (and empty strings) sort last regardless of direction -- "no value yet" is not
- *  meaningfully high or low. Mirrors `compareBets` in `bets-table.tsx`. */
-function compare(a: string | number | null, b: string | number | null, dir: SortDir): number {
-  const aEmpty = a === null || a === "";
-  const bEmpty = b === null || b === "";
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
-  const cmp = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
-  return dir === "asc" ? cmp : -cmp;
-}
-
 export function SortableTable<T>({
   columns,
   rows,
@@ -57,69 +44,21 @@ export function SortableTable<T>({
   rowKey: (row: T) => string;
   rowClassName?: (row: T) => string | undefined;
 }) {
-  const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(null);
+  const colDefs = columns.map((c) => ({
+    key: c.key,
+    label: c.label,
+    numeric: c.numeric,
+    sortable: !!c.sortValue,
+  }));
 
-  const onSort = (key: string) => {
-    setSort((prev) => {
-      if (!prev || prev.key !== key) return { key, dir: "asc" };
-      if (prev.dir === "asc") return { key, dir: "desc" };
-      return null; // third click: back to the data's own order
-    });
-  };
+  const rowData = rows.map((row) => ({
+    key: rowKey(row),
+    className: rowClassName?.(row),
+    cells: Object.fromEntries(columns.map((c) => [c.key, c.render(row)] as const)),
+    sortValues: Object.fromEntries(
+      columns.map((c) => [c.key, c.sortValue ? c.sortValue(row) : null] as const)
+    ),
+  }));
 
-  const sorted = useMemo(() => {
-    if (!sort) return rows;
-    const col = columns.find((c) => c.key === sort.key);
-    if (!col?.sortValue) return rows;
-    const sv = col.sortValue;
-    return [...rows].sort((a, b) => compare(sv(a), sv(b), sort.dir));
-  }, [rows, sort, columns]);
-
-  return (
-    <table>
-      <thead>
-        <tr>
-          {columns.map((c) => {
-            const active = sort?.key === c.key;
-            const sortable = !!c.sortValue;
-            return (
-              <th
-                key={c.key}
-                className={[c.numeric ? "num" : null, sortable ? "sortable" : null].filter(Boolean).join(" ") || undefined}
-                role={sortable ? "button" : undefined}
-                tabIndex={sortable ? 0 : undefined}
-                onClick={sortable ? () => onSort(c.key) : undefined}
-                onKeyDown={
-                  sortable
-                    ? (e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          onSort(c.key);
-                        }
-                      }
-                    : undefined
-                }
-              >
-                {c.label}
-                {active && (
-                  <span className="sort-indicator">{sort!.dir === "asc" ? " ▲" : " ▼"}</span>
-                )}
-              </th>
-            );
-          })}
-        </tr>
-      </thead>
-      <tbody>
-        {sorted.map((row) => (
-          <tr key={rowKey(row)} className={rowClassName?.(row)}>
-            {columns.map((c) => (
-              <td key={c.key} className={c.numeric ? "num" : undefined}>
-                {c.render(row)}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+  return <SortableTableClient columns={colDefs} rows={rowData} />;
 }

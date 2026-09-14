@@ -133,7 +133,14 @@ function repositionLoop(): void {
 requestAnimationFrame(repositionLoop);
 
 const OVERLAY_STYLES = `
-#${OVERLAY_ID} { position: fixed; top: 0; left: 0; width: 0; height: 0; pointer-events: none; z-index: 2147483000; }
+/* Deliberately a modest z-index, not the near-max value the toasts and modals elsewhere in this
+   extension use. Those need to sit above literally everything because they *are* the page's own
+   content while open; this overlay only ever occupies the blank margin strip reserved beside the
+   grid (see the [role="grid"] margin rule below), so it never overlaps real page content and
+   never needed to outrank it. It used to anyway (2147483000, the same tier as the toast host), and
+   the failure mode was PropProfessor's own slide-out sidebar -- a real, higher-priority piece of
+   the page -- rendering underneath a strip of checkboxes that have nothing to do with it. */
+#${OVERLAY_ID} { position: fixed; top: 0; left: 0; width: 0; height: 0; pointer-events: none; z-index: 1; }
 .clva-slot {
   position: fixed !important; box-sizing: border-box !important; overflow: hidden !important;
   width: ${LANE}px !important; min-width: ${LANE}px !important; max-width: ${LANE}px !important;

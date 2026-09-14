@@ -82,13 +82,24 @@ export const ODDS_MODAL_STYLES = `
 .clva-odds-stat s { text-decoration: none; color: #8b9bb0; font-size: 12px; }
 .clva-good { color: #3fb950; }
 .clva-bad { color: #f85149; }
-.clva-info {
+/* ".clva-odds-modal .clva-info" rather than plain ".clva-info": this is a real <button> now (for
+   working keyboard activation), which also makes it a target of ".clva-odds-modal button" above --
+   two classes beats one class + one type selector on specificity, so this still wins regardless of
+   which rule comes first in the sheet. */
+.clva-odds-modal .clva-info {
   display: inline-flex; align-items: center; justify-content: center; align-self: center;
-  width: 13px; height: 13px; border-radius: 50%; border: 1px solid #8b9bb0;
-  color: #8b9bb0; font-size: 9px; font-style: italic; font-family: Georgia, "Times New Roman", serif;
-  cursor: help; line-height: 1; flex: 0 0 auto;
+  width: 13px; height: 13px; padding: 0; border-radius: 50%; border: 1px solid #8b9bb0;
+  background: transparent; color: #8b9bb0; font-size: 9px; font-style: italic;
+  font-family: Georgia, "Times New Roman", serif; cursor: pointer; line-height: 1; flex: 0 0 auto;
 }
 .clva-info:hover, .clva-info:focus { color: var(--clva-accent); border-color: var(--clva-accent); }
+.clva-info-pop {
+  position: fixed; z-index: 2147483003; width: 260px; max-width: calc(100vw - 20px);
+  background: #131a23; color: #e6edf6; border: 1px solid #243040; border-radius: 9px;
+  padding: 10px 12px; box-shadow: 0 14px 34px rgba(0,0,0,0.55);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.clva-info-pop strong { display: block; margin-bottom: 4px; font-size: 13px; }
 
 .clva-odds-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
 .clva-odds-table th, .clva-odds-table td {
@@ -151,6 +162,76 @@ function refreshIcon(): SVGSVGElement {
   return svg;
 }
 
+/**
+ * Whichever info popover is currently open, if any -- there is only ever one info button visible
+ * at a time, but a Refresh re-renders `summary()` from scratch, and without this the outgoing
+ * button's popover (if it happened to be open) would be orphaned on `document.body` with its
+ * document-level listeners still attached forever. Closing the previous one before opening a new
+ * one, and force-closing it when the modal itself closes, is what keeps that from ever happening.
+ */
+let closeActiveInfoPopover: (() => void) | null = null;
+
+/**
+ * The little "i" next to a stat -- click to toggle a short explanation.
+ *
+ * Not a `title` attribute: that is a hover-only tooltip, invisible to anyone on a touchscreen and,
+ * on this control specifically, invisible to a click too -- which is exactly the bug this replaces.
+ * Mirrors the dashboard's own `Info` component (`server/src/components/info.tsx`): a click toggles
+ * a small popover, positioned from the button's own `getBoundingClientRect()` and appended to
+ * `document.body` so the modal's `overflow-y: auto` can never clip it.
+ */
+function infoButton(title: string, body: string): HTMLButtonElement {
+  const button = el("button", "clva-info", "i");
+  button.type = "button";
+  button.setAttribute("aria-label", `${title}: ${body}`);
+  button.setAttribute("aria-expanded", "false");
+
+  let pop: HTMLElement | null = null;
+  const onDocDown = (e: MouseEvent) => {
+    if (pop && !pop.contains(e.target as Node) && e.target !== button) close();
+  };
+  const onDocKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") close();
+  };
+  function close(): void {
+    pop?.remove();
+    pop = null;
+    button.setAttribute("aria-expanded", "false");
+    document.removeEventListener("mousedown", onDocDown, true);
+    document.removeEventListener("keydown", onDocKey, true);
+    if (closeActiveInfoPopover === close) closeActiveInfoPopover = null;
+  }
+  function open(): void {
+    closeActiveInfoPopover?.();
+    pop = el("div", "clva-info-pop");
+    pop.setAttribute("role", "dialog");
+    pop.appendChild(el("strong", undefined, title));
+    pop.appendChild(el("div", undefined, body));
+    document.body.appendChild(pop);
+
+    const r = button.getBoundingClientRect();
+    const width = pop.offsetWidth;
+    const left = Math.min(Math.max(10, r.left - 8), window.innerWidth - width - 10);
+    const height = pop.offsetHeight;
+    const below = window.innerHeight - r.bottom - 8 - 10;
+    const flip = height > below && r.top - 8 - 10 > below;
+    pop.style.left = `${left}px`;
+    pop.style.top = `${flip ? Math.max(10, r.top - 8 - height) : r.bottom + 8}px`;
+
+    button.setAttribute("aria-expanded", "true");
+    document.addEventListener("mousedown", onDocDown, true);
+    document.addEventListener("keydown", onDocKey, true);
+    closeActiveInfoPopover = close;
+  }
+  button.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (pop) close();
+    else open();
+  });
+  return button;
+}
+
 /** The identity the server needs to find this market, taken from the board's own parse. */
 export function pickFromRow(row: ParsedRow): OddsLookupPick {
   return {
@@ -180,13 +261,7 @@ function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>
     s.appendChild(el("i", undefined, label));
     const b = el("b", tone === "good" ? "clva-good" : tone === "bad" ? "clva-bad" : undefined, value);
     s.appendChild(b);
-    if (infoTitle) {
-      const info = el("span", "clva-info", "i");
-      info.title = infoTitle;
-      info.setAttribute("aria-label", infoTitle);
-      info.tabIndex = 0;
-      s.appendChild(info);
-    }
+    if (infoTitle) s.appendChild(infoButton(label, infoTitle));
     if (sub) s.appendChild(el("s", undefined, sub));
     wrap.appendChild(s);
   };
@@ -376,6 +451,7 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
     scrim.remove();
     document.removeEventListener("keydown", onKey, true);
     onPointerUp();
+    closeActiveInfoPopover?.();
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
