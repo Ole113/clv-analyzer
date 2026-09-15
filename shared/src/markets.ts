@@ -317,25 +317,114 @@ export const PROPPROFESSOR_MARKETS: Record<string, string> = {
   "total tie breaks": "Total Tie Breaks",
   "total first downs": "Total First Downs",
   "total sacks": "Total Sacks",
+  // Named team totals, same reasoning as the game totals above: a board that said which team total
+  // it meant is not flattened into the league's default by the team-total branch of
+  // resolveClosingMarket.
+  "team total points": "Team Total Points",
+  "team total touchdowns": "Team Total Touchdowns",
+  "team total field goals": "Team Total Field Goals",
+  "team total yards": "Team Total Yards",
+  "team total rushing yards": "Team Total Rushing Yards",
+  "team total rushing touchdowns": "Team Total Rushing Touchdowns",
+  "team total passing yards": "Team Total Passing Yards",
+  "team total passing touchdowns": "Team Total Passing Touchdowns",
+  "team total receptions": "Team Total Receptions",
+  "team total sacks": "Team Total Sacks",
+  "team total runs": "Team Total Runs",
+  "team total goals": "Team Total Goals",
+  "team total shots on goal": "Team Total Shots On Goal",
+  "team total corners": "Team Total Corners",
+  "team total cards": "Team Total Cards",
+  "team total shots": "Team Total Shots",
+  "team total shots on target": "Team Total Shots On Target",
+  "team total offsides": "Team Total Offsides",
+  "team total tackles": "Team Total Tackles",
 };
 
 /**
  * Markets no sportsbook prices, so no closing line can ever exist for them.
  *
  * These are not failures and must never burn retries: a PrizePicks "Fantasy Score" is a scoring
- * formula proprietary to that app, and a period-qualified prop ("1st Quarter Passing Yards") is not
- * carried on the screen even though the full-game version is. Seeded from the prose already in
- * the grading stat-map, which reached the same conclusions for the same reasons.
+ * formula proprietary to that app. Period-qualified props ("1st Quarter Passing Yards") used to be
+ * listed here too, on the assumption the screen carries full-game markets only -- it doesn't: PP's
+ * own "Game" dropdown breaks almost every market down by quarter/half/inning/period, see
+ * `extractPeriod` below. Seeded from the prose already in the grading stat-map, which reached the
+ * same conclusions for the same reasons.
  */
 export const NO_SPORTSBOOK_EQUIVALENT: RegExp[] = [
   /\bfantasy (score|points)\b/,
   /\bdfs\b/,
   /\bpick\s?em\b/,
-  // Period-qualified markets: the screen carries full-game only.
-  /\b(1st|2nd|3rd|4th|first|second|third|fourth)\s+(quarter|qtr|half|period|inning|set)\b/,
-  /\b(q1|q2|q3|q4|h1|h2|p1|p2|p3)\b/,
-  /\bfirst\s+\d+\s+(innings|minutes)\b/,
+  // Unlike the innings-count markets `extractPeriod` handles below, a first-N-minutes market has
+  // never been confirmed on the screen's "Game" dropdown -- left unsupported rather than guessed at.
+  /\bfirst\s+\d+\s+minutes\b/,
 ];
+
+/** Ordinal word or numeral, normalized to the spelling PropProfessor's own dropdown uses. */
+const PERIOD_ORDINALS: Record<string, string> = {
+  "1st": "1st",
+  first: "1st",
+  "2nd": "2nd",
+  second: "2nd",
+  "3rd": "3rd",
+  third: "3rd",
+  "4th": "4th",
+  fourth: "4th",
+};
+
+/** Period unit word, normalized to PropProfessor's own title-cased spelling. */
+const PERIOD_UNITS: Record<string, string> = {
+  quarter: "Quarter",
+  qtr: "Quarter",
+  half: "Half",
+  period: "Period",
+  inning: "Inning",
+  set: "Set",
+};
+
+/** "Q1"/"H1"/"P1" shorthand, normalized straight to the canonical label a written-out period gets. */
+const SHORT_PERIOD_LABELS: Record<string, string> = {
+  q1: "1st Quarter",
+  q2: "2nd Quarter",
+  q3: "3rd Quarter",
+  q4: "4th Quarter",
+  h1: "1st Half",
+  h2: "2nd Half",
+  p1: "1st Period",
+  p2: "2nd Period",
+  p3: "3rd Period",
+};
+
+const LONG_PERIOD_RE = /\b(1st|2nd|3rd|4th|first|second|third|fourth)\s+(quarter|qtr|half|period|inning|set)\b/;
+const SHORT_PERIOD_RE = /\b(q[1-4]|h[1-2]|p[1-3])\b/;
+/** MLB's own dropdown offers these as a distinct concept from a single inning -- "1st 5 Innings" is
+ *  its own market, not "1st Inning" with a typo -- so it gets its own pattern and its own label. */
+const CUMULATIVE_INNINGS_RE = /\bfirst\s+(\d+)\s+innings\b/;
+
+/**
+ * Splits a period qualifier off a normalized market name and translates it to the exact label
+ * PropProfessor's own "Game" dropdown uses, confirmed against the live site: selecting a market and
+ * a period there sends a WebSocket `subscribe` whose `market` field is `"<market> - <period>"` verbatim
+ * (e.g. "Team Total Points - 1st Quarter", "Total Points - 1st Half", "Team Total Runs - 1st Inning").
+ * Nothing about period support lives in a separate request field -- it is entirely this suffix.
+ *
+ * Returns the market name with the qualifier removed either way, and a null period when none is
+ * found, so a plain full-game market passes through unchanged.
+ */
+export function extractPeriod(stat: string): { base: string; period: string | null } {
+  const strip = (match: string) => stat.replace(match, " ").replace(/\s+/g, " ").trim();
+
+  const cumulative = stat.match(CUMULATIVE_INNINGS_RE);
+  if (cumulative) return { base: strip(cumulative[0]), period: `1st ${cumulative[1]} Innings` };
+
+  const long = stat.match(LONG_PERIOD_RE);
+  if (long) return { base: strip(long[0]), period: `${PERIOD_ORDINALS[long[1]]} ${PERIOD_UNITS[long[2]]}` };
+
+  const short = stat.match(SHORT_PERIOD_RE);
+  if (short) return { base: strip(short[0]), period: SHORT_PERIOD_LABELS[short[1]] };
+
+  return { base: stat, period: null };
+}
 
 /** League slug PropProfessor's screen expects, from whatever the capture called the sport. */
 export const PROPPROFESSOR_LEAGUES: Record<string, string> = {
@@ -462,6 +551,27 @@ export const PROPPROFESSOR_GAME_TOTALS: Record<string, string> = {
 };
 
 /**
+ * What "the team total" is called, per league -- the same idea as `PROPPROFESSOR_GAME_TOTALS`, one
+ * level down. A team total is keyed by which team, not by a number of its own, so its screen name is
+ * decided by the sport the same way a game total's is: "Team Total Points" in football and
+ * basketball, "Team Total Runs" in baseball, "Team Total Goals" in hockey and soccer. Tennis and UFC
+ * have no team-total concept and are left out on purpose.
+ */
+export const PROPPROFESSOR_TEAM_TOTALS: Record<string, string> = {
+  NFL: "Team Total Points",
+  NCAAF: "Team Total Points",
+  CFL: "Team Total Points",
+  NBA: "Team Total Points",
+  NCAAB: "Team Total Points",
+  WNBA: "Team Total Points",
+  MLB: "Team Total Runs",
+  NPB: "Team Total Runs",
+  KBO: "Team Total Runs",
+  NHL: "Team Total Goals",
+  Soccer: "Team Total Goals",
+};
+
+/**
  * The same table again, keyed by `marketFilterKey` so a "Player "-prefixed spelling finds an entry
  * stored bare, and vice versa.
  *
@@ -500,14 +610,18 @@ export function resolveClosingMarket(
   statMarket: string | null,
   marketType: MarketType = "PLAYER_PROP"
 ): ResolvedMarket {
-  const stat = normalizeMarketName(statMarket);
-  if (!stat) return { ok: false, kind: "unmapped", detail: "the pick has no market name" };
+  const rawStat = normalizeMarketName(statMarket);
+  if (!rawStat) return { ok: false, kind: "unmapped", detail: "the pick has no market name" };
+
+  // Stripped off before every check below, and reattached as a suffix by `withPeriod` once the base
+  // market is resolved -- it is not a separate request field, see `extractPeriod`.
+  const { base: stat, period } = extractPeriod(rawStat);
 
   if (NO_SPORTSBOOK_EQUIVALENT.some((re) => re.test(stat))) {
     return {
       ok: false,
       kind: "noEquivalent",
-      detail: `"${statMarket}" is a DFS-only or period-qualified market that no sportsbook prices`,
+      detail: `"${statMarket}" is a DFS-only market that no sportsbook prices`,
     };
   }
 
@@ -516,25 +630,46 @@ export function resolveClosingMarket(
     return { ok: false, kind: "unmapped", detail: `no PropProfessor league for sport "${sport}"` };
   }
 
+  const withPeriod = (market: string): ResolvedMarket => ({
+    ok: true,
+    market: period ? `${market} - ${period}` : market,
+    league,
+  });
+
   // Game markets are named by their type, not by whatever prose the board rendered ("Seattle
   // Seahawks +9" is a Point Spread however it is spelled).
-  if (marketType === "MONEYLINE") return { ok: true, market: "Moneyline", league };
-  if (marketType === "SPREAD") return { ok: true, market: "Point Spread", league };
+  if (marketType === "MONEYLINE") return withPeriod("Moneyline");
+  if (marketType === "SPREAD") return withPeriod("Point Spread");
 
-  const market = PROPPROFESSOR_MARKETS[stat] ?? MARKETS_BY_FILTER_KEY[marketFilterKey(statMarket)];
+  const market = PROPPROFESSOR_MARKETS[stat] ?? MARKETS_BY_FILTER_KEY[marketFilterKey(stat)];
+
+  // A team total is keyed by which team, not by the pick's own number, and its screen name is
+  // decided by the sport exactly like a game total's is -- checked ahead of `marketType` because a
+  // captured team-total pick's own type is not reliable ("Seattle Seahawks Over 24.5" parses as a
+  // PLAYER_PROP with the team name read as the player, not as a distinct team-total type).
+  if (stat === "team total" || stat.startsWith("team total ")) {
+    if (market?.startsWith("Team Total ")) return withPeriod(market);
+    const total = PROPPROFESSOR_TEAM_TOTALS[league];
+    if (total) return withPeriod(total);
+    return {
+      ok: false,
+      kind: "unmapped",
+      detail: `no PropProfessor team total for league "${league}"`,
+    };
+  }
 
   if (marketType === "GAME_TOTAL") {
     // A board that named the total specifically ("Total Sets", "Total Touchdowns") is taken at its
     // word; a generic one ("Game Total", "Total") gets the league's own total. The alias lookup
     // runs first for the former, so a tennis "Total Sets" is not flattened into "Total Games".
-    if (market?.startsWith("Total ")) return { ok: true, market, league };
+    if (market?.startsWith("Total ")) return withPeriod(market);
     const total = PROPPROFESSOR_GAME_TOTALS[league];
-    if (total) return { ok: true, market: total, league };
+    if (total) return withPeriod(total);
     return { ok: false, kind: "unmapped", detail: `no PropProfessor game total for league "${league}"` };
   }
 
   if (!market) {
     return { ok: false, kind: "unmapped", detail: `no PropProfessor market alias for "${statMarket}"` };
   }
-  return { ok: true, market, league };
+  return withPeriod(market);
 }

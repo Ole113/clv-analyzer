@@ -77,14 +77,73 @@ describe("market resolution", () => {
   it("separates 'no book prices this' from 'we have no alias yet'", () => {
     // Terminal and blameless -- must never burn a retry.
     expect(resolveClosingMarket("NFL", "Fantasy Score")).toMatchObject({ kind: "noEquivalent" });
-    expect(resolveClosingMarket("NFL", "1st Quarter Passing Yards")).toMatchObject({
-      kind: "noEquivalent",
-    });
     // A gap in our table -- must stay loud so a line can be added. "Longest Completion" used to
     // stand here and no longer does: it is a market the screen carries, and it is now aliased
     // along with every other Player/Pitcher value in __fixtures__/pp-screen-vocabulary.json.
     expect(resolveClosingMarket("NFL", "Quarterback Rating")).toMatchObject({ kind: "unmapped" });
     expect(resolveClosingMarket("Cricket", "Runs")).toMatchObject({ kind: "unmapped" });
+  });
+
+  it("resolves period-qualified markets instead of assuming the screen carries full-game only", () => {
+    // Confirmed against PropProfessor's own "Game" dropdown: selecting a period appends it to the
+    // `market` field of the WebSocket subscribe as "<market> - <period>" verbatim, across every
+    // market shape -- player prop, plain game total, and team total alike.
+    expect(resolveClosingMarket("NFL", "1st Quarter Passing Yards")).toMatchObject({
+      ok: true,
+      market: "Player Passing Yards - 1st Quarter",
+    });
+    expect(resolveClosingMarket("NFL", "Receiving Yards - 1st Half")).toMatchObject({
+      ok: true,
+      market: "Player Receiving Yards - 1st Half",
+    });
+    expect(resolveClosingMarket("NFL", "Total Points", "GAME_TOTAL")).toMatchObject({
+      ok: true,
+      market: "Total Points",
+    });
+    expect(resolveClosingMarket("NFL", "4th Quarter Total Points", "GAME_TOTAL")).toMatchObject({
+      ok: true,
+      market: "Total Points - 4th Quarter",
+    });
+    // Shorthand spellings resolve to the same canonical label a written-out period does.
+    expect(resolveClosingMarket("NFL", "Passing Yards Q1")).toMatchObject({
+      market: "Player Passing Yards - 1st Quarter",
+    });
+    // MLB's own dropdown treats a cumulative innings market as distinct from a single inning.
+    expect(resolveClosingMarket("MLB", "Team Total Runs - First 5 Innings")).toMatchObject({
+      ok: true,
+      market: "Team Total Runs - 1st 5 Innings",
+    });
+    // Still correctly rejected: a period qualifier on an already-unpriceable market doesn't rescue
+    // it, and a first-N-minutes market has never been confirmed on the screen.
+    expect(resolveClosingMarket("NFL", "1st Quarter Fantasy Score")).toMatchObject({
+      kind: "noEquivalent",
+    });
+    expect(resolveClosingMarket("Soccer", "First 10 Minutes To Score")).toMatchObject({
+      kind: "noEquivalent",
+    });
+  });
+
+  it("resolves a team total by the sport, the same way a game total is", () => {
+    // "Seattle Seahawks Over 24.5" parses as a PLAYER_PROP with the team name read as the player --
+    // a separate, known gap in the OddsJam board parser -- so this must not depend on `marketType`.
+    expect(resolveClosingMarket("NFL", "Team Total")).toMatchObject({
+      ok: true,
+      market: "Team Total Points",
+    });
+    expect(resolveClosingMarket("MLB", "Team Total")).toMatchObject({
+      ok: true,
+      market: "Team Total Runs",
+    });
+    expect(resolveClosingMarket("NFL", "1st Quarter Team Total")).toMatchObject({
+      ok: true,
+      market: "Team Total Points - 1st Quarter",
+    });
+    // A specifically-named team total is taken at its word rather than flattened to the default.
+    expect(resolveClosingMarket("NFL", "Team Total Passing Yards")).toMatchObject({
+      ok: true,
+      market: "Team Total Passing Yards",
+    });
+    expect(resolveClosingMarket("Tennis", "Team Total")).toMatchObject({ kind: "unmapped" });
   });
 
   it("resolves a market whether or not the board prefixed it with 'Player'", () => {
