@@ -276,15 +276,6 @@ function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>
   if (verdict.avgClosingPrice !== null) {
     stat("Avg price", fmtOdds(verdict.avgClosingPrice), books(verdict.closingPriceBookCount));
   }
-  // The number this modal is actually opened for on a board: the books' price at *your* line, not
-  // at whatever line they happen to be sitting on. Shown only when those are different lines.
-  if (verdict.atLine !== null && verdict.avgPriceAtLine !== null) {
-    stat(
-      `At ${verdict.atLine}`,
-      fmtOdds(verdict.avgPriceAtLine),
-      books(verdict.priceAtLineBookCount)
-    );
-  }
   if (verdict.edge !== null) {
     stat(
       "Edge",
