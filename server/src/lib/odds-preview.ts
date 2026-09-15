@@ -229,7 +229,7 @@ export async function lookupOddsNow(
     outcome.row,
     settings.useWeightedAverage ? settings.bookWeights : null,
     "PP_SCREEN",
-    { useLiquidityWeighting: settings.useLiquidityWeighting }
+    { useLiquidityWeighting: settings.useLiquidityWeighting, lookup: true }
   );
   // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
   verdict.closeLines = sortByBookOrder(verdict.closeLines, settings.bookOrder);

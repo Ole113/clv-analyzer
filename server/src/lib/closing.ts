@@ -116,6 +116,16 @@ export function buildClosingVerdict(
     openFairProb?: number | null;
     /** Whether captured depth should weight the average. Off unless the user turned it on. */
     useLiquidityWeighting?: boolean;
+    /**
+     * Set only for the board lookup, where nothing has been picked yet -- just a specific number
+     * (`takenLine`) the user is looking at. Restricts `avgClosingLine`/`avgClosingPrice` to books
+     * whose own line matches that number exactly, instead of blending in every book's own main line
+     * even when most of the field sits on some other number entirely (a total-bases market with
+     * books anchored anywhere from 0.5 to 2.5 has no honest single "average line"). Also suppresses
+     * `edge`/`beatClv`, which ask how far the market has moved since a pick was taken -- a question
+     * with no premise when there is no pick.
+     */
+    lookup?: boolean;
   } = {}
 ): ClosingVerdict {
   // The screen needs an allowlist: on the optimizer the `hasLine` test did most of the filtering,
@@ -144,8 +154,19 @@ export function buildClosingVerdict(
     if (outliers.has(line.bookKey)) line.includedInAverage = false;
   }
 
+  // On a lookup, a book only belongs in "the average" when it is quoting the exact number the user
+  // is looking at -- its own main line being some other number is not a vote on this one. A separate
+  // view rather than mutating `closeLines` itself, so the book table (built from `closeLines` below)
+  // keeps showing the ordinary denylist/outlier reasons instead of "not averaged" on every book that
+  // simply prices a different line, which is not a real exclusion.
+  const averagingLines = options.lookup
+    ? closeLines.map((l) =>
+        l.includedInAverage && l.line === takenLine ? l : { ...l, includedInAverage: false }
+      )
+    : closeLines;
+
   const { avg, count } = averageClosingLine(
-    closeLines,
+    averagingLines,
     bookWeights,
     1,
     options.useLiquidityWeighting === true
@@ -159,7 +180,7 @@ export function buildClosingVerdict(
     avg: avgClosingPrice,
     avgProbability: avgClosingProbability,
     count: closingPriceBookCount,
-  } = averageClosingPrice(closeLines, bookWeights, 1, options.useLiquidityWeighting === true);
+  } = averageClosingPrice(averagingLines, bookWeights, 1, options.useLiquidityWeighting === true);
 
   // --- what the field pays at the line actually taken -------------------------------------------
   //
@@ -247,7 +268,12 @@ export function buildClosingVerdict(
     };
   }
 
-  const { edge, beatClv } = computeClv(marketType, side, takenLine, closingLine);
+  // No pick, no CLV: computing an edge from "the line the user happens to be looking at right now"
+  // vs. "the field's average" would read as if a bet had already been placed and beaten or lost to
+  // the close, which is not a question a lookup can answer.
+  const { edge, beatClv } = options.lookup
+    ? { edge: null, beatClv: null }
+    : computeClv(marketType, side, takenLine, closingLine);
   return {
     status: "CLOSED",
     closeLines,

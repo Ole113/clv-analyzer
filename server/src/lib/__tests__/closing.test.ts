@@ -83,4 +83,53 @@ describe("buildClosingVerdict", () => {
     expect(verdict.beatClv).toBeNull();
     expect(verdict.note).toMatch(/no sportsbook/i);
   });
+
+  describe("lookup mode (a board row nobody has picked yet)", () => {
+    // Total-bases-shaped board: most books anchor their own main line at 0.5, one sits at 1.5 --
+    // the number the user is actually looking at.
+    const totalBasesRow = (): ParsedRow =>
+      oddsJamRow({
+        takenLine: 1.5,
+        statMarket: "Total Bases",
+        bookLines: [
+          { bookKey: "draftkings", label: "DraftKings", line: 0.5, price: -400, logoUrl: null, rawText: "0.5 -400" },
+          { bookKey: "fanduel", label: "FanDuel", line: 0.5, price: -380, logoUrl: null, rawText: "0.5 -380" },
+          { bookKey: "caesars", label: "Caesars", line: 1.5, price: 192, logoUrl: null, rawText: "1.5 192" },
+        ],
+      });
+
+    it("averages only the books quoting the exact line being looked up", () => {
+      const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 1.5, totalBasesRow(), null, "PP_SCREEN", {
+        lookup: true,
+      });
+      expect(verdict.avgClosingLine).toBe(1.5);
+      expect(verdict.closingBookCount).toBe(1); // Caesars only -- DraftKings/FanDuel sit on 0.5
+      expect(verdict.avgClosingPrice).toBe(192);
+    });
+
+    it("never reports an edge, since nothing has been picked", () => {
+      const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 1.5, totalBasesRow(), null, "PP_SCREEN", {
+        lookup: true,
+      });
+      expect(verdict.edge).toBeNull();
+      expect(verdict.beatClv).toBeNull();
+    });
+
+    it("still shows every book's own line/price in the table untouched", () => {
+      const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 1.5, totalBasesRow(), null, "PP_SCREEN", {
+        lookup: true,
+      });
+      expect(verdict.closeLines.map((l) => [l.bookKey, l.line])).toEqual([
+        ["draftkings", 0.5],
+        ["fanduel", 0.5],
+        ["caesars", 1.5],
+      ]);
+    });
+
+    it("blends every book's own main line together outside lookup mode, for comparison", () => {
+      const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 1.5, totalBasesRow());
+      expect(verdict.avgClosingLine).toBeCloseTo((0.5 + 0.5 + 1.5) / 3, 5);
+      expect(verdict.edge).not.toBeNull();
+    });
+  });
 });
