@@ -212,6 +212,12 @@ describe("market resolution", () => {
     expect(resolveClosingMarket("PGA", "Game Total", "GAME_TOTAL")).toMatchObject({
       kind: "unmapped",
     });
+    // A named total this table has no alias for must stay itself, not silently flatten to the
+    // league's default -- "Total Turnovers" resolving to "Total Points" is exactly the bug this
+    // guards against (the modal showed a game's point total for a turnovers pick).
+    expect(resolveClosingMarket("NFL", "Total Turnovers", "GAME_TOTAL")).toMatchObject({
+      market: "Total Turnovers",
+    });
   });
 
   it("names a game market by its type, not by whatever prose the board rendered", () => {

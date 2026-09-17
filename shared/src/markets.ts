@@ -317,6 +317,15 @@ export const PROPPROFESSOR_MARKETS: Record<string, string> = {
   "total tie breaks": "Total Tie Breaks",
   "total first downs": "Total First Downs",
   "total sacks": "Total Sacks",
+  "total turnovers": "Total Turnovers",
+  "total punts": "Total Punts",
+  "total offsides": "Total Offsides",
+  "total receiving yards": "Total Receiving Yards",
+  "total rushing yards": "Total Rushing Yards",
+  "total rushing touchdowns": "Total Rushing Touchdowns",
+  "total shots": "Total Shots",
+  "total shots on target": "Total Shots On Target",
+  "total tackles": "Total Tackles",
   // Named team totals, same reasoning as the game totals above: a board that said which team total
   // it meant is not flattened into the league's default by the team-total branch of
   // resolveClosingMarket.
