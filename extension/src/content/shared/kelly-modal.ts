@@ -19,10 +19,10 @@ import { saveKellySettings, type KellySettings } from "./kelly-settings";
  * lives in `shared/src/kelly.ts`, shared with the dashboard's own /kelly tab so the two can never
  * quote different stakes for the same bet.
  *
- * This deliberately does not read the board for a price: the button that opens it lives in the same
- * `.clva-stack` as the odds-lookup icon (see `oddsButton` in `./odds-modal.ts`), one row-height lane
- * with no price column of its own on the boards this applies to -- see `../oddsjam/index.ts`'s
- * `kelly` gate. Price is typed in by hand, the same as the discrepancy points.
+ * The button that opens it lives beside the odds-lookup icon (see `oddsButton` in
+ * `./odds-modal.ts`), stacked in the same `.clva-stack` lane -- see `ownPriceFor` in
+ * `./inject.ts`, which pre-fills the price from the row's own book column when there is one, and
+ * `../oddsjam/index.ts`'s `kelly` gate for which boards get the icon at all.
  */
 
 export const KELLY_MODAL_STYLES = `
@@ -77,10 +77,7 @@ export const KELLY_MODAL_STYLES = `
 `;
 
 export interface KellyContext {
-  /**
-   * The price to start from, if the board happens to show one for this row. Null on the boards
-   * this opens from today -- see the comment above -- so the field opens blank and is typed in.
-   */
+  /** The row's own price, when the caller found one. Null opens the field blank for hand entry. */
   price: number | null;
   /** What the bet is, for the modal's subtitle. */
   label: string;

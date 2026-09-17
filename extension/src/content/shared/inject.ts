@@ -1,5 +1,5 @@
 import type { ParseResult, ParsedRow, SiteId, SnapshotPayload } from "@clv/shared";
-import { matchKeyForRow } from "@clv/shared";
+import { matchKeyForRow, normalizeBookKey } from "@clv/shared";
 import type {
   CaptureMessage,
   CaptureResponse,
@@ -397,17 +397,36 @@ function showOdds(adapter: SiteAdapter, key: string | null): void {
 }
 
 /**
+ * The row's own price for the fantasy book it's on, if the board is showing one.
+ *
+ * The book's own column is not filtered out of `bookLines` -- OddsJam renders it as a regular
+ * column right beside its "OddsJam Algo Odds" one, same as any comparison sportsbook -- so it is
+ * found the same way any other book's column would be, by the header identity `bookIdFrom` gave it
+ * normalizing to the same slug as the URL's `/fantasy-odds/<slug>`.
+ */
+function ownPriceFor(adapter: SiteAdapter, row: ParsedRow | null): number | null {
+  if (!row) return null;
+  const bookKey = normalizeBookKey(adapter.fantasyBook());
+  if (!bookKey) return null;
+  const line = row.bookLines.find((b) => normalizeBookKey(b.bookKey) === bookKey);
+  return line?.price ?? null;
+}
+
+/**
  * Opens the Kelly calculator for one row.
  *
- * Unlike `showOdds`, a missing or unmatched row is not an error here: the price is always typed in
- * by hand (see `kelly-modal.ts`), so all a row lookup buys is a nicer label in the modal's subtitle,
- * and "This pick" is a fine fallback for that.
+ * Unlike `showOdds`, a missing or unmatched row is not an error here: at worst the price field
+ * opens blank instead of pre-filled, and typing it in by hand still works (see `kelly-modal.ts`).
  */
 function showKelly(adapter: SiteAdapter, key: string | null): void {
   if (!adapter.kelly) return;
   const parsed = adapter.parse();
   const row = key && parsed.ok ? (parsed.rows.find((r) => r.externalPropId === key) ?? null) : null;
-  openKellyModal({ price: null, label: labelFor(row), settings: adapter.kelly.settings() });
+  openKellyModal({
+    price: ownPriceFor(adapter, row),
+    label: labelFor(row),
+    settings: adapter.kelly.settings(),
+  });
 }
 
 function injectRows(adapter: SiteAdapter): void {
