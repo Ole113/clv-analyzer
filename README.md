@@ -401,8 +401,13 @@ server was unreachable (it retries automatically), and **red** on a real error �
 * `/analysis` — the same filters over settled picks, plus: best and worst prop types by EV%
   against the close, how much EV each losing prop gave up, which sportsbook hung the least
   favourable closing number per prop, and an Over vs Under split.
-* `/settings` — database size, a two-step "clear the last N days" purge, and the current closing
-  configuration.
+* `/kelly` — how much to stake on a line that is off the market. Enter the price you are getting
+  and how many odds points it beats fair by (Fliff -110 against a -140 market is 30) and it gives
+  the EV, the Kelly fraction and the dollars. The same calculator is on a **Kelly** button inside
+  OddsJam's own "Add to Bet Tracker" modal, on the boards that quote real prices.
+* `/settings` — database size, a two-step "clear the last N days" purge, the current closing
+  configuration, and the Kelly bankroll, multiplier and board list. The bankroll lives here rather
+  than in the extension so it is one number, whichever browser is asking.
 * `/bets/<id>` — the board as it looked when you took the pick, side by side with the board at
   close, the verdict, and a **Force closing fetch now** button.
 

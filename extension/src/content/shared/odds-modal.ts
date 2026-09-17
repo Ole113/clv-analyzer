@@ -49,9 +49,10 @@ export const ODDS_MODAL_STYLES = `
   font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 /* Positioned with left/top once dragged, so it must not still be centred by margin: auto -- see
-   the pointerdown handler below, which sets these to the modal's current on-screen position before
-   switching position to fixed. */
-.clva-odds-modal.clva-odds-dragged { position: fixed; margin: 0; }
+   makeDraggable() below, which sets these to the modal's current on-screen position before
+   switching position to fixed. Selector is the marker class alone, not scoped to this modal,
+   because the Kelly modal is dragged by the same helper. */
+.clva-odds-dragged { position: fixed; margin: 0; }
 .clva-odds-head {
   display: flex; justify-content: space-between; align-items: flex-start; gap: 14px;
   cursor: grab; user-select: none; margin: -2px -2px 0; padding: 2px 2px 0;
@@ -123,7 +124,7 @@ function fmtOdds(price: number | null): string {
   return price > 0 ? `+${price}` : `${price}`;
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(
+export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
   text?: string
@@ -132,6 +133,39 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/**
+ * Makes a modal draggable by its header, pinning it to wherever it is on pointerdown and then
+ * following the pointer. Presses that land on a header button (Refresh, Close) are ignored so
+ * those stay clickable. Returns a teardown for the modal's own close path.
+ */
+export function makeDraggable(modal: HTMLElement, head: HTMLElement): () => void {
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+  const onPointerMove = (e: PointerEvent) => {
+    const maxLeft = Math.max(0, window.innerWidth - modal.offsetWidth);
+    const maxTop = Math.max(0, window.innerHeight - modal.offsetHeight);
+    modal.style.left = `${Math.min(Math.max(0, e.clientX - dragOffsetX), maxLeft)}px`;
+    modal.style.top = `${Math.min(Math.max(0, e.clientY - dragOffsetY), maxTop)}px`;
+  };
+  const onPointerUp = () => {
+    document.removeEventListener("pointermove", onPointerMove);
+    document.removeEventListener("pointerup", onPointerUp);
+  };
+  head.addEventListener("pointerdown", (e) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    const rect = modal.getBoundingClientRect();
+    modal.classList.add("clva-odds-dragged");
+    modal.style.left = `${rect.left}px`;
+    modal.style.top = `${rect.top}px`;
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+  });
+  return onPointerUp;
 }
 
 function link(text: string, href: string): HTMLAnchorElement {
@@ -409,32 +443,7 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   modal.appendChild(content);
   scrim.appendChild(modal);
 
-  // Dragging: pins the modal to wherever it is on pointerdown, then follows the pointer. Skipped
-  // when the press lands on a button in the header (Refresh/Close), so those stay clickable.
-  let dragOffsetX = 0;
-  let dragOffsetY = 0;
-  const onPointerMove = (e: PointerEvent) => {
-    const maxLeft = Math.max(0, window.innerWidth - modal.offsetWidth);
-    const maxTop = Math.max(0, window.innerHeight - modal.offsetHeight);
-    modal.style.left = `${Math.min(Math.max(0, e.clientX - dragOffsetX), maxLeft)}px`;
-    modal.style.top = `${Math.min(Math.max(0, e.clientY - dragOffsetY), maxTop)}px`;
-  };
-  const onPointerUp = () => {
-    document.removeEventListener("pointermove", onPointerMove);
-    document.removeEventListener("pointerup", onPointerUp);
-  };
-  head.addEventListener("pointerdown", (e) => {
-    if ((e.target as HTMLElement).closest("button")) return;
-    e.preventDefault();
-    const rect = modal.getBoundingClientRect();
-    modal.classList.add("clva-odds-dragged");
-    modal.style.left = `${rect.left}px`;
-    modal.style.top = `${rect.top}px`;
-    dragOffsetX = e.clientX - rect.left;
-    dragOffsetY = e.clientY - rect.top;
-    document.addEventListener("pointermove", onPointerMove);
-    document.addEventListener("pointerup", onPointerUp);
-  });
+  const onPointerUp = makeDraggable(modal, head);
 
   let requestId = 0;
   const done = () => {

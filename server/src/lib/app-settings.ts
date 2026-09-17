@@ -1,4 +1,4 @@
-import { SPORTSBOOK_HINTS } from "@clv/shared";
+import { DEFAULT_KELLY_BOARDS, DEFAULT_KELLY_MULTIPLIER, SPORTSBOOK_HINTS } from "@clv/shared";
 import { prisma } from "./prisma";
 
 const SETTINGS_ID = "singleton";
@@ -18,17 +18,37 @@ export interface AppSettings {
   /** Whether captured depth weights the closing average. See useLiquidityWeighting in the schema. */
   useLiquidityWeighting: boolean;
   themePreference: ThemePreference;
+  /**
+   * Kelly staking, read by two surfaces: the /kelly page and the extension's Kelly button on
+   * OddsJam's bet tracker. Dollars here, whole cents in the database -- see the schema.
+   */
+  kelly: KellySettings;
+}
+
+export interface KellySettings {
+  /** In dollars. 0 means "not set yet", which both surfaces say out loud rather than guessing. */
+  bankroll: number;
+  kellyMultiplier: number;
+  /** In dollars. 0 means 1% of bankroll. */
+  unitSize: number;
+  /** OddsJam board slugs that get the Kelly button. */
+  kellyBoards: string[];
 }
 
 function parseTheme(raw: string): ThemePreference {
   return raw === "light" || raw === "dark" ? raw : "system";
 }
 
-function parseBookOrder(raw: string): string[] {
+/** Splits either of the comma-separated lists stored here, tolerating stray spaces and blanks. */
+function parseList(raw: string): string[] {
   return raw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function parseBookOrder(raw: string): string[] {
+  return parseList(raw);
 }
 
 function parseWeights(raw: string): Record<string, number> {
@@ -45,6 +65,18 @@ function parseWeights(raw: string): Record<string, number> {
   }
 }
 
+/**
+ * Cents to dollars, treating anything that is not a number as zero.
+ *
+ * The guard is not paranoia: a running process holding a Prisma client generated before these
+ * columns existed selects a row without them, and `undefined / 100` is NaN, which serializes to
+ * `null` over the wire and renders as "$NaN" on screen. Zero reads as "not set yet", which is both
+ * true and harmless.
+ */
+function dollars(cents: number | null | undefined): number {
+  return typeof cents === "number" && Number.isFinite(cents) ? cents / 100 : 0;
+}
+
 /** Reads the single settings row, creating it with defaults on first use. */
 export async function getAppSettings(): Promise<AppSettings> {
   const row = await prisma.appSettings.upsert({
@@ -59,7 +91,47 @@ export async function getAppSettings(): Promise<AppSettings> {
     bookWeights: parseWeights(row.bookWeightsJson),
     useLiquidityWeighting: row.useLiquidityWeighting,
     themePreference: parseTheme(row.themePreference),
+    kelly: {
+      bankroll: dollars(row.bankrollCents),
+      kellyMultiplier:
+        typeof row.kellyMultiplier === "number" && row.kellyMultiplier > 0
+          ? row.kellyMultiplier
+          : DEFAULT_KELLY_MULTIPLIER,
+      unitSize: dollars(row.unitSizeCents),
+      // An empty column means "never edited", not "no boards" -- the defaults are what a fresh
+      // install should behave like, and blanking the field on the Settings page restores them.
+      kellyBoards: row.kellyBoards ? parseList(row.kellyBoards) : [...DEFAULT_KELLY_BOARDS],
+    },
   };
+}
+
+/**
+ * Saves the Kelly numbers.
+ *
+ * Money arrives in dollars and is stored in cents, rounded once here so the rounding happens in
+ * exactly one place. A blank board list is stored blank rather than as the defaults spelled out,
+ * so that a later change to the defaults reaches an install that never edited them.
+ */
+export async function saveKellySettings(settings: {
+  bankroll: number;
+  kellyMultiplier: number;
+  unitSize: number;
+  kellyBoards: string[];
+}): Promise<void> {
+  const data = {
+    bankrollCents: Math.max(0, Math.round(settings.bankroll * 100)),
+    kellyMultiplier:
+      Number.isFinite(settings.kellyMultiplier) && settings.kellyMultiplier > 0
+        ? settings.kellyMultiplier
+        : DEFAULT_KELLY_MULTIPLIER,
+    unitSizeCents: Math.max(0, Math.round(settings.unitSize * 100)),
+    kellyBoards: settings.kellyBoards.map((b) => b.trim()).filter(Boolean).join(","),
+  };
+  await prisma.appSettings.upsert({
+    where: { id: SETTINGS_ID },
+    update: data,
+    create: { id: SETTINGS_ID, bookOrder: DEFAULT_BOOK_ORDER.join(","), ...data },
+  });
 }
 
 export async function saveThemePreference(themePreference: ThemePreference): Promise<void> {

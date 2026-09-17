@@ -121,6 +121,28 @@ export interface OddsLookupResponse {
   };
 }
 
+/**
+ * The Kelly numbers, fetched from (or written to) the server's settings row.
+ *
+ * One message for both directions: with `save` it is a write that returns the saved state, without
+ * it a plain read. The board never waits on this -- see `kellySettings()` for the fallbacks.
+ */
+export interface KellySettingsMessage {
+  type: "clv:kelly-settings";
+  save?: { bankroll: number; kellyMultiplier: number; unitSize: number };
+}
+
+export interface KellySettingsResponse {
+  ok: boolean;
+  error?: string;
+  kelly?: {
+    bankroll: number;
+    kellyMultiplier: number;
+    unitSize: number;
+    kellyBoards: string[];
+  };
+}
+
 /** Sent by the dashboard warm-up script the moment the dashboard loads. */
 export interface WarmMessage {
   type: "clv:warm";

@@ -5,16 +5,18 @@ import { DEFAULT_PICKEM_PRICE } from "@/lib/ev";
 import { PurgeForm } from "@/components/purge-form";
 import { TestDataForm } from "@/components/test-data-form";
 import { BookSettingsForm } from "@/components/book-settings-form";
+import { ActionForm } from "@/components/action-form";
 import { ActionButton, type ActionResult } from "@/components/action-button";
 import { runDueGrades } from "@/lib/grading/grader";
 import { BREAK_EVEN_RATE } from "@/lib/ev";
 import { generateTestData, TEST_DATA_SOURCE_DEVICES, MAX_TEST_DATA_PER_REQUEST } from "@/lib/test-data";
-import { bookLogoUrl } from "@clv/shared";
+import { bookLogoUrl, DEFAULT_KELLY_BOARDS, DEFAULT_KELLY_MULTIPLIER } from "@clv/shared";
 import {
   getAppSettings,
   knownBooks,
   saveBookOrder,
   saveBookWeights,
+  saveKellySettings,
   saveThemePreference,
   type ThemePreference,
 } from "@/lib/app-settings";
@@ -25,6 +27,7 @@ const SECTIONS = [
   { id: "appearance", label: "Appearance" },
   { id: "database", label: "Database" },
   { id: "books", label: "Books" },
+  { id: "kelly", label: "Kelly staking" },
   { id: "grading", label: "Grading" },
   { id: "closing-config", label: "Closing read config" },
   { id: "ingest-failures", label: "Ingest failures" },
@@ -67,6 +70,36 @@ export default async function SettingsPage() {
     ...bookSettings.bookOrder.filter((k) => books.some((b) => b.bookKey === k)),
     ...books.map((b) => b.bookKey).filter((k) => !bookSettings.bookOrder.includes(k)),
   ];
+
+  // `bookSettings` is the whole settings row; this is just the Kelly corner of it.
+  const kelly = bookSettings.kelly;
+
+  async function saveKellyAction(formData: FormData): Promise<ActionResult> {
+    "use server";
+    const number = (name: string) => Number(String(formData.get(name) ?? "").trim());
+    const bankroll = number("bankroll");
+    const kellyMultiplier = number("kellyMultiplier");
+    const unitSize = number("unitSize");
+    const boards = String(formData.get("kellyBoards") ?? "")
+      .split(",")
+      .map((b) => b.trim())
+      .filter(Boolean);
+
+    if (!Number.isFinite(bankroll) || bankroll < 0) {
+      return { ok: false, message: "Bankroll must be a positive number" };
+    }
+    if (!Number.isFinite(kellyMultiplier) || kellyMultiplier <= 0 || kellyMultiplier > 1) {
+      return { ok: false, message: "Kelly multiplier must be between 0 and 1" };
+    }
+    if (!Number.isFinite(unitSize) || unitSize < 0) {
+      return { ok: false, message: "Unit size must be a positive number" };
+    }
+
+    await saveKellySettings({ bankroll, kellyMultiplier, unitSize, kellyBoards: boards });
+    revalidatePath("/settings");
+    revalidatePath("/kelly");
+    return { ok: true, message: "Kelly settings saved" };
+  }
 
   async function saveBookSettingsAction(
     order: string[],
@@ -256,6 +289,73 @@ export default async function SettingsPage() {
           initialUseLiquidity={bookSettings.useLiquidityWeighting}
           saveAction={saveBookSettingsAction}
         />
+      </section>
+
+      <section className="chart-card" id="kelly">
+        <h3>Kelly staking</h3>
+        <p className="lede">
+          Used by the <a href="/kelly">Kelly</a> page and by the <strong>Kelly</strong> button
+          inside OddsJam&apos;s own &quot;Add to Bet Tracker&quot; modal. The bankroll lives here
+          rather than in the extension so it is one number, whichever browser is asking. Any of it
+          can still be changed for a single bet without changing it here.
+        </p>
+        <ActionForm action={saveKellyAction} submitLabel="Save" success="Kelly settings saved">
+          <div className="filters">
+            <label className="field">
+              <span>Bankroll ($)</span>
+              <input
+                type="number"
+                name="bankroll"
+                step="100"
+                min="0"
+                defaultValue={kelly.bankroll || ""}
+                placeholder="5000"
+                style={{ width: 130 }}
+              />
+            </label>
+            <label className="field">
+              <span>Kelly multiplier</span>
+              <input
+                type="number"
+                name="kellyMultiplier"
+                step="0.05"
+                min="0.01"
+                max="1"
+                defaultValue={kelly.kellyMultiplier}
+                style={{ width: 110 }}
+              />
+            </label>
+            <label className="field">
+              <span>Unit size ($)</span>
+              <input
+                type="number"
+                name="unitSize"
+                step="10"
+                min="0"
+                defaultValue={kelly.unitSize || ""}
+                placeholder="1% of bankroll"
+                style={{ width: 130 }}
+              />
+            </label>
+          </div>
+          <label className="field" style={{ display: "block", marginBottom: 12 }}>
+            <span>Boards</span>
+            <input
+              type="text"
+              name="kellyBoards"
+              defaultValue={kelly.kellyBoards.join(", ")}
+              placeholder={DEFAULT_KELLY_BOARDS.join(", ")}
+              style={{ width: "100%", maxWidth: 620 }}
+            />
+          </label>
+          <p className="muted" style={{ fontSize: 12, maxWidth: 620, marginTop: 0 }}>
+            The OddsJam boards that get the button, named as they appear in the URL
+            (<code>/fantasy-odds/<strong>fliff</strong></code>). It is an allowlist because a
+            pick&apos;em board&apos;s fixed payout has no discrepancy from fair to price. Leave it
+            empty to restore the defaults. 1 is full Kelly, which assumes your fair price is exactly
+            right; {DEFAULT_KELLY_MULTIPLIER} is the usual compromise.
+          </p>
+        </ActionForm>
       </section>
 
       <section className="chart-card" id="grading">

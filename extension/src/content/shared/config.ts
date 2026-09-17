@@ -6,6 +6,12 @@ export interface ExtensionSettings {
   checkboxColor: string;
 }
 
+/**
+ * The Kelly numbers are deliberately *not* here. They live on the server, in `AppSettings`, and are
+ * edited on the dashboard's Settings page -- so the bankroll is one number rather than one per
+ * browser profile. See `kellySettings()` in `kelly-settings.ts`.
+ */
+
 export const DEFAULT_CHECKBOX_COLOR = "#22c55e";
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {

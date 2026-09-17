@@ -10,6 +10,8 @@ import type {
   PpTokenMessage,
   OddsLookupMessage,
   OddsLookupResponse,
+  KellySettingsMessage,
+  KellySettingsResponse,
 } from "../content/shared/messages";
 import { runClosingWork } from "./closing-worker";
 import { runOddsPreviewWork } from "./odds-preview-worker";
@@ -271,6 +273,38 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
           ok: false,
           error: error instanceof Error ? error.message : "lookup failed",
         } satisfies TrackedLookupResponse);
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "clv:kelly-settings") {
+    (async () => {
+      try {
+        const settings = await configured();
+        if (!settings) {
+          sendResponse({ ok: false, error: "not configured" } satisfies KellySettingsResponse);
+          return;
+        }
+        const save = (message as KellySettingsMessage).save;
+        const response = await fetch(apiUrl(settings.backendUrl, "/api/kelly-settings"), {
+          method: save ? "POST" : "GET",
+          headers: save
+            ? { "content-type": "application/json", "x-api-key": settings.apiKey }
+            : { "x-api-key": settings.apiKey },
+          body: save ? JSON.stringify(save) : undefined,
+        });
+        if (!response.ok) {
+          sendResponse({ ok: false, error: `server ${response.status}` } satisfies KellySettingsResponse);
+          return;
+        }
+        const body = (await response.json()) as KellySettingsResponse;
+        sendResponse({ ok: true, kelly: body.kelly } satisfies KellySettingsResponse);
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "network error",
+        } satisfies KellySettingsResponse);
       }
     })();
     return true;

@@ -9,6 +9,7 @@ import type {
 import { DEFAULT_CHECKBOX_COLOR, loadSettings } from "./config";
 import { MARKET_FILTER_STYLES, startMarketFilter, type MarketFilterHooks } from "./market-filter";
 import { ODDS_MODAL_STYLES, oddsButton, openOddsModal, pickFromRow } from "./odds-modal";
+import { KELLY_MODAL_STYLES } from "./kelly-modal";
 
 export interface SiteAdapter {
   site: SiteId;
@@ -130,7 +131,8 @@ function ensureStyles(extra?: string): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = STYLES + ODDS_MODAL_STYLES + MARKET_FILTER_STYLES + (extra ?? "");
+  style.textContent =
+    STYLES + ODDS_MODAL_STYLES + KELLY_MODAL_STYLES + MARKET_FILTER_STYLES + (extra ?? "");
   document.documentElement.appendChild(style);
 }
 

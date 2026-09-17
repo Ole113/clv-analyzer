@@ -190,6 +190,24 @@ model AppSettings {
   /// their device's own preference rather than being locked into whichever palette shipped first.
   themePreference String @default("system")
 
+  /// Bankroll the Kelly calculator stakes against, in whole cents. Cents rather than dollars
+  /// because SQLite has no decimal type and a float bankroll rounds visibly once it is multiplied
+  /// by a Kelly fraction. 0 means "not set", which is why the calculator asks for one.
+  bankrollCents Int @default(0)
+
+  /// Fraction of full Kelly to stake. 0.25 -- quarter Kelly -- is the usual compromise between
+  /// growth and the variance full Kelly actually carries.
+  kellyMultiplier Float @default(0.25)
+
+  /// Dollars per unit, in whole cents, for the "units" figure. 0 means 1% of bankroll.
+  unitSizeCents Int @default(0)
+
+  /// Comma-separated OddsJam board names -- the slug in /fantasy-odds/<slug> -- that get the Kelly
+  /// button. An allowlist, because Kelly needs a real two-sided price and the pick'em boards
+  /// (PrizePicks, Underdog, Sleeper) quote a fixed payout, where "30 points off fair" means
+  /// nothing. Stored here rather than in the extension so both surfaces read one list.
+  kellyBoards String @default("")
+
   updatedAt DateTime @updatedAt
 }
 

@@ -1,5 +1,6 @@
 import { marketFilterKey, parseOddsJamTable } from "@clv/shared";
 import { startCapture, type SiteAdapter } from "../shared/inject";
+import { startKellyButton } from "./track-modal";
 import type { MarketOption } from "../shared/market-filter";
 
 /**
@@ -7,8 +8,12 @@ import type { MarketOption } from "../shared/market-filter";
  * and a <td> per row, inserted first.
  *
  * It is deliberately separate from OddsJam's own "TRACK" checkbox (which opens their bet-slip /
- * parlay builder). This adapter never reads or clicks that column -- it only touches nodes it
- * created itself.
+ * parlay builder). This adapter never reads or clicks that column -- on the board itself it only
+ * touches nodes it created.
+ *
+ * The one thing that does look at OddsJam's own UI is `./track-modal.ts`, which adds a Kelly button
+ * to the "Add to Bet Tracker" modal a human opened from that column. It still clicks nothing: it
+ * reads the price out of the modal's own field and adds a child beside their Cancel and Save.
  */
 const HEAD_MARK = "data-clv-head";
 
@@ -264,3 +269,4 @@ const adapter: SiteAdapter = {
 };
 
 startCapture(adapter);
+startKellyButton();

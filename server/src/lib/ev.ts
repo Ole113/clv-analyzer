@@ -1,4 +1,9 @@
-import { isFantasyBook, type BookLine } from "@clv/shared";
+import { decimalFromAmerican, isFantasyBook, type BookLine } from "@clv/shared";
+
+// `decimalFromAmerican` lives in `shared/src/kelly.ts`, where the extension's content scripts can
+// reach it too, and is re-exported here so this file stays the one place to look for the
+// American-odds conversions -- the same move `clv.ts` makes for the de-vig helpers.
+export { decimalFromAmerican };
 
 /**
  * True expected value, in percent of stake.
@@ -11,11 +16,6 @@ import { isFantasyBook, type BookLine } from "@clv/shared";
  *
  * EV% = fair probability x decimal payout - 1.
  */
-
-export function decimalFromAmerican(price: number): number | null {
-  if (!Number.isFinite(price) || price === 0) return null;
-  return price > 0 ? 1 + price / 100 : 1 + 100 / Math.abs(price);
-}
 
 /** The pick'em payout price for a leg, taken from the DFS column when the board shows one. */
 export function fantasyPriceFrom(bookLines: BookLine[]): number | null {

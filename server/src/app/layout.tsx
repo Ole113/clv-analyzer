@@ -49,6 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <a href="/">Overview</a>
                 <a href="/bets">Picks</a>
                 <a href="/analysis">Analysis</a>
+                <a href="/kelly">Kelly</a>
                 <a href="/exclusions">Exclusions</a>
               </nav>
               <a href="/settings" className="settings-link" aria-label="Settings" title="Settings">
