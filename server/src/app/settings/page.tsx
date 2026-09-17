@@ -294,10 +294,17 @@ export default async function SettingsPage() {
       <section className="chart-card" id="kelly">
         <h3>Kelly staking</h3>
         <p className="lede">
-          Used by the <a href="/kelly">Kelly</a> page and by the <strong>Kelly</strong> button
-          inside OddsJam&apos;s own &quot;Add to Bet Tracker&quot; modal. The bankroll lives here
+          Used by the <a href="/kelly">Kelly</a> page and by the Kelly icon on an OddsJam row,
+          above the odds-lookup icon. The bankroll lives here
           rather than in the extension so it is one number, whichever browser is asking. Any of it
           can still be changed for a single bet without changing it here.
+        </p>
+        <p className="muted" style={{ fontSize: 12, maxWidth: 620 }}>
+          The multiplier scales down full Kelly (1), the stake that grows a bankroll fastest if the
+          fair price is exactly right. It rarely is, and full Kelly punishes being wrong hard, so a
+          lower multiplier bets smaller and rides out a bad estimate or a losing streak more gently;
+          a higher one bets closer to what full Kelly says and swings the bankroll harder both ways.
+          {DEFAULT_KELLY_MULTIPLIER} is the usual compromise.
         </p>
         <ActionForm action={saveKellyAction} submitLabel="Save" success="Kelly settings saved">
           <div className="filters">
@@ -319,7 +326,7 @@ export default async function SettingsPage() {
                 type="number"
                 name="kellyMultiplier"
                 step="0.05"
-                min="0.01"
+                min="0"
                 max="1"
                 defaultValue={kelly.kellyMultiplier}
                 style={{ width: 110 }}
@@ -352,8 +359,7 @@ export default async function SettingsPage() {
             The OddsJam boards that get the button, named as they appear in the URL
             (<code>/fantasy-odds/<strong>fliff</strong></code>). It is an allowlist because a
             pick&apos;em board&apos;s fixed payout has no discrepancy from fair to price. Leave it
-            empty to restore the defaults. 1 is full Kelly, which assumes your fair price is exactly
-            right; {DEFAULT_KELLY_MULTIPLIER} is the usual compromise.
+            empty to restore the defaults.
           </p>
         </ActionForm>
       </section>

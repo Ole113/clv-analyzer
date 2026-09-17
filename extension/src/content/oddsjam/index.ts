@@ -1,6 +1,6 @@
-import { marketFilterKey, parseOddsJamTable } from "@clv/shared";
+import { marketFilterKey, normalizeBookKey, parseOddsJamTable } from "@clv/shared";
 import { startCapture, type SiteAdapter } from "../shared/inject";
-import { startKellyButton } from "./track-modal";
+import { DEFAULT_KELLY_SETTINGS, kellySettings, type KellySettings } from "../shared/kelly-settings";
 import type { MarketOption } from "../shared/market-filter";
 
 /**
@@ -10,12 +10,48 @@ import type { MarketOption } from "../shared/market-filter";
  * It is deliberately separate from OddsJam's own "TRACK" checkbox (which opens their bet-slip /
  * parlay builder). This adapter never reads or clicks that column -- on the board itself it only
  * touches nodes it created.
- *
- * The one thing that does look at OddsJam's own UI is `./track-modal.ts`, which adds a Kelly button
- * to the "Add to Bet Tracker" modal a human opened from that column. It still clicks nothing: it
- * reads the price out of the modal's own field and adds a child beside their Cancel and Save.
  */
 const HEAD_MARK = "data-clv-head";
+
+/**
+ * The Kelly numbers behind the row icon, refreshed on a slow cadence rather than the injection
+ * cadence -- the icon's gate is read on every row-injection pass, and asking the server that often
+ * would put a round trip behind every re-render of the board.
+ */
+let kellySettingsCache: KellySettings = DEFAULT_KELLY_SETTINGS;
+
+function refreshKellySettings(): void {
+  void kellySettings().then((next) => {
+    kellySettingsCache = next;
+  });
+}
+
+/**
+ * The board slug in `/fantasy-odds/<slug>`, normalized the same way the kellyBoards allowlist is.
+ */
+function kellyBoardKey(): string | null {
+  const match = location.pathname.match(/\/fantasy-odds\/([^/?#]+)/);
+  if (!match) return null;
+  try {
+    return normalizeBookKey(decodeURIComponent(match[1]));
+  } catch {
+    return normalizeBookKey(match[1]);
+  }
+}
+
+/**
+ * Whether the current board is one of the settings' Kelly boards.
+ *
+ * Exact equality after normalizing both sides, not a substring test: the entries are board slugs,
+ * and several are prefixes of others, so a substring match would light up boards nobody listed.
+ */
+function kellyEnabled(): boolean {
+  const board = kellyBoardKey();
+  if (!board) return false;
+  return kellySettingsCache.kellyBoards
+    .map((entry) => normalizeBookKey(entry))
+    .some((entry) => entry !== null && entry === board);
+}
 
 /**
  * The optimizer table, on either layout.
@@ -184,6 +220,11 @@ const adapter: SiteAdapter = {
   // checkbox without widening the column. See `SiteAdapter.oddsButton`.
   oddsButton: true,
 
+  kelly: {
+    enabled: kellyEnabled,
+    settings: () => kellySettingsCache,
+  },
+
   fantasyBook() {
     const match = location.pathname.match(/\/fantasy-odds\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : "unknown";
@@ -269,4 +310,5 @@ const adapter: SiteAdapter = {
 };
 
 startCapture(adapter);
-startKellyButton();
+refreshKellySettings();
+setInterval(refreshKellySettings, 60_000);

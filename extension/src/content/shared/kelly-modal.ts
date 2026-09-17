@@ -9,36 +9,23 @@ import { el, makeDraggable } from "./odds-modal";
 import { saveKellySettings, type KellySettings } from "./kelly-settings";
 
 /**
- * "How much do I actually put on this", asked inside the bet slip itself.
+ * "How much do I actually put on this", asked straight from the board.
  *
  * The board already tells you a line is off the market. It never tells you the stake, and until now
- * that step happened in a phone calculator while OddsJam's own "Add to Bet Tracker" modal sat open
- * waiting for an amount.
+ * that step happened in a phone calculator on the side.
  *
  * The input is deliberately the discrepancy in odds points -- "Fliff is -110, everyone else is
  * -140, that's 30" -- because that is what a human reads off a board. The arithmetic behind it all
  * lives in `shared/src/kelly.ts`, shared with the dashboard's own /kelly tab so the two can never
  * quote different stakes for the same bet.
  *
- * This deliberately does not read the board. The price comes from the tracker modal's own
- * `#oddPrice` field, which is the price actually being recorded -- including any edit made to it
- * after the modal opened.
+ * This deliberately does not read the board for a price: the button that opens it lives in the same
+ * `.clva-stack` as the odds-lookup icon (see `oddsButton` in `./odds-modal.ts`), one row-height lane
+ * with no price column of its own on the boards this applies to -- see `../oddsjam/index.ts`'s
+ * `kelly` gate. Price is typed in by hand, the same as the discrepancy points.
  */
 
 export const KELLY_MODAL_STYLES = `
-/* The button in the tracker modal's footer. Sized and coloured to sit beside OddsJam's own Cancel
-   without impersonating it: this one is ours and should read as ours. */
-.clva-kelly-btn {
-  appearance: none; font: 600 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  height: 40px; padding: 0 18px; border-radius: 6px; cursor: pointer; white-space: nowrap;
-  border: 1px solid var(--clva-accent); background: transparent; color: var(--clva-accent);
-  transition: background 120ms ease, color 120ms ease;
-}
-.clva-kelly-btn:hover { background: var(--clva-accent); color: #06110b; }
-/* The footer is a right-aligned grid; pushing our button to the far left is one property, and it
-   is set here rather than by editing OddsJam's own class list. */
-[data-clva-kelly-footer] { justify-content: space-between !important; }
-
 .clva-kelly-modal {
   background: #131a23; color: #e6edf6; border: 1px solid #243040; border-radius: 11px;
   padding: 18px 20px; width: min(460px, calc(100vw - 40px));
@@ -90,26 +77,13 @@ export const KELLY_MODAL_STYLES = `
 `;
 
 export interface KellyContext {
-  /** The price being tracked, read from the tracker modal. */
+  /**
+   * The price to start from, if the board happens to show one for this row. Null on the boards
+   * this opens from today -- see the comment above -- so the field opens blank and is typed in.
+   */
   price: number | null;
   /** What the bet is, for the modal's subtitle. */
   label: string;
-  /** Fires whenever the price behind this modal changes; returns a teardown. */
-  watchPrice?: (onChange: (price: number | null) => void) => () => void;
-  /** Writes the recommended stake back into the tracker, when there is one to write into. */
-  applyStake?: (stake: number) => void;
-  /**
-   * Where to mount, if not `document.body`.
-   *
-   * This matters more than it looks. OddsJam's tracker is a Headless UI dialog, which both traps
-   * focus inside its own panel and closes itself on a click outside it. Mounted on `document.body`
-   * this modal is "outside" on both counts: the trap yanks focus straight back out of whichever
-   * field is being typed in, and the first click on it closes the tracker underneath. Mounted
-   * *inside* their panel it is simply part of the dialog as far as both checks are concerned. The
-   * scrim is `position: fixed` either way, and the panel sets no transform, so nothing about where
-   * it sits on screen changes.
-   */
-  host?: HTMLElement;
   /**
    * The saved Kelly numbers, already fetched by the caller.
    *
@@ -133,7 +107,15 @@ function pct(value: number, digits = 2): string {
   return `${(value * 100).toFixed(digits)}%`;
 }
 
-/** One labelled number box, appended to `into` and handed back for its value and its events. */
+/**
+ * One labelled number box, appended to `into` and handed back for its value and its events.
+ *
+ * `min` is always set to 0: with no `min`, a browser bases step validation on the field's initial
+ * `value` rather than on zero, so a stored multiplier that (via an old save, or a manual DB edit)
+ * isn't itself a clean multiple of `step` makes every *other* clean multiple invalid too --
+ * rejecting 0.25 with "the two nearest valid values are 0.21 and 0.26" if the stored default
+ * happened to be 0.21.
+ */
 function field(into: HTMLElement, label: string, value: string, step: string): HTMLInputElement {
   const wrap = el("label", "clva-kelly-field");
   wrap.appendChild(el("span", undefined, label));
@@ -141,6 +123,7 @@ function field(into: HTMLElement, label: string, value: string, step: string): H
   input.type = "number";
   input.inputMode = "decimal";
   input.step = step;
+  input.min = "0";
   input.value = value;
   wrap.appendChild(input);
   into.appendChild(wrap);
@@ -205,11 +188,8 @@ export function openKellyModal(ctx: KellyContext): void {
   modal.appendChild(out);
 
   const buttons = el("div", "clva-kelly-actions");
-  const apply = el("button", "clva-kelly-primary", "Use this stake");
-  apply.type = "button";
   const saveDefaults = el("button", undefined, "Save as defaults");
   saveDefaults.type = "button";
-  if (ctx.applyStake) buttons.appendChild(apply);
   buttons.appendChild(saveDefaults);
   modal.appendChild(buttons);
 
@@ -219,14 +199,11 @@ export function openKellyModal(ctx: KellyContext): void {
   scrim.appendChild(modal);
 
   const onPointerUp = makeDraggable(modal, head);
-  // Assigned at the bottom, once everything it can call has been built.
-  let unwatch: (() => void) | undefined;
 
   const done = () => {
     scrim.remove();
     document.removeEventListener("keydown", onKey, true);
     onPointerUp();
-    unwatch?.();
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -291,13 +268,11 @@ export function openKellyModal(ctx: KellyContext): void {
             : "Set a bankroll — here, or on the dashboard's Settings page to keep it."
         )
       );
-      apply.disabled = true;
       foot.textContent = "";
       return;
     }
 
     const r = current;
-    apply.disabled = r.stake <= 0;
     out.replaceChildren(
       stat(
         "Stake",
@@ -351,11 +326,6 @@ export function openKellyModal(ctx: KellyContext): void {
     input.addEventListener("input", render);
   }
 
-  apply.addEventListener("click", () => {
-    if (current && current.stake > 0) ctx.applyStake?.(current.stake);
-    done();
-  });
-
   // Writes through to the server's settings row -- the same one the dashboard's Settings page
   // edits -- so a bankroll adjusted here is the bankroll everywhere.
   saveDefaults.addEventListener("click", () => {
@@ -380,16 +350,37 @@ export function openKellyModal(ctx: KellyContext): void {
     })();
   });
 
-  const root = ctx.host?.isConnected ? ctx.host : document.body;
-  root.appendChild(scrim);
-
-  unwatch = ctx.watchPrice?.((price) => {
-    if (document.activeElement === priceInput) return; // do not fight a hand-typed price
-    priceInput.value = price === null ? "" : String(price);
-    syncFairFromPoints();
-    render();
-  });
+  document.body.appendChild(scrim);
 
   render();
   pointsInput.focus();
+}
+
+/** The little icon that opens it, styled and sized to match `oddsButton` in the same stack. */
+export function kellyButton(onOpen: () => void): HTMLButtonElement {
+  const button = el("button", "clva-odds-btn");
+  button.type = "button";
+  button.title = "Kelly stake calculator for this bet";
+  button.setAttribute("aria-label", "Kelly stake calculator for this bet");
+  // A "K" drawn in straight strokes, matching the odds button's own abstract-glyph style rather
+  // than spelling anything out -- see the Trusted Types note on that one for why this is built
+  // node by node instead of assigned as innerHTML.
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 12 12");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M2 1V11M2 6L10 1M2 6L10 11");
+  svg.appendChild(path);
+  button.appendChild(svg);
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onOpen();
+  });
+  return button;
 }

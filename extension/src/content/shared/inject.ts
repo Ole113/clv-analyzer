@@ -9,7 +9,8 @@ import type {
 import { DEFAULT_CHECKBOX_COLOR, loadSettings } from "./config";
 import { MARKET_FILTER_STYLES, startMarketFilter, type MarketFilterHooks } from "./market-filter";
 import { ODDS_MODAL_STYLES, oddsButton, openOddsModal, pickFromRow } from "./odds-modal";
-import { KELLY_MODAL_STYLES } from "./kelly-modal";
+import { KELLY_MODAL_STYLES, kellyButton, openKellyModal } from "./kelly-modal";
+import type { KellySettings } from "./kelly-settings";
 
 export interface SiteAdapter {
   site: SiteId;
@@ -42,6 +43,18 @@ export interface SiteAdapter {
    * own, with that lane looked at properly, not as a side effect of this.
    */
   oddsButton?: boolean;
+  /**
+   * Optional Kelly stake calculator icon, stacked above the odds button on a row.
+   *
+   * Site-specific (only OddsJam implements it today) because whether it applies depends on that
+   * board's own settings -- the kellyBoards allowlist, since a fixed-payout pick'em board has no
+   * discrepancy from fair to price to calculate against -- and the numbers it opens with are
+   * fetched and cached by the adapter itself, on its own refresh cadence.
+   */
+  kelly?: {
+    enabled(): boolean;
+    settings(): KellySettings;
+  };
   /**
    * Hooks for the hide-markets control. Omitted by a board that has no way to make a row
    * disappear, in which case the control is simply never mounted there.
@@ -383,6 +396,20 @@ function showOdds(adapter: SiteAdapter, key: string | null): void {
   openOddsModal(pickFromRow(row), labelFor(row));
 }
 
+/**
+ * Opens the Kelly calculator for one row.
+ *
+ * Unlike `showOdds`, a missing or unmatched row is not an error here: the price is always typed in
+ * by hand (see `kelly-modal.ts`), so all a row lookup buys is a nicer label in the modal's subtitle,
+ * and "This pick" is a fine fallback for that.
+ */
+function showKelly(adapter: SiteAdapter, key: string | null): void {
+  if (!adapter.kelly) return;
+  const parsed = adapter.parse();
+  const row = key && parsed.ok ? (parsed.rows.find((r) => r.externalPropId === key) ?? null) : null;
+  openKellyModal({ price: null, label: labelFor(row), settings: adapter.kelly.settings() });
+}
+
 function injectRows(adapter: SiteAdapter): void {
   for (const { el, key } of adapter.rows()) {
     const host = adapter.mount(el);
@@ -419,9 +446,13 @@ function injectRows(adapter: SiteAdapter): void {
 
     // Stacked into one wrapper so the column's width is unchanged -- see `.clva-stack`. The
     // checkbox keeps its own marker attribute, so the re-render check above still finds it through
-    // the wrapper.
+    // the wrapper. Kelly, when this board has it, goes above the odds button -- gated fresh on
+    // every pass, since the allowlist it reads can be edited on the dashboard while a board is open.
     const stack = document.createElement("div");
     stack.className = "clva-stack";
+    if (adapter.kelly?.enabled()) {
+      stack.appendChild(kellyButton(() => showKelly(adapter, box.getAttribute(KEY_ATTR))));
+    }
     stack.appendChild(oddsButton(() => showOdds(adapter, box.getAttribute(KEY_ATTR))));
     stack.appendChild(box);
     host.appendChild(stack);
