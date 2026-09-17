@@ -259,6 +259,13 @@ const FORMATTER = new Intl.DateTimeFormat("en-US", {
   hourCycle: "h23",
 });
 
+/** "0" (from `localParts().hour`, 24-hour) as a 12-hour clock label -- "12 AM", "1 PM", etc. */
+export function hourLabel(hour: number): string {
+  const period = hour < 12 ? "AM" : "PM";
+  const twelve = hour % 12 === 0 ? 12 : hour % 12;
+  return `${twelve} ${period}`;
+}
+
 export function localParts(date: Date): {
   weekday: string;
   hour: number;
@@ -593,7 +600,7 @@ export async function getPikkitAnalysis(filters: PikkitFilters): Promise<PikkitA
     byHour: breakdown(
       filtered,
       (r) => [String(localParts(r.placedAt).hour)],
-      (k) => `${String(k).padStart(2, "0")}:00`,
+      (k) => hourLabel(Number(k)),
       hourOrder
     ),
     byOdds: breakdown(
