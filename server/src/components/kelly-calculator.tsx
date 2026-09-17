@@ -133,7 +133,7 @@ export function KellyCalculator({
         <NumField label="Discrepancy" value={points} onChange={editPoints} step="5" width={90} suffix="pts" />
         <NumField label="Fair odds" value={fairPrice} onChange={editFairPrice} step="5" width={100} />
         <NumField label="Bankroll" value={bankroll} onChange={setBankroll} step="100" width={110} suffix="$" />
-        <NumField label="Kelly multiplier" value={multiplier} onChange={setMultiplier} step="0.05" width={90} suffix="x" />
+        <NumField label="Kelly multiplier" value={multiplier} onChange={setMultiplier} step="any" width={90} suffix="x" />
         <NumField label="Unit size" value={unitSize} onChange={setUnitSize} step="10" width={90} suffix="$" />
       </div>
 

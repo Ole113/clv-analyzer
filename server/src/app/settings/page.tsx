@@ -325,7 +325,7 @@ export default async function SettingsPage() {
               <input
                 type="number"
                 name="kellyMultiplier"
-                step="0.05"
+                step="any"
                 min="0"
                 max="1"
                 defaultValue={kelly.kellyMultiplier}
@@ -344,17 +344,17 @@ export default async function SettingsPage() {
                 style={{ width: 130 }}
               />
             </label>
+            <label className="field grow" style={{ marginBottom: 12 }}>
+              <span>Boards</span>
+              <input
+                type="text"
+                name="kellyBoards"
+                defaultValue={kelly.kellyBoards.join(", ")}
+                placeholder={DEFAULT_KELLY_BOARDS.join(", ")}
+                style={{ maxWidth: 620 }}
+              />
+            </label>
           </div>
-          <label className="field" style={{ display: "block", marginBottom: 12 }}>
-            <span>Boards</span>
-            <input
-              type="text"
-              name="kellyBoards"
-              defaultValue={kelly.kellyBoards.join(", ")}
-              placeholder={DEFAULT_KELLY_BOARDS.join(", ")}
-              style={{ width: "100%", maxWidth: 620 }}
-            />
-          </label>
           <p className="muted" style={{ fontSize: 12, maxWidth: 620, marginTop: 0 }}>
             The OddsJam boards that get the button, named as they appear in the URL
             (<code>/fantasy-odds/<strong>fliff</strong></code>). It is an allowlist because a

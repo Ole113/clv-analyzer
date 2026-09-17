@@ -171,7 +171,7 @@ export function openKellyModal(ctx: KellyContext): void {
     fields,
     "Kelly multiplier",
     String(ctx.settings.kellyMultiplier),
-    "0.05"
+    "any"
   );
   const unitInput = field(
     fields,
