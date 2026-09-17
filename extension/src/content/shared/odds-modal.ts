@@ -302,13 +302,27 @@ function summary(verdict: NonNullable<NonNullable<OddsLookupResponse["preview"]>
 
   const books = (n: number) => `${n} book${n === 1 ? "" : "s"}`;
 
-  if (verdict.avgClosingLine !== null) {
-    stat("Avg line", verdict.avgClosingLine.toFixed(1), books(verdict.closingBookCount));
-  }
-  // The reason this modal is worth opening on a whole-number market: the line on a passing-
-  // touchdowns prop cannot move off 2.5, so the price is the only thing that ever does.
-  if (verdict.avgClosingPrice !== null) {
-    stat("Avg price", fmtOdds(verdict.avgClosingPrice), books(verdict.closingPriceBookCount));
+  // `atLine` set means `table()` below has rewritten every row to that one number, so these
+  // headline stats have to describe that number too -- and the at-line fields are the ones that
+  // do. `avgClosingLine`/`avgClosingPrice` are taken over just the books whose *own* main line is
+  // already sitting there, which on a board lookup is routinely one book out of nine: the modal
+  // read "avg price -110 · 1 book" above a table of nine books quoting the same line, because the
+  // -110 was the one book's own number and the other eight were being shown at their alt price.
+  // Two different questions, and only this one is the question the table is answering.
+  if (verdict.atLine !== null) {
+    stat("Line", String(verdict.atLine));
+    if (verdict.avgPriceAtLine !== null) {
+      stat("Avg price", fmtOdds(verdict.avgPriceAtLine), books(verdict.priceAtLineBookCount));
+    }
+  } else {
+    if (verdict.avgClosingLine !== null) {
+      stat("Avg line", verdict.avgClosingLine.toFixed(1), books(verdict.closingBookCount));
+    }
+    // The reason this modal is worth opening on a whole-number market: the line on a passing-
+    // touchdowns prop cannot move off 2.5, so the price is the only thing that ever does.
+    if (verdict.avgClosingPrice !== null) {
+      stat("Avg price", fmtOdds(verdict.avgClosingPrice), books(verdict.closingPriceBookCount));
+    }
   }
   if (verdict.edge !== null) {
     stat(

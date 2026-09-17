@@ -8,7 +8,9 @@ import {
   resolveClosingMarket,
   PROPPROFESSOR_MARKETS,
   isSportsbookForClose,
+  type MarketType,
   type ParseResult,
+  type ParsedRow,
   type ScreenReadPlan,
 } from "@clv/shared";
 import { buildClosingVerdict } from "../closing";
@@ -30,7 +32,7 @@ function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, `pp-screen-${name}.json`), "utf8"));
 }
 
-function planFor(sport: string, statMarket: string, marketType = "PLAYER_PROP" as const) {
+function planFor(sport: string, statMarket: string, marketType: MarketType = "PLAYER_PROP") {
   const plan = planScreenRead({ sport, statMarket, marketType });
   if ("kind" in plan) throw new Error(`expected a plan, got ${plan.kind}: ${plan.reason}`);
   return plan;
@@ -144,6 +146,49 @@ describe("market resolution", () => {
       market: "Team Total Passing Yards",
     });
     expect(resolveClosingMarket("Tennis", "Team Total")).toMatchObject({ kind: "unmapped" });
+  });
+
+  /**
+   * The league default is a fill-in for a name that says which total it means only vaguely. Let it
+   * answer a name that says exactly which total it means and it stops being a fill-in: it becomes a
+   * confident answer about a different market, and nothing downstream can tell -- every parsed row
+   * is stamped with the market name the *pick* used, so the wrong market looks like a perfect match.
+   */
+  it("never substitutes the league's own total for a total that names a different stat", () => {
+    // Both of these were reported live. The turnovers pick came back priced as the game's point
+    // total (41.5); the pitches pick came back as 1st-inning team total runs (0.5 at +240).
+    expect(resolveClosingMarket("NFL", "Total Turnovers", "GAME_TOTAL")).toMatchObject({
+      market: "Total Turnovers",
+    });
+    expect(
+      resolveClosingMarket("MLB", "1st Inning Team Total Pitches Thrown", "PLAYER_PROP")
+    ).toMatchObject({ kind: "unmapped" });
+    // The general rule, not just the two reported spellings: a named total with no alias is loud.
+    expect(resolveClosingMarket("NFL", "Total Blocked Kicks", "GAME_TOTAL")).toMatchObject({
+      kind: "unmapped",
+    });
+    expect(resolveClosingMarket("NBA", "Team Total Technical Fouls")).toMatchObject({
+      kind: "unmapped",
+    });
+
+    // ...while a name that names no stat of its own still gets the league's total, which is the
+    // whole reason PROPPROFESSOR_GAME_TOTALS / _TEAM_TOTALS exist.
+    for (const generic of ["Game Total", "Total", "Over/Under"]) {
+      expect(resolveClosingMarket("NFL", generic, "GAME_TOTAL")).toMatchObject({
+        market: "Total Points",
+      });
+    }
+    expect(resolveClosingMarket("MLB", "Game Total", "GAME_TOTAL")).toMatchObject({
+      market: "Total Runs",
+    });
+    // And a name that names the default's own stat is the same total said longhand, not a different
+    // one, so it still fills in.
+    expect(resolveClosingMarket("NFL", "Points", "GAME_TOTAL")).toMatchObject({
+      market: "Total Points",
+    });
+    expect(resolveClosingMarket("MLB", "Runs", "GAME_TOTAL")).toMatchObject({
+      market: "Total Runs",
+    });
   });
 
   it("resolves a market whether or not the board prefixed it with 'Player'", () => {
@@ -780,6 +825,56 @@ describe("book classification on the screen", () => {
   });
 });
 
+describe("response sanity", () => {
+  /**
+   * The last place a wrong market can still be noticed. Once rows are built they all carry the
+   * market name the *pick* used -- see `buildRow` -- so the matcher's stat check compares that name
+   * against itself and can never disagree. If the screen answers about a different market than it
+   * was asked about, this is the only check standing between that and a confident wrong answer.
+   */
+  it("rejects a response that is about a different market than the one requested", () => {
+    const plan = planFor("NCAAF", "Rushing Yards");
+    const raw = fixture("ncaaf-rushing-yards") as { game_data: { market: string }[] };
+    const swapped = {
+      ...raw,
+      game_data: raw.game_data.map((g) => ({ ...g, market: "Player Receiving Yards" })),
+    };
+
+    const result = normalizeScreenMarket(swapped, plan);
+    expect(result.ok).toBe(false);
+    expect(result.rows).toHaveLength(0);
+    expect(result.reason).toContain("Player Rushing Yards");
+    expect(result.reason).toContain("Player Receiving Yards");
+
+    // The untouched fixture still parses, so this is a contradiction test and not a spelling one.
+    expect(normalizeScreenMarket(raw, plan).rows.length).toBeGreaterThan(0);
+  });
+
+  it("compares the base market, so a period qualifier cannot fail a read on its own", () => {
+    // Whether a period-qualified request echoes "<market> - <period>" or just "<market>" is not
+    // covered by any captured fixture, so the check must pass either way -- the suffix is ours.
+    const plan = planFor("NFL", "1st Half Total Points", "GAME_TOTAL");
+    expect(plan.body.market).toBe("Total Points - 1st Half");
+    const datum = { market: "Total Points", homeTeam: "A", awayTeam: "B", selections: {} };
+    expect(normalizeScreenMarket({ game_data: [datum] }, plan).ok).toBe(true);
+    // A different stat is still caught, period qualifier or not.
+    expect(
+      normalizeScreenMarket({ game_data: [{ ...datum, market: "Total Turnovers" }] }, plan).ok
+    ).toBe(false);
+  });
+
+  it("accepts a response whose entries name no market at all", () => {
+    // Absent is not a contradiction: only an explicit disagreement is worth rejecting.
+    const plan = planFor("NCAAF", "Rushing Yards");
+    const raw = fixture("ncaaf-rushing-yards") as { game_data: Record<string, unknown>[] };
+    const stripped = {
+      ...raw,
+      game_data: raw.game_data.map(({ market: _market, ...rest }) => rest),
+    };
+    expect(normalizeScreenMarket(stripped, plan).rows.length).toBeGreaterThan(0);
+  });
+});
+
 describe("matcher safety", () => {
   const plan = planFor("NCAAF", "Rushing Yards");
 
@@ -821,6 +916,58 @@ describe("matcher safety", () => {
         externalPropId: null,
       })
     ).not.toBeNull();
+  });
+
+  /**
+   * A game market's fixture is not one signal among several -- it is the only one. Two games'
+   * totals agree on market, on side, and on having no player at all, so with the fixture removed
+   * they score identically and the tie guard reads them as one pick quoted twice.
+   */
+  it("refuses a game market it cannot pin to a fixture, rather than taking the first game", () => {
+    const total = (matchup: string | null, takenLine: number) =>
+      ({
+        rowIndex: 0,
+        marketType: "GAME_TOTAL",
+        player: "Over",
+        selectionName: "Over",
+        subjectTeam: null,
+        isLive: false,
+        team: null,
+        opponent: null,
+        matchup,
+        sport: "NFL",
+        statMarket: "Total Points",
+        side: "OVER",
+        takenLine,
+        fairProbability: null,
+        boardEvPercent: null,
+        gameStartTimeText: null,
+        gameStartTimeIso: null,
+        externalPropId: null,
+        externalPlayerId: null,
+        bookLines: [],
+        rawText: "",
+      }) as unknown as ParsedRow;
+
+    const rows = [total("Bears vs Packers", 41.5), total("Jets vs Bills", 47.5)];
+    const target = (matchup: string | null) => ({
+      marketType: "GAME_TOTAL" as const,
+      player: null,
+      subjectTeam: null,
+      statMarket: "Total Points",
+      side: "OVER" as const,
+      matchup,
+      externalPropId: null,
+    });
+
+    // A board row whose fixture did not parse used to come back with whichever game the screen
+    // listed first -- so every game total in the league showed the same lines.
+    expect(findMatchingRow(rows, target(null))).toBeNull();
+    // A row that does name its fixture still resolves, in either home/away order.
+    expect(findMatchingRow(rows, target("Bills vs Jets"))?.takenLine).toBe(47.5);
+    expect(findMatchingRow(rows, target("Bears vs Packers"))?.takenLine).toBe(41.5);
+    // And a fixture nothing in the response is playing matches nothing, rather than the first row.
+    expect(findMatchingRow(rows, target("Rams vs 49ers"))).toBeNull();
   });
 });
 

@@ -15,7 +15,7 @@ import type {
 } from "../content/shared/messages";
 import { runClosingWork } from "./closing-worker";
 import { runOddsPreviewWork } from "./odds-preview-worker";
-import { ensureServerToken, storeToken } from "./pp-token";
+import { ensureServerToken, refreshServerToken, storeToken } from "./pp-token";
 
 const QUEUE_KEY = "clv:queue";
 const ALARM = "clv:flush";
@@ -197,17 +197,41 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
         // watching.
         await ensureServerToken();
 
-        const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-lookup"), {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
-          body: JSON.stringify((message as OddsLookupMessage).pick),
-        });
-        if (!response.ok) {
-          sendResponse({ ok: false, error: `server ${response.status}` });
+        const read = async () => {
+          const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-lookup"), {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+            body: JSON.stringify((message as OddsLookupMessage).pick),
+          });
+          if (!response.ok) return { status: response.status, preview: undefined };
+          const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
+          return { status: response.status, preview: body.preview };
+        };
+
+        let result = await read();
+        // A refused token is the one failure worth retrying inside the click, because it is the one
+        // this extension can actually repair -- the server has no way to mint a replacement, and
+        // `ensureServerToken` above would have cheerfully relayed the same dead token back to it.
+        // One retry, never a loop: the same answer twice with a freshly minted token means
+        // something other than expiry is wrong, and the modal should say so rather than spin. This
+        // mirrors what `closing-reader.ts` already does with its own 401s.
+        if (result.preview?.tokenRejected) {
+          if (!(await refreshServerToken())) {
+            sendResponse({
+              ok: false,
+              error:
+                "Your PropProfessor session expired and a new one could not be fetched. Open " +
+                "propprofessor.com, make sure you are signed in, then try again.",
+            } satisfies OddsLookupResponse);
+            return;
+          }
+          result = await read();
+        }
+        if (result.status !== 200) {
+          sendResponse({ ok: false, error: `server ${result.status}` });
           return;
         }
-        const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
-        sendResponse({ ok: true, preview: body.preview } satisfies OddsLookupResponse);
+        sendResponse({ ok: true, preview: result.preview } satisfies OddsLookupResponse);
       } catch (error) {
         sendResponse({
           ok: false,

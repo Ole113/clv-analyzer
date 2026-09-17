@@ -600,6 +600,40 @@ const MARKETS_BY_FILTER_KEY: Record<string, string> = (() => {
   return index;
 })();
 
+/**
+ * A total's name with the framing words stripped, leaving only the stat it claims to count:
+ * "1st Inning Team Total Pitches Thrown" -> "pitches thrown", "Game Total" -> "", "Total" -> "".
+ */
+function totalStatWord(stat: string): string {
+  return stat
+    .replace(/\b(game|team|total|totals|over|under)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Whether a total's name counts something other than what the league's default total counts.
+ *
+ * This is the guard on a *substitution*, and it exists because the failure it prevents is silent
+ * and total. `PROPPROFESSOR_GAME_TOTALS` / `PROPPROFESSOR_TEAM_TOTALS` fill in the league's own
+ * total for a pick whose name says which total it means only vaguely ("Game Total", "Total") --
+ * which is right, and is the whole reason those tables exist. Applied to a name that says exactly
+ * which total it means, it stops being a fill-in and becomes an answer about a different market:
+ * an NFL "Total Turnovers" pick came back priced as Total Points (41.5), and an MLB "1st Inning
+ * Team Total Pitches Thrown" pick came back as 1st-inning Team Total Runs (0.5 at +240). Nothing
+ * downstream can catch either one -- `buildRow` stamps every parsed row with the market name the
+ * *pick* used, so the row looks like a perfect match for a market it has nothing to do with.
+ *
+ * So the default may fill in only for a name that names no stat of its own, or that names the
+ * default's own stat ("Points" typed as a GAME_TOTAL in a league whose total is Total Points).
+ * Anything else is reported unmapped, which is loud and fixable -- a market PropProfessor really
+ * carries just needs its line in `PROPPROFESSOR_MARKETS`, and one it does not carry should say so.
+ */
+function namesADifferentStat(stat: string, leagueDefault: string): boolean {
+  const named = totalStatWord(stat);
+  return named !== "" && named !== totalStatWord(normalizeMarketName(leagueDefault));
+}
+
 export type ResolvedMarket =
   | { ok: true; market: string; league: string }
   /** Knowably unpriceable. Terminal, and not a failure. */
@@ -656,15 +690,19 @@ export function resolveClosingMarket(
   // decided by the sport exactly like a game total's is -- checked ahead of `marketType` because a
   // captured team-total pick's own type is not reliable ("Seattle Seahawks Over 24.5" parses as a
   // PLAYER_PROP with the team name read as the player, not as a distinct team-total type).
-  if (stat === "team total" || stat.startsWith("team total ")) {
+  if (stat === "team total" || stat === "team totals" || stat.startsWith("team total ")) {
     if (market?.startsWith("Team Total ")) return withPeriod(market);
     const total = PROPPROFESSOR_TEAM_TOTALS[league];
-    if (total) return withPeriod(total);
-    return {
-      ok: false,
-      kind: "unmapped",
-      detail: `no PropProfessor team total for league "${league}"`,
-    };
+    if (!total) {
+      return {
+        ok: false,
+        kind: "unmapped",
+        detail: `no PropProfessor team total for league "${league}"`,
+      };
+    }
+    return namesADifferentStat(stat, total)
+      ? { ok: false, kind: "unmapped", detail: `no PropProfessor market alias for "${statMarket}"` }
+      : withPeriod(total);
   }
 
   if (marketType === "GAME_TOTAL") {
@@ -673,8 +711,12 @@ export function resolveClosingMarket(
     // runs first for the former, so a tennis "Total Sets" is not flattened into "Total Games".
     if (market?.startsWith("Total ")) return withPeriod(market);
     const total = PROPPROFESSOR_GAME_TOTALS[league];
-    if (total) return withPeriod(total);
-    return { ok: false, kind: "unmapped", detail: `no PropProfessor game total for league "${league}"` };
+    if (!total) {
+      return { ok: false, kind: "unmapped", detail: `no PropProfessor game total for league "${league}"` };
+    }
+    return namesADifferentStat(stat, total)
+      ? { ok: false, kind: "unmapped", detail: `no PropProfessor market alias for "${statMarket}"` }
+      : withPeriod(total);
   }
 
   if (!market) {

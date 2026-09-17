@@ -148,6 +148,11 @@ function impliedProbability(price: number): number {
   return price > 0 ? 100 / (price + 100) : Math.abs(price) / (Math.abs(price) + 100);
 }
 
+/** A market name without its period qualifier: "Total Points - 1st Half" -> "total points". */
+function baseMarket(market: string): string {
+  return market.split(" - ")[0].trim().toLowerCase();
+}
+
 /** Pulls the number off the end of a selection label, e.g. "Tiafoe Over 5.5" -> 5.5. */
 function trailingNumber(label: string | null): number | null {
   if (!label) return null;
@@ -495,12 +500,46 @@ export function normalizeScreenMarket(
       plan.marketType === "MONEYLINE" || typeof options.atLine !== "number" ? null : options.atLine;
 
     const rows: ParsedRow[] = [];
+    // Markets the response says it is about, where it disagrees with the one that was asked for.
+    // Collected rather than counted so the reason can name what came back instead.
+    const wrongMarkets = new Set<string>();
     for (const datum of data as RawGameDatum[]) {
       if (!datum || typeof datum !== "object") continue;
+      // The answer has to be about the question. Every captured response echoes the requested
+      // market in this field, so a disagreement is not a spelling difference -- it is the screen
+      // answering about something else, and a row built from it would be indistinguishable from a
+      // good one downstream: `buildRow` stamps each row with the market name the *pick* used, so
+      // `findMatchingRow`'s stat check compares that name against itself and always agrees. This is
+      // the only place the two can still be compared.
+      //
+      // Compared on the base market, with any period qualifier dropped from both sides. All four
+      // captured fixtures are full-game markets, so whether a period-qualified request comes back
+      // echoing "Total Points - 1st Half" or just "Total Points" is unverified -- and guessing
+      // wrong would reject every period read. The suffix is ours anyway (`withPeriod` appends it);
+      // what this is guarding against is the screen answering about a different *stat*.
+      //
+      // A datum that names no market is left alone rather than rejected: absent is not a
+      // contradiction.
+      const answered = str(datum.market);
+      if (answered !== null && baseMarket(answered) !== baseMarket(plan.body.market)) {
+        wrongMarkets.add(answered);
+        continue;
+      }
       for (const side of [1, 2] as const) {
         const row = buildRow(datum, plan, side, rows.length, atLine);
         if (row) rows.push(row);
       }
+    }
+
+    if (rows.length === 0 && wrongMarkets.size > 0) {
+      return {
+        ok: false,
+        reason:
+          `asked for "${plan.body.market}" and the screen answered about ` +
+          `${[...wrongMarkets].map((m) => `"${m}"`).join(", ")}`,
+        headers: [],
+        rows: [],
+      };
     }
 
     return {

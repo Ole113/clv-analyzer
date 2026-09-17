@@ -119,12 +119,52 @@ export async function ensureServerToken(): Promise<boolean> {
     }
 
     if (await mintedRecently()) return false;
-    await chrome.storage.session.set({ [MINT_ATTEMPT_KEY]: Date.now() });
     // `storeToken` relays it as a side effect of caching it, so there is nothing to do with the
     // return value except report whether the server is now equipped.
-    return (await captureFreshToken()) !== null;
+    const minted = await captureFreshToken();
+    // Only a *failed* attempt starts the backoff. Stamping it before trying meant a perfectly
+    // successful mint also began a ten-minute lockout, so when that token later expired and was
+    // dropped, the next several clicks were told there was no PropProfessor session and there was
+    // nothing the user could do but wait it out or go refresh the site by hand. The backoff is
+    // there to stop a hopeless case (signed out, subscription lapsed) from opening a tab every
+    // minute forever -- a mint that worked is not that case.
+    if (minted === null) await chrome.storage.session.set({ [MINT_ATTEMPT_KEY]: Date.now() });
+    return minted !== null;
   } catch {
     // Offline, or the backend is down. Best effort: the next alarm tries again.
+    return false;
+  }
+}
+
+/**
+ * Replaces a token PropProfessor has refused, and does not return until the server holds the
+ * replacement.
+ *
+ * Called when a server-side read comes back `tokenRejected`. That is the one failure the server
+ * cannot recover from on its own: it drops the dead token, but the only thing it can do next is ask
+ * the extension, and the extension -- seeing the server has none -- would relay the very same dead
+ * token straight back. That loop is why the modal kept reporting no PropProfessor session until the
+ * site was refreshed by hand. `getScreenToken(true)` breaks it by clearing the cached copy first,
+ * so the value that comes back is genuinely new.
+ *
+ * The relay is awaited rather than left to `storeToken`'s fire-and-forget one, because the caller
+ * retries the read immediately: without the await it would race the POST that equips the server and
+ * lose often enough to look like the bug it is fixing.
+ *
+ * The mint backoff still applies. It exists for the case a retry cannot fix -- signed out, or the
+ * subscription lapsed -- and without it every click on a dead session would open another tab.
+ */
+export async function refreshServerToken(): Promise<boolean> {
+  try {
+    if (await mintedRecently()) return false;
+    const token = await getScreenToken(true);
+    if (!token) {
+      await chrome.storage.session.set({ [MINT_ATTEMPT_KEY]: Date.now() });
+      return false;
+    }
+    await relayToken(token);
+    return true;
+  } catch {
     return false;
   }
 }

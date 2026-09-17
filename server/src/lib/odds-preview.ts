@@ -3,7 +3,7 @@ import { prisma } from "./prisma";
 import type { MarketType, Side } from "./constants";
 import { buildClosingVerdict, type ClosingVerdict } from "./closing";
 import { getAppSettings, sortByBookOrder } from "./app-settings";
-import { NoTokenError, readScreenNow } from "./pp-screen-read";
+import { NoTokenError, TokenRejectedError, readScreenNow } from "./pp-screen-read";
 
 /**
  * On-demand "what does PropProfessor say right now" reads, triggered by the Odds modal on a bet
@@ -36,6 +36,14 @@ export interface OddsPreview {
   /** Set when `ok` is false -- why there is nothing to show. */
   reason: string | null;
   verdict: ClosingVerdict | null;
+  /**
+   * The read failed because PropProfessor refused the token this server was holding.
+   *
+   * Surfaced rather than folded into `reason` because it is the one failure the *caller* can do
+   * something about: the extension answers it by minting a fresh token and asking again, which is
+   * a thing only the extension can do. See `TokenRejectedError`.
+   */
+  tokenRejected?: boolean;
 }
 
 // On `globalThis`, the same way `prisma.ts` pins its client: Next.js compiles Server Actions and
@@ -201,16 +209,19 @@ export async function lookupOddsNow(
   try {
     outcome = await readScreenNow(item, options);
   } catch (error) {
+    const rejected = error instanceof TokenRejectedError;
     return {
       fetchedAt: new Date().toISOString(),
       ok: false,
-      reason:
-        error instanceof NoTokenError
+      reason: rejected
+        ? "Your PropProfessor session expired. Open propprofessor.com, make sure you are signed in, then try again."
+        : error instanceof NoTokenError
           ? "This server has no PropProfessor session yet. Open propprofessor.com in a tab and try again."
           : error instanceof Error
             ? error.message
             : "the odds screen could not be read",
       verdict: null,
+      tokenRejected: rejected,
     };
   }
 

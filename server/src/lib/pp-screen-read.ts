@@ -73,9 +73,27 @@ function cacheKey(plan: ScreenReadPlan): string {
 }
 
 export class NoTokenError extends Error {
-  constructor() {
-    super("no PropProfessor session token on the server");
+  constructor(message = "no PropProfessor session token on the server") {
+    super(message);
     this.name = "NoTokenError";
+  }
+}
+
+/**
+ * The token this server was holding was refused by the screen.
+ *
+ * A subclass rather than a flag so every existing `instanceof NoTokenError` path keeps treating it
+ * as "this server cannot make the request alone", which is still true. What it adds is *why*, and
+ * the why decides the cure: with no token the extension only has to relay the one it already has,
+ * but with a refused one that is precisely the wrong move -- relaying the same dead credential is
+ * what made the modal say "no PropProfessor session" over and over until the user went and
+ * refreshed the site by hand. Only the extension can mint a replacement, so only the extension can
+ * fix this, and it has to be told the difference to know that it should.
+ */
+export class TokenRejectedError extends NoTokenError {
+  constructor() {
+    super("PropProfessor refused the stored session token");
+    this.name = "TokenRejectedError";
   }
 }
 
@@ -120,7 +138,7 @@ async function fetchScreen(plan: ScreenReadPlan, allowCache: boolean): Promise<u
     const response = await postScreen(plan, token);
     if (response.status === 401) {
       markTokenRejected(token);
-      throw new NoTokenError();
+      throw new TokenRejectedError();
     }
     if (!response.ok) throw new Error(`screen responded ${response.status}`);
     return response.json();

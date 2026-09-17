@@ -101,6 +101,9 @@ export interface OddsLookupResponse {
     fetchedAt: string;
     ok: boolean;
     reason: string | null;
+    /** The server's PropProfessor token was refused. Only this extension can mint a replacement,
+     *  so the background worker answers it by doing that and asking once more. */
+    tokenRejected?: boolean;
     verdict: {
       avgClosingLine: number | null;
       closingBookCount: number;

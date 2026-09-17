@@ -65,6 +65,29 @@ function matchupsOverlap(a: string | null, b: string | null): boolean {
 }
 
 /**
+ * Whether two fixture strings name the same game *and* actually name a game at all.
+ *
+ * The difference from `matchupsOverlap` is the empty case, and on a game market it is the whole
+ * ballgame. "Nothing to contradict" is the right reading when a fixture is one signal among
+ * several, which is how a player prop uses it -- the player's name is doing the identifying. A
+ * game total has no player: strip the fixture and every total in the league is an equally good
+ * match on market and side alike, all scoring identically, all naming the same non-subject
+ * ("Over"). `findMatchingRow`'s tie guard then reads them as one pick quoted at several lines and
+ * returns the top scorer, which is simply whichever game the screen listed first.
+ *
+ * The observed symptom was a modal that showed the same lines for every game in a league: open it
+ * on one game's total, open it on another's, get the first game's numbers both times. So an
+ * unusable fixture is a refusal here, not a pass -- for a market identified by nothing else, no
+ * answer is the only honest one.
+ */
+function sameFixture(a: string | null, b: string | null): boolean {
+  const left = matchupSides(a);
+  const right = matchupSides(b);
+  if (left.length === 0 || right.length === 0) return false;
+  return left.every((l) => right.some((r) => l === r || l.includes(r) || r.includes(l)));
+}
+
+/**
  * How well two player names agree, or null when they cannot be the same person.
  *
  * Exact agreement is the normal case and the only one the optimizer ever needed. Surname-only
@@ -145,7 +168,8 @@ export function findMatchingRow(rows: ParsedRow[], target: MatchTarget): ParsedR
       score += s;
     } else {
       // Game markets: the fixture has to agree, or "Over 14.5" would match another game entirely.
-      if (!matchupsOverlap(row.matchup, target.matchup)) continue;
+      // Both sides must name one -- see `sameFixture`, which is where that "entirely" was landing.
+      if (!sameFixture(row.matchup, target.matchup)) continue;
       const s = statScore(row.statMarket, wantStat);
       if (s === null) continue;
       score += s;
@@ -187,11 +211,19 @@ export function findMatchingRow(rows: ParsedRow[], target: MatchTarget): ParsedR
   return best.row;
 }
 
-/** Whether two candidate rows are about the same player or team, ignoring the line. */
+/**
+ * Whether two candidate rows are about the same player or team, ignoring the line.
+ *
+ * The fixture counts toward "same subject" because on a game market it is the only thing that
+ * distinguishes one candidate from another: two games' totals both have a null player, a null
+ * subject team and the selection label "Over", so without this they compare as one pick quoted
+ * twice and the tie guard waves them through.
+ */
 function sameSubject(a: ParsedRow, b: ParsedRow): boolean {
   return (
     normalizeName(a.player) === normalizeName(b.player) &&
-    normalizeName(a.subjectTeam) === normalizeName(b.subjectTeam)
+    normalizeName(a.subjectTeam) === normalizeName(b.subjectTeam) &&
+    matchupsOverlap(a.matchup, b.matchup)
   );
 }
 
