@@ -104,6 +104,9 @@ export interface OddsLookupResponse {
     /** The server's PropProfessor token was refused. Only this extension can mint a replacement,
      *  so the background worker answers it by doing that and asking once more. */
     tokenRejected?: boolean;
+    /** The odds screen filtered to this exact market, game and player. Null when the read matched
+     *  nothing, since the filters are built from the matched row's own identifiers. */
+    screenUrl?: string | null;
     verdict: {
       avgClosingLine: number | null;
       closingBookCount: number;

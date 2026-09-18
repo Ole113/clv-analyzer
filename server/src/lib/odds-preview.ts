@@ -1,4 +1,4 @@
-import type { ClosingReadOutcome, ClosingWorkItem } from "@clv/shared";
+import { screenPageUrl, type ClosingReadOutcome, type ClosingWorkItem } from "@clv/shared";
 import { prisma } from "./prisma";
 import type { MarketType, Side } from "./constants";
 import { buildClosingVerdict, type ClosingVerdict } from "./closing";
@@ -44,6 +44,14 @@ export interface OddsPreview {
    * a thing only the extension can do. See `TokenRejectedError`.
    */
   tokenRejected?: boolean;
+  /**
+   * The odds screen, filtered to exactly this market, game and player.
+   *
+   * Null whenever the read did not match a row, since the identifiers this is built from are the
+   * screen's own and come back with the row -- there is nothing to point at until there is. The
+   * modals fall back to the bare screen, which is where the link always used to go.
+   */
+  screenUrl?: string | null;
 }
 
 // On `globalThis`, the same way `prisma.ts` pins its client: Next.js compiles Server Actions and
@@ -115,6 +123,23 @@ function reasonFor(outcome: Exclude<ClosingReadOutcome, { kind: "MATCHED" }>): s
   }
 }
 
+/**
+ * The "open this on PropProfessor" link for a matched read.
+ *
+ * Built from the matched row rather than from the pick, because the screen filters on its own
+ * spellings and ours are routinely different -- the row is where its `gameId` and its `participant`
+ * come back to us. `row.player` is that participant on a player prop and null on a game market,
+ * which is exactly the distinction the link wants anyway.
+ */
+function screenUrlFor(outcome: Extract<ClosingReadOutcome, { kind: "MATCHED" }>): string {
+  return screenPageUrl({
+    league: outcome.source?.league ?? null,
+    market: outcome.source?.market ?? null,
+    gameId: outcome.row.externalGameId,
+    participant: outcome.row.player,
+  });
+}
+
 /** Turns a read outcome into a preview, computed the same way a real close is. */
 export async function recordPreviewResult(betId: string, outcome: ClosingReadOutcome): Promise<void> {
   const fetchedAt = new Date().toISOString();
@@ -140,7 +165,13 @@ export async function recordPreviewResult(betId: string, outcome: ClosingReadOut
   // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
   verdict.closeLines = sortByBookOrder(verdict.closeLines, settings.bookOrder);
 
-  rememberResult(betId, { fetchedAt, ok: true, reason: null, verdict });
+  rememberResult(betId, {
+    fetchedAt,
+    ok: true,
+    reason: null,
+    verdict,
+    screenUrl: screenUrlFor(outcome),
+  });
 }
 
 /** What a modal request produced: an answer now, or a request left with the extension to answer. */
@@ -245,5 +276,5 @@ export async function lookupOddsNow(
   // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
   verdict.closeLines = sortByBookOrder(verdict.closeLines, settings.bookOrder);
 
-  return { fetchedAt, ok: true, reason: null, verdict };
+  return { fetchedAt, ok: true, reason: null, verdict, screenUrl: screenUrlFor(outcome) };
 }

@@ -237,6 +237,7 @@ export function OddsPreviewButton({
   }, [open, start, stopPolling]);
 
   const busy = state.kind === "loading" || state.kind === "queued";
+  const screenUrl = state.kind === "result" ? (state.preview.screenUrl ?? null) : null;
 
   const dialog = (
     <div
@@ -305,11 +306,21 @@ export function OddsPreviewButton({
           </>
         )}
 
+        {/* A matched read knows exactly where on PropProfessor this market lives and says so; the
+            prop is the standing fallback for a read that matched nothing, or has not run yet. */}
         <p className="muted" style={{ fontSize: 11, marginTop: 14 }}>
-          {fallbackNote}{" "}
-          <a href={fallbackUrl} target="_blank" rel="noopener noreferrer">
-            Open the odds screen manually ↗
-          </a>
+          {screenUrl ? (
+            <a href={screenUrl} target="_blank" rel="noopener noreferrer">
+              Open this market on PropProfessor ↗
+            </a>
+          ) : (
+            <>
+              {fallbackNote}{" "}
+              <a href={fallbackUrl} target="_blank" rel="noopener noreferrer">
+                Open the odds screen manually ↗
+              </a>
+            </>
+          )}
         </p>
       </div>
     </div>

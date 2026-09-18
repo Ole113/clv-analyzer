@@ -6,6 +6,7 @@ import {
   normalizeScreenMarket,
   planScreenRead,
   resolveClosingMarket,
+  screenPageUrl,
   PROPPROFESSOR_MARKETS,
   isSportsbookForClose,
   type MarketType,
@@ -822,6 +823,55 @@ describe("book classification on the screen", () => {
   it("rejects an explicit alt-line column", () => {
     expect(isSportsbookForClose("draftkings6alt", "DraftKings6 (Alt)", true)).toBe(false);
     expect(isSportsbookForClose("betralt", "Betr (Alt)", true)).toBe(false);
+  });
+});
+
+describe("screen deep links", () => {
+  /**
+   * The link under the Odds modal. Everything in it is the screen's own -- its market spelling, its
+   * fixture id, its spelling of the player -- because those filters match exactly and ours do not
+   * agree with them ("LA Rams", "Alexander Zverev"). A filter that misses shows an empty screen.
+   */
+  it("builds a filtered link from the identifiers the screen itself returned", () => {
+    const plan = planFor("NCAAF", "Rushing Yards");
+    const row = parse("ncaaf-rushing-yards", plan).rows.find((r) => r.player === "Xavier Robinson")!;
+    expect(row.externalGameId).toBe("NCAAF:GAME:Michigan:Oklahoma:1789228800");
+
+    const url = new URL(
+      screenPageUrl({
+        league: plan.body.league,
+        market: plan.body.market,
+        gameId: row.externalGameId,
+        participant: row.player,
+      })
+    );
+    expect(url.origin + url.pathname).toBe("https://www.propprofessor.com/screen");
+    expect(url.searchParams.get("league")).toBe("NCAAF");
+    expect(url.searchParams.get("market")).toBe("Player Rushing Yards");
+    expect(url.searchParams.get("game")).toBe("NCAAF:GAME:Michigan:Oklahoma:1789228800");
+    expect(url.searchParams.get("participant")).toBe("Xavier Robinson");
+  });
+
+  it("omits a participant the market has none of, and falls back without a fixture", () => {
+    // A moneyline's participant comes back empty -- the fixture is the whole selection there, and
+    // an empty participant filters the screen down to nothing rather than to the game.
+    const plan = planFor("ATP", "Moneyline", "MONEYLINE");
+    const row = parse("tennis-moneyline", plan).rows[0];
+    const url = new URL(
+      screenPageUrl({
+        league: plan.body.league,
+        market: plan.body.market,
+        gameId: row.externalGameId,
+        participant: row.player,
+      })
+    );
+    expect(url.searchParams.has("participant")).toBe(false);
+    expect(url.searchParams.get("game")).toBe("Tennis:GAME:Binda_&_Biryukov:Noguchi_&_Wang:1789032600");
+
+    // Nothing to point at -> the bare screen, exactly where this link went before.
+    expect(screenPageUrl({ league: "NFL", market: "Player Receptions", gameId: null })).toBe(
+      "https://www.propprofessor.com/screen"
+    );
   });
 });
 

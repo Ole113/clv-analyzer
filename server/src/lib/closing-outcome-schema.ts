@@ -44,6 +44,9 @@ const rowSchema = z.object({
   gameStartTimeIso: z.string().nullable(),
   externalPropId: z.string().nullable(),
   externalPlayerId: z.string().nullable(),
+  // Only the screen source sets this, and only it needs it -- see `screenPageUrl`. Optional so a
+  // row from either DOM parser still validates.
+  externalGameId: z.string().nullable().optional(),
   bookLines: z.array(bookLineSchema),
   rawText: z.string(),
 });

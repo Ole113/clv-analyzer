@@ -42,6 +42,39 @@ export const PROPPROFESSOR_SCREEN_ENDPOINT = "https://backend.propprofessor.com/
 /** Where a human would go to see the same numbers, stored as the verdict's provenance link. */
 export const PROPPROFESSOR_SCREEN_PAGE = "https://www.propprofessor.com/screen";
 
+/**
+ * A link to the odds screen already filtered to one market, one game and one player.
+ *
+ * The screen does read its filters from the query string -- `league`, `market`, `game` and
+ * `participant` -- which is worth stating plainly because this codebase concluded the opposite once
+ * and wrote it down (see `oddsScreenUrlFor` in the server's queries.ts). That attempt tried
+ * `?sport=`, which the page ignores; these four are the names it actually reads, verified on a cold
+ * load rather than on a click-through, since client-side routing would have hidden the difference.
+ *
+ * Nothing here is constructed or guessed. `game` is the screen's own `gameId` and `participant` its
+ * own spelling of the player, both read straight back out of the response being linked to -- which
+ * matters, because our spelling of either is routinely not theirs ("LA Rams", "Alexander Zverev"),
+ * and a filter that does not match returns an empty screen rather than a near miss. A caller with
+ * no gameId gets the bare screen, which is exactly where the link pointed before.
+ */
+export function screenPageUrl(target: {
+  league: string | null;
+  market: string | null;
+  gameId?: string | null;
+  participant?: string | null;
+}): string {
+  if (!target.gameId || !target.league || !target.market) return PROPPROFESSOR_SCREEN_PAGE;
+  const params = new URLSearchParams({
+    market: target.market,
+    game: target.gameId,
+    league: target.league,
+  });
+  // Absent on a game market, where the fixture is the whole selection and the screen expects no
+  // participant at all -- sending an empty one filters to nothing.
+  if (target.participant) params.set("participant", target.participant);
+  return `${PROPPROFESSOR_SCREEN_PAGE}?${params.toString()}`;
+}
+
 export interface ScreenReadPlan {
   url: string;
   /** Exactly the body the site's own page sends; see the fixtures' `_request`. */
@@ -453,6 +486,7 @@ function buildRow(
     gameStartTimeIso: str(datum.start),
     externalPropId: str(side === 1 ? firstSel?.selection1Id : firstSel?.selection2Id),
     externalPlayerId: null,
+    externalGameId: str(datum.gameId),
     bookLines,
     rawText: JSON.stringify({
       source: "propprofessor-screen",

@@ -79,6 +79,15 @@ export interface ParsedRow {
   gameStartTimeIso: string | null;
   externalPropId: string | null;
   externalPlayerId: string | null;
+  /**
+   * The source's own id for the fixture, where it publishes one.
+   *
+   * Optional because only PropProfessor's odds screen has one to give -- the DOM parsers read a
+   * board that names a game in prose and nothing else. It is kept because it is the one identifier
+   * that can address that screen exactly: see `screenPageUrl`, which turns it into a link that
+   * opens already filtered to this market and this game.
+   */
+  externalGameId?: string | null;
   bookLines: BookLine[];
   rawText: string;
 }

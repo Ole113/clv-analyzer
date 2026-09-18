@@ -320,9 +320,16 @@ const ODDSJAM_SPORT_SLUG: Record<string, string> = {
  * could not even reach. /<sport>/odds is reachable; the market and player are then the site's own
  * dropdown and search.
  *
- * PropProfessor's screen keeps all of its filter state in memory: changing a dropdown never
- * changes the URL, and loading /screen?sport=NFL still shows MLB (both verified). So there is no
- * honest way to pre-fill that one either.
+ * PropProfessor's screen does read its filters from the query string, contrary to what this comment
+ * said for a long time: `league`, `market`, `game` and `participant` all take effect on a cold load.
+ * The earlier finding -- that `/screen?sport=NFL` still showed MLB -- was true of `sport`, which the
+ * page ignores, and was wrongly generalised to the whole query string.
+ *
+ * It still cannot be used *here*. Those filters match on PropProfessor's own spellings, and `game`
+ * is its own opaque fixture id; a bet row carries neither, and a filter that misses shows an empty
+ * screen rather than a near miss. The odds modal does build that link, because by then a read has
+ * come back and the ids are the screen's own -- see `screenPageUrl`. This function has only the bet,
+ * so the market and player stay the site's dropdown and search.
  *
  * This is a link a human clicks, which is ordinary browsing. It is unrelated to -- and must not be
  * confused with -- the closing read, which never contacts OddsJam automatically. See

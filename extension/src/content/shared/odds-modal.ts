@@ -1,7 +1,13 @@
 import { isExchange, type ParsedRow } from "@clv/shared";
 import type { OddsLookupLine, OddsLookupMessage, OddsLookupPick, OddsLookupResponse } from "./messages";
 
-/** Where a human click on this modal can go to see PropProfessor's odds screen for themselves. */
+/**
+ * Where a human click on this modal goes when the read matched nothing to point at.
+ *
+ * A successful read supplies `screenUrl` instead, which opens the screen already filtered to the
+ * market, the game and the player -- built from the identifiers the screen itself returned, so it
+ * lands on the row this modal is describing rather than on a search box.
+ */
 const PP_ODDS_SCREEN_URL = "https://www.propprofessor.com/screen";
 
 /**
@@ -528,9 +534,15 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
         }
         if (verdict.note) wrap.appendChild(el("p", "clva-odds-note", verdict.note));
         const note = el("p", "clva-odds-note");
+        const screenUrl = preview.screenUrl ?? PP_ODDS_SCREEN_URL;
         note.append(
           "Sportsbook lines from ",
-          link("PropProfessor's odds screen ↗", PP_ODDS_SCREEN_URL),
+          link(
+            screenUrl === PP_ODDS_SCREEN_URL
+              ? "PropProfessor's odds screen ↗"
+              : "this market on PropProfessor ↗",
+            screenUrl
+          ),
           ", averaged the same way a closing read is."
         );
         wrap.appendChild(note);
