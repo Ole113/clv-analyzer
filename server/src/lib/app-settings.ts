@@ -1,10 +1,79 @@
-import { DEFAULT_KELLY_BOARDS, DEFAULT_KELLY_MULTIPLIER, SPORTSBOOK_HINTS } from "@clv/shared";
+import { DEFAULT_KELLY_BOARDS, DEFAULT_KELLY_MULTIPLIER } from "@clv/shared";
 import { prisma } from "./prisma";
 
 const SETTINGS_ID = "singleton";
 
-/** FanDuel first, as asked for; the rest follows the same order books.ts already ranks them in. */
-export const DEFAULT_BOOK_ORDER: string[] = [...SPORTSBOOK_HINTS];
+/**
+ * The book column order a fresh install starts with, and what Settings restores on a reset.
+ *
+ * Hand-curated rather than derived. This used to be `[...SPORTSBOOK_HINTS]`, which put FanDuel
+ * first and otherwise inherited whatever order the allowlist in `books.ts` happened to be written
+ * in -- a stand-in for a real preference, because at the time there was no real preference to use.
+ * There is now: this is the order arrived at by reordering the list on the Settings page, promoted
+ * here so every install starts from it instead of from the allowlist's incidental order.
+ *
+ * Roughly: the books worth reading first (Circa, FanDuel, Pinnacle), then the rest of the
+ * sportsbooks and exchanges, then the DFS / pick'em apps and the derived and alt-line columns,
+ * which are shown but never averaged. A stored order overrides this entirely, and any book not
+ * named here still gets a row -- `sortByBookOrder` puts unranked books after the ranked ones, so a
+ * newly-seen book appears at the end rather than vanishing.
+ */
+export const DEFAULT_BOOK_ORDER: string[] = [
+  "circa",
+  "fanduel",
+  "pinnacle",
+  "propsbuilder",
+  "propbuilder",
+  "betonline",
+  "novig",
+  "novigapp",
+  "draftkings",
+  "polymarketus",
+  "polymarket",
+  "prophet",
+  "kalshi",
+  "4cx",
+  "betmgm",
+  "caesars",
+  "bovada",
+  "fliff",
+  "rebet",
+  "betrivers",
+  "espnbet",
+  "fanatics",
+  "hardrock",
+  "ballybet",
+  "betparx",
+  "bet105",
+  "pointsbet",
+  "wynnbet",
+  "superbook",
+  "thescore",
+  "sportzino",
+  "onyx",
+  "prizepicks",
+  "courtside",
+  "oddsjamalgoodds",
+  "dogghouse",
+  "prizepicks5or6pickflex",
+  "parlayplay",
+  "betrpicks",
+  "dabble3or5pick",
+  "underdogfantasy4pickflex",
+  "betr",
+  "dabble",
+  "sleeper",
+  "underdog",
+  "chalkboard",
+  "betralt",
+  "boomfantasy",
+  "onyxodds",
+  "underdogalt",
+  "draftkings6",
+  "draftkings6alt",
+  "dabblealt",
+  "hotstreak",
+];
 
 /** A book with no configured weight is treated as this -- see bookWeightsJson in schema.prisma. */
 export const DEFAULT_BOOK_WEIGHT = 1;
