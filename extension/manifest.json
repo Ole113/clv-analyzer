@@ -59,6 +59,15 @@
         "https://www.propprofessor.com/*"
       ],
       "js": [
+        "content/pp-positive-ev.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.propprofessor.com/*"
+      ],
+      "js": [
         "content/pp-token-bridge.js"
       ],
       "run_at": "document_start",

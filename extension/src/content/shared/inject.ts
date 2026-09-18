@@ -140,7 +140,15 @@ const STYLES = `
 .clva-modal button.clva-danger { border-color: rgba(248,81,73,0.5); color: #ff9b95; }
 `;
 
-function ensureStyles(extra?: string): void {
+/**
+ * Injects the one stylesheet every surface this extension mounts shares.
+ *
+ * Exported because not every surface goes through `startCapture`: PropProfessor's +EV page mounts
+ * the Kelly button on its own (see `propprofessor/positive-ev.ts`) with no checkbox, no capture and
+ * no adapter, but still opens the same modal and so needs the same CSS. The `STYLE_ID` guard makes
+ * a second caller on the same page a no-op rather than a duplicate sheet.
+ */
+export function ensureStyles(extra?: string): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;

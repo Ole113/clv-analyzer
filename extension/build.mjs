@@ -25,6 +25,8 @@ const options = {
     // Also page-world: AG Grid's external filter (the only thing that can hide a row correctly on
     // a virtualized grid) is reachable only through the grid API, which lives in page context.
     "content/pp-grid-bridge": "src/content/propprofessor/grid-bridge.ts",
+    // The +EV page is not a capture board -- it mounts the Kelly button and nothing else.
+    "content/pp-positive-ev": "src/content/propprofessor/positive-ev.ts",
     // Registered at runtime rather than in the manifest -- the dashboard's origin is whatever the
     // user configured -- so it has no `content_scripts` entry to match it against.
     "content/dashboard-warm": "src/content/dashboard/warm.ts",

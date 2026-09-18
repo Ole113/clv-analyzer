@@ -79,6 +79,16 @@ export const KELLY_MODAL_STYLES = `
 export interface KellyContext {
   /** The row's own price, when the caller found one. Null opens the field blank for hand entry. */
   price: number | null;
+  /**
+   * The market's fair (de-vigged) price, where the board publishes one of its own.
+   *
+   * Null on a board that does not, which is every DFS board -- there the discrepancy in odds points
+   * is what a human reads off the screen, and this field is left blank to be filled that way. It is
+   * non-null on PropProfessor's +EV page, which prints a `noVigOdds` beside every bet: that is
+   * already de-vigged, so it can be taken at face value and the modal opens fully computed rather
+   * than waiting for a number the page is already showing.
+   */
+  fairPrice?: number | null;
   /** What the bet is, for the modal's subtitle. */
   label: string;
   /**
@@ -160,7 +170,12 @@ export function openKellyModal(ctx: KellyContext): void {
   const fields = el("div", "clva-kelly-fields");
   const priceInput = field(fields, "Your odds", ctx.price === null ? "" : String(ctx.price), "5");
   const pointsInput = field(fields, "Discrepancy (pts)", "", "5");
-  const fairInput = field(fields, "Fair odds", "", "5");
+  const fairInput = field(
+    fields,
+    "Fair odds",
+    ctx.fairPrice === null || ctx.fairPrice === undefined ? "" : String(ctx.fairPrice),
+    "5"
+  );
   const bankrollInput = field(
     fields,
     "Bankroll ($)",
