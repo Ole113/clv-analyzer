@@ -18,9 +18,15 @@ export const dynamic = "force-dynamic";
  * start disagreeing about what the closing number is, which is worse than not having the board
  * modal at all.
  *
- * Reads PropProfessor, never the board the request came from. An OddsJam row asks this the same way
- * a PropProfessor row does, and gets an answer from the same place -- the capture site is provenance
- * and has no influence on where the read goes. See `oddsjam-automation-guard.test.ts`.
+ * Reads PropProfessor by default and The Odds API when `source` asks for it -- never the board the
+ * request came from. An OddsJam row asks this the same way a PropProfessor row does, and gets an
+ * answer from the same place: the capture site is provenance and has no influence on where the read
+ * goes. See `oddsjam-automation-guard.test.ts`.
+ *
+ * `source` is a field here rather than a second route on purpose. Auth, the zod schema and the
+ * identity-to-`ClosingWorkItem` mapping are identical for both, and a second route would be a copy
+ * of all three that has to be kept in step. What differs between the sources is entirely downstream
+ * of this file, in `lookupOddsNow`.
  */
 
 const lookupSchema = z.object({
@@ -38,6 +44,14 @@ const lookupSchema = z.object({
   externalPropId: z.string().nullable().optional().default(null),
   /** Set by the modal's Refresh button, so a deliberate re-check is never served from the cache. */
   refresh: z.boolean().optional().default(false),
+  /**
+   * Which source to ask. Defaults to PropProfessor, so every existing caller -- including an
+   * extension build from before the second source shipped -- keeps its current behaviour exactly.
+   *
+   * `ODDS_API` spends one metered credit per call, which is why it is never the default and why
+   * the modal only sends it on a deliberate tab click.
+   */
+  source: z.enum(["PROPPROFESSOR", "ODDS_API"]).optional().default("PROPPROFESSOR"),
 });
 
 export async function POST(request: Request) {
@@ -58,7 +72,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { refresh, ...identity } = parsed.data;
+  const { refresh, source, ...identity } = parsed.data;
   // The fields a screen read does not consult are filled with the empty values `ClosingWorkItem`
   // expects rather than being made optional on the type: `planScreenRead` reads only sport, market
   // and market type, and `findMatchingRow` only the identity fields above.
@@ -71,6 +85,6 @@ export async function POST(request: Request) {
     ...identity,
   };
 
-  const preview = await lookupOddsNow(item, { allowCache: !refresh });
+  const preview = await lookupOddsNow(item, { allowCache: !refresh, source });
   return Response.json({ ok: true, preview });
 }

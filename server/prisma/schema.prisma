@@ -190,6 +190,18 @@ model AppSettings {
   /// their device's own preference rather than being locked into whichever palette shipped first.
   themePreference String @default("system")
 
+  /// The Odds API key, for the Odds modal's second source. Empty means "not configured", which the
+  /// modal says inside that tab rather than hiding the tab.
+  ///
+  /// Here rather than in process.env, which was the other candidate and follows the API_KEY
+  /// precedent in lib/auth.ts. The deciding factor was that the person who has to paste this in is
+  /// not necessarily the person who can edit a .env and restart Node -- every install is
+  /// single-tenant and brings its own free account, so this is a value each user sets for
+  /// themselves, which makes it a setting like any other. The cost of that choice is real and worth
+  /// stating: the key is in clv.db and therefore in every backup of it, so it should be treated as
+  /// disclosed if the database ever is. It grants nothing but that account's own read quota.
+  oddsApiKey String @default("")
+
   /// Bankroll the Kelly calculator stakes against, in whole cents. Cents rather than dollars
   /// because SQLite has no decimal type and a float bankroll rounds visibly once it is multiplied
   /// by a Kelly fraction. 0 means "not set", which is why the calculator asks for one.

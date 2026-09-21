@@ -1,5 +1,11 @@
 import { isExchange, type ParsedRow } from "@clv/shared";
-import type { OddsLookupLine, OddsLookupMessage, OddsLookupPick, OddsLookupResponse } from "./messages";
+import type {
+  OddsLookupLine,
+  OddsLookupMessage,
+  OddsLookupPick,
+  OddsLookupResponse,
+  OddsSource,
+} from "./messages";
 
 /**
  * Where a human click on this modal goes when the read matched nothing to point at.
@@ -122,6 +128,21 @@ export const ODDS_MODAL_STYLES = `
 .clva-odds-note a { color: var(--clva-accent); }
 .clva-odds-msg { color: #ff9b95; margin: 18px 0; }
 .clva-odds-wait { color: #8b9bb0; margin: 24px 0; text-align: center; }
+
+/* The source tabs. A bottom border rather than a pill row so the strip reads as part of the
+   dialog's own chrome and does not compete with the Refresh/Close buttons above it. */
+.clva-odds-tabs {
+  display: flex; gap: 4px; margin: 12px 0 0; border-bottom: 1px solid #243040;
+}
+.clva-odds-modal .clva-odds-tab {
+  background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  padding: 7px 12px; color: #8b9bb0; font-size: 13px; margin-bottom: -1px;
+}
+.clva-odds-modal .clva-odds-tab:hover { color: #e6edf6; }
+.clva-odds-modal .clva-odds-tab[aria-selected="true"] {
+  color: #e6edf6; border-bottom-color: var(--clva-accent);
+}
+.clva-odds-foot { color: #8b9bb0; font-size: 11px; margin: 10px 0 0; }
 `;
 
 /** American odds the way a book writes them. */
@@ -426,12 +447,46 @@ function table(lines: OddsLookupLine[], atLine: number | null): HTMLElement {
   return t;
 }
 
+/** The two source tabs, in the order they appear. PropProfessor is first and loads on open. */
+const SOURCE_TABS: { source: OddsSource; label: string }[] = [
+  { source: "PROPPROFESSOR", label: "PropProfessor" },
+  { source: "ODDS_API", label: "The Odds API" },
+];
+
+/** What one tab is currently showing. Cached per tab for the life of the modal -- see `load`. */
+type TabState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "error"; reason: string }
+  | { kind: "result"; preview: NonNullable<OddsLookupResponse["preview"]> };
+
+/** "3 credits used this month, 497 left" -- the cost of the tab, stated where it is spent. */
+function quotaNote(preview: NonNullable<OddsLookupResponse["preview"]>): string | null {
+  const parts: string[] = [];
+  if (preview.servedFromCache) {
+    parts.push("Served from the last minute's cached read, so this click cost no credits");
+  }
+  const remaining = preview.quota?.remaining;
+  if (typeof remaining === "number") {
+    parts.push(`${remaining.toLocaleString()} credit${remaining === 1 ? "" : "s"} left this month`);
+  }
+  return parts.length > 0 ? `${parts.join(" · ")}.` : null;
+}
+
 /**
  * Opens the modal and keeps it in sync with its own requests.
  *
  * Requests are tagged, so a Refresh fired while the first read is still in flight cannot be
  * overwritten by the older answer landing second -- the same guard the dashboard modal needs, for
  * the same reason.
+ *
+ * ## The two tabs
+ *
+ * Tab 1 is PropProfessor and loads on open, exactly as this modal always has. Tab 2 is The Odds
+ * API and fires **only** when it is clicked, because each of its reads spends one metered credit
+ * against a 500-a-month free quota. Once a tab has an answer it keeps it: switching back and forth
+ * re-renders from `tabs`, and never re-fetches. Refresh acts on the active tab alone, for the same
+ * reason -- refreshing the tab you are not looking at would spend a credit nobody asked for.
  */
 export function openOddsModal(pick: OddsLookupPick, label: string): void {
   const scrim = el("div", "clva-scrim");
@@ -458,6 +513,26 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   actions.append(refresh, close);
   head.appendChild(actions);
   modal.appendChild(head);
+
+  // Each tab's own answer, kept for as long as the modal is open so switching back is free.
+  const tabs = new Map<OddsSource, TabState>(
+    SOURCE_TABS.map(({ source }) => [source, { kind: "idle" } as TabState])
+  );
+  let active: OddsSource = "PROPPROFESSOR";
+
+  const tabStrip = el("div", "clva-odds-tabs");
+  tabStrip.setAttribute("role", "tablist");
+  const tabButtons = new Map<OddsSource, HTMLButtonElement>();
+  for (const { source, label: tabLabel } of SOURCE_TABS) {
+    const button = el("button", "clva-odds-tab", tabLabel);
+    button.type = "button";
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(source === active));
+    button.addEventListener("click", () => selectTab(source));
+    tabButtons.set(source, button);
+    tabStrip.appendChild(button);
+  }
+  modal.appendChild(tabStrip);
 
   const content = el("div");
   modal.appendChild(content);
@@ -488,21 +563,99 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   scrim.addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("keydown", onKey, true);
 
-  const render = (build: () => HTMLElement) => {
-    content.replaceChildren(build());
-  };
+  /** Draws whichever tab is active from `tabs`, without asking the network anything. */
+  function render(): void {
+    for (const [source, button] of tabButtons) {
+      button.setAttribute("aria-selected", String(source === active));
+    }
+    const state = tabs.get(active) ?? { kind: "idle" };
+    refresh.disabled = state.kind === "loading";
 
-  const load = (isRefresh: boolean) => {
+    if (state.kind === "idle" || state.kind === "loading") {
+      content.replaceChildren(
+        el(
+          "p",
+          "clva-odds-wait",
+          active === "ODDS_API" ? "Reading The Odds API…" : "Reading PropProfessor's odds screen…"
+        )
+      );
+      return;
+    }
+    if (state.kind === "error") {
+      content.replaceChildren(el("p", "clva-odds-msg", state.reason));
+      return;
+    }
+
+    const preview = state.preview;
+    const wrap = el("div");
+    if (!preview.ok || !preview.verdict) {
+      wrap.appendChild(
+        el("p", "clva-odds-msg", preview.reason ?? "Nothing came back for this market.")
+      );
+    } else {
+      const verdict = preview.verdict;
+      wrap.appendChild(summary(verdict, preview.fetchedAt));
+      if (verdict.closeLines.length === 0) {
+        wrap.appendChild(el("p", "clva-odds-msg", "No book columns came back for this market."));
+      } else {
+        wrap.appendChild(table(verdict.closeLines, verdict.atLine));
+      }
+      if (verdict.note) wrap.appendChild(el("p", "clva-odds-note", verdict.note));
+    }
+
+    const note = el("p", "clva-odds-note");
+    if (active === "ODDS_API") {
+      // No deep link: The Odds API is an API, not a site, so there is no market page to open.
+      note.append(
+        "Sportsbook lines from ",
+        link("The Odds API ↗", "https://the-odds-api.com"),
+        ", averaged the same way the PropProfessor tab is — so the two are directly comparable."
+      );
+    } else {
+      const screenUrl = preview.screenUrl ?? PP_ODDS_SCREEN_URL;
+      note.append(
+        "Sportsbook lines from ",
+        link(
+          screenUrl === PP_ODDS_SCREEN_URL
+            ? "PropProfessor's odds screen ↗"
+            : "this market on PropProfessor ↗",
+          screenUrl
+        ),
+        ", averaged the same way a closing read is."
+      );
+    }
+    wrap.appendChild(note);
+
+    const quota = active === "ODDS_API" ? quotaNote(preview) : null;
+    if (quota) wrap.appendChild(el("p", "clva-odds-foot", quota));
+    content.replaceChildren(wrap);
+  }
+
+  /** Switches tabs, fetching only the first time a tab is shown. */
+  function selectTab(source: OddsSource): void {
+    if (active === source) return;
+    active = source;
+    const state = tabs.get(source);
+    // The whole point of the lazy second tab: an answer already in hand is shown, never re-bought.
+    if (state && state.kind !== "idle") {
+      render();
+      return;
+    }
+    load(false);
+  }
+
+  function load(isRefresh: boolean): void {
+    const source = active;
     const mine = ++requestId;
-    refresh.disabled = true;
-    render(() => el("p", "clva-odds-wait", "Reading PropProfessor's odds screen…"));
+    tabs.set(source, { kind: "loading" });
+    render();
 
     void (async () => {
       let response: OddsLookupResponse | undefined;
       try {
         response = await chrome.runtime.sendMessage({
           type: "clv:odds-lookup",
-          pick: { ...pick, refresh: isRefresh },
+          pick: { ...pick, refresh: isRefresh, source },
         } satisfies OddsLookupMessage);
       } catch (error) {
         response = {
@@ -511,45 +664,19 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
         };
       }
       if (requestId !== mine) return;
-      refresh.disabled = false;
 
-      if (!response?.ok || !response.preview) {
-        render(() => el("p", "clva-odds-msg", response?.error ?? "Could not read the odds screen."));
-        return;
-      }
-      const preview = response.preview;
-      if (!preview.ok || !preview.verdict) {
-        render(() => el("p", "clva-odds-msg", preview.reason ?? "Nothing came back for this market."));
-        return;
-      }
-
-      const verdict = preview.verdict;
-      render(() => {
-        const wrap = el("div");
-        wrap.appendChild(summary(verdict, preview.fetchedAt));
-        if (verdict.closeLines.length === 0) {
-          wrap.appendChild(el("p", "clva-odds-msg", "No book columns came back for this market."));
-        } else {
-          wrap.appendChild(table(verdict.closeLines, verdict.atLine));
-        }
-        if (verdict.note) wrap.appendChild(el("p", "clva-odds-note", verdict.note));
-        const note = el("p", "clva-odds-note");
-        const screenUrl = preview.screenUrl ?? PP_ODDS_SCREEN_URL;
-        note.append(
-          "Sportsbook lines from ",
-          link(
-            screenUrl === PP_ODDS_SCREEN_URL
-              ? "PropProfessor's odds screen ↗"
-              : "this market on PropProfessor ↗",
-            screenUrl
-          ),
-          ", averaged the same way a closing read is."
-        );
-        wrap.appendChild(note);
-        return wrap;
-      });
+      tabs.set(
+        source,
+        !response?.ok || !response.preview
+          ? { kind: "error", reason: response?.error ?? "Could not read the odds." }
+          : { kind: "result", preview: response.preview }
+      );
+      // Only redraw if this is still the tab being looked at: an answer that landed after the user
+      // switched away belongs in `tabs` (it is shown when they switch back) but must not replace
+      // whatever is on screen now.
+      if (active === source) render();
     })();
-  };
+  }
 
   refresh.addEventListener("click", () => load(true));
   document.body.appendChild(scrim);

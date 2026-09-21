@@ -191,17 +191,23 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
           sendResponse({ ok: false, error: "not configured -- open the extension options" });
           return;
         }
+        const pick = (message as OddsLookupMessage).pick;
         // The server does the read, but only this extension can supply the session it needs, so
         // the token is pushed ahead of the request rather than after it fails. Awaited, unlike
         // everywhere else it is called: here it is on the critical path of something a person is
         // watching.
-        await ensureServerToken();
+        //
+        // Skipped entirely for the Odds API source, which authenticates with its own key and has
+        // no use for a PropProfessor session -- relaying one would be a pointless round trip on
+        // the critical path of a click, and on a browser with no PropProfessor tab open it would
+        // add a visible delay to a read that cannot fail for want of a token.
+        if (pick.source !== "ODDS_API") await ensureServerToken();
 
         const read = async () => {
           const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-lookup"), {
             method: "POST",
             headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
-            body: JSON.stringify((message as OddsLookupMessage).pick),
+            body: JSON.stringify(pick),
           });
           if (!response.ok) return { status: response.status, preview: undefined };
           const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
@@ -215,7 +221,7 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
         // One retry, never a loop: the same answer twice with a freshly minted token means
         // something other than expiry is wrong, and the modal should say so rather than spin. This
         // mirrors what `closing-reader.ts` already does with its own 401s.
-        if (result.preview?.tokenRejected) {
+        if (result.preview?.tokenRejected && pick.source !== "ODDS_API") {
           if (!(await refreshServerToken())) {
             sendResponse({
               ok: false,

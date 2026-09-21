@@ -5,6 +5,8 @@ export * from "./markets";
 export * from "./oddsjam-site";
 export * from "./devig";
 export * from "./kelly";
+export * from "./sources/main-line";
 export * from "./sources/propprofessor-screen";
+export * from "./sources/odds-api-event";
 export { parseOddsJamTable } from "./parsers/oddsjam";
 export { parsePropProfessorTable } from "./parsers/propprofessor";

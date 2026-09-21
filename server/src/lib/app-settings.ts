@@ -88,6 +88,12 @@ export interface AppSettings {
   useLiquidityWeighting: boolean;
   themePreference: ThemePreference;
   /**
+   * The Odds API key for the Odds modal's second source. Empty string means "not configured",
+   * which that tab says out loud rather than disappearing -- a hidden tab is indistinguishable
+   * from a missing feature.
+   */
+  oddsApiKey: string;
+  /**
    * Kelly staking, read by two surfaces: the /kelly page and the extension's Kelly button on
    * OddsJam's bet tracker. Dollars here, whole cents in the database -- see the schema.
    */
@@ -160,6 +166,10 @@ export async function getAppSettings(): Promise<AppSettings> {
     bookWeights: parseWeights(row.bookWeightsJson),
     useLiquidityWeighting: row.useLiquidityWeighting,
     themePreference: parseTheme(row.themePreference),
+    // Guarded the same way the cent columns are: a process holding a Prisma client generated
+    // before this column existed selects a row without it, and `undefined` would reach `fetch` as
+    // the string "undefined" rather than failing the "no key configured" check.
+    oddsApiKey: typeof row.oddsApiKey === "string" ? row.oddsApiKey.trim() : "",
     kelly: {
       bankroll: dollars(row.bankrollCents),
       kellyMultiplier:
@@ -200,6 +210,22 @@ export async function saveKellySettings(settings: {
     where: { id: SETTINGS_ID },
     update: data,
     create: { id: SETTINGS_ID, bookOrder: DEFAULT_BOOK_ORDER.join(","), ...data },
+  });
+}
+
+/**
+ * Saves (or clears) the Odds API key.
+ *
+ * Trimmed because it is pasted, and a trailing newline off a clipboard would otherwise be sent as
+ * part of the key and rejected as invalid with no visible cause. An empty string is stored as
+ * such and read back as "not configured", which is how the key is removed.
+ */
+export async function saveOddsApiKey(key: string): Promise<void> {
+  const oddsApiKey = key.trim();
+  await prisma.appSettings.upsert({
+    where: { id: SETTINGS_ID },
+    update: { oddsApiKey },
+    create: { id: SETTINGS_ID, bookOrder: DEFAULT_BOOK_ORDER.join(","), oddsApiKey },
   });
 }
 
