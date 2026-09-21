@@ -65,6 +65,16 @@
     },
     {
       "matches": [
+        "https://oddsjam.com/game/*",
+        "https://oddsjam.com/*/odds*"
+      ],
+      "js": [
+        "content/oddsjam-site-capture.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
         "https://www.propprofessor.com/*"
       ],
       "js": [

@@ -32,8 +32,18 @@ export interface MatchTarget {
   externalPropId: string | null;
 }
 
-/** Teams are written inconsistently across boards ("LA Rams" / "Los Angeles Rams"). */
-function teamsOverlap(a: string | null, b: string | null): boolean {
+/**
+ * Teams are written inconsistently across boards ("LA Rams" / "Los Angeles Rams").
+ *
+ * Exported for `oddsjam-site.ts`, which runs the identical comparison against OddsJam's own team
+ * spelling -- a passively-captured game entry's `awayTeam`/`homeTeam` needs the same tolerance a
+ * board's own `subjectTeam` does. The `true` when either side is empty is "nothing to contradict",
+ * which is the right read for the callers this was built for, where a team is one signal among
+ * several (the player/market already carries most of the identity). A caller with no such second
+ * signal -- matching a game by teams alone -- must not treat a missing team as a free pass, and
+ * needs to guard `team`/`opponent` being non-null before calling this itself.
+ */
+export function teamsOverlap(a: string | null, b: string | null): boolean {
   const x = normalizeName(a);
   const y = normalizeName(b);
   if (!x || !y) return true; // nothing to contradict

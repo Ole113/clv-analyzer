@@ -2,6 +2,7 @@ export * from "./types";
 export * from "./books";
 export * from "./matching";
 export * from "./markets";
+export * from "./oddsjam-site";
 export * from "./devig";
 export * from "./kelly";
 export * from "./sources/propprofessor-screen";

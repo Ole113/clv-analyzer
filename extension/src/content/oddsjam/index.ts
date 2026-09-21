@@ -219,6 +219,7 @@ const adapter: SiteAdapter = {
   // The cell here is a real <td> with the row's full height, so the odds button stacks above the
   // checkbox without widening the column. See `SiteAdapter.oddsButton`.
   oddsButton: true,
+  oddsJamLink: true,
 
   kelly: {
     enabled: kellyEnabled,

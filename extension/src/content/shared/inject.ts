@@ -11,6 +11,8 @@ import { MARKET_FILTER_STYLES, startMarketFilter, type MarketFilterHooks } from 
 import { ODDS_MODAL_STYLES, oddsButton, openOddsModal, pickFromRow } from "./odds-modal";
 import { KELLY_MODAL_STYLES, kellyButton, openKellyModal } from "./kelly-modal";
 import type { KellySettings } from "./kelly-settings";
+import { oddsJamLinkButton } from "./oddsjam-link-button";
+import { refreshOddsJamIndex, resolveLink } from "../oddsjam-site/store";
 
 export interface SiteAdapter {
   site: SiteId;
@@ -55,6 +57,15 @@ export interface SiteAdapter {
     enabled(): boolean;
     settings(): KellySettings;
   };
+  /**
+   * Whether each row also gets the "open on OddsJam" button, stacked above the odds button (or
+   * alone, on a board that has neither of the other two -- PropProfessor's Fantasy board gets only
+   * this one).
+   *
+   * Unlike `oddsButton` and `kelly`, this is available to any board regardless of its column's own
+   * room, because it renders exactly one 16px icon and nothing else -- no dialog, no extra width.
+   */
+  oddsJamLink?: boolean;
   /**
    * Hooks for the hide-markets control. Omitted by a board that has no way to make a row
    * disappear, in which case the control is simply never mounted there.
@@ -437,6 +448,31 @@ function showKelly(adapter: SiteAdapter, key: string | null): void {
   });
 }
 
+/**
+ * Opens OddsJam's own site for one row's market, in a new tab.
+ *
+ * `resolveLink` runs entirely off the in-memory cache `refreshOddsJamIndex` keeps warm -- no
+ * `await` on the path from this click to `window.open`, so the browser still sees it as a direct
+ * response to the user's gesture rather than a popup a script opened on its own.
+ *
+ * A row that fails to parse still gets *something*: `resolveOddsJamUrl` only needs the sport to
+ * name a sport-level fallback, so this opens nothing only when even that is missing.
+ */
+function showOddsJamLink(adapter: SiteAdapter, key: string | null): void {
+  const parsed = adapter.parse();
+  const row = key && parsed.ok ? (parsed.rows.find((r) => r.externalPropId === key) ?? null) : null;
+  if (!row) return;
+  const url = resolveLink({
+    sport: row.sport,
+    statMarket: row.statMarket,
+    marketType: row.marketType,
+    team: row.team,
+    opponent: row.opponent,
+    gameStartTimeIso: row.gameStartTimeIso,
+  });
+  if (url) window.open(url, "_blank", "noopener");
+}
+
 function injectRows(adapter: SiteAdapter): void {
   for (const { el, key } of adapter.rows()) {
     const host = adapter.mount(el);
@@ -466,21 +502,30 @@ function injectRows(adapter: SiteAdapter): void {
       void capture(adapter, box.getAttribute(KEY_ATTR), box);
     });
 
-    if (!adapter.oddsButton) {
+    if (!adapter.oddsButton && !adapter.oddsJamLink) {
       host.appendChild(box);
       continue;
     }
 
     // Stacked into one wrapper so the column's width is unchanged -- see `.clva-stack`. The
     // checkbox keeps its own marker attribute, so the re-render check above still finds it through
-    // the wrapper. Kelly, when this board has it, goes above the odds button -- gated fresh on
-    // every pass, since the allowlist it reads can be edited on the dashboard while a board is open.
+    // the wrapper. Top to bottom: Kelly, then the OddsJam link, then the current-odds button, then
+    // the checkbox -- "above the current odds button" is where the OddsJam link was asked to sit,
+    // and PropProfessor's Fantasy board (which has neither of the other two) still gets a stack of
+    // one rather than no stack at all, since the guard above already let it through on
+    // `oddsJamLink` alone. Kelly's gate is read fresh on every pass, since the allowlist it reads
+    // can be edited on the dashboard while a board is open.
     const stack = document.createElement("div");
     stack.className = "clva-stack";
     if (adapter.kelly?.enabled()) {
       stack.appendChild(kellyButton(() => showKelly(adapter, box.getAttribute(KEY_ATTR))));
     }
-    stack.appendChild(oddsButton(() => showOdds(adapter, box.getAttribute(KEY_ATTR))));
+    if (adapter.oddsJamLink) {
+      stack.appendChild(oddsJamLinkButton(() => showOddsJamLink(adapter, box.getAttribute(KEY_ATTR))));
+    }
+    if (adapter.oddsButton) {
+      stack.appendChild(oddsButton(() => showOdds(adapter, box.getAttribute(KEY_ATTR))));
+    }
     stack.appendChild(box);
     host.appendChild(stack);
   }
@@ -558,6 +603,13 @@ export function startCapture(adapter: SiteAdapter): void {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.checkboxColor) applyAccent(changes.checkboxColor.newValue);
   });
+
+  // Unconditional rather than gated on `adapter.oddsJamLink`: it is one `chrome.storage.local`
+  // read, and both boards that exist today turn the button on. Kept warm on the same slow cadence
+  // `kellySettings` uses, for the same reason -- `showOddsJamLink` has to answer synchronously
+  // inside a click, so the cache it reads is refreshed ahead of time rather than on demand.
+  void refreshOddsJamIndex();
+  setInterval(() => void refreshOddsJamIndex(), 60_000);
 
   const filter = adapter.marketFilter ? startMarketFilter(adapter.marketFilter) : null;
 

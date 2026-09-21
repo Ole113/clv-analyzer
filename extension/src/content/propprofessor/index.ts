@@ -241,6 +241,11 @@ const adapter: SiteAdapter = {
     return boardChips().length > 0;
   },
 
+  // The one icon this board's 24px overlay lane gets -- neither the current-odds button nor Kelly
+  // live here (see `SiteAdapter.oddsButton`'s own comment on that lane's width), but a single
+  // 16px icon costs nothing further and this board is one of the two this feature is for.
+  oddsJamLink: true,
+
   fantasyBook() {
     // The selected chip carries no aria-selected or data-state -- only Tailwind class variants.
     // It's the colour outlier (brand purple against the neutral rest), which survives class

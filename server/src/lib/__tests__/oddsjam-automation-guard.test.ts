@@ -107,3 +107,28 @@ describe("no automated OddsJam traffic", () => {
     expect(params).not.toMatch(/pageUrl|url/i);
   });
 });
+
+describe("OddsJam-site deep links stay read-only", () => {
+  // `extension/src/content/oddsjam-site/*.ts` intentionally name oddsjam.com -- unlike everything
+  // else this file checks, that is the entire point: a cache of game slugs and market ids built by
+  // passively reading pages the user opens themselves (see the module comment on
+  // `@clv/shared/oddsjam-site.ts` for why that is the only way this feature can exist at all). They
+  // are deliberately NOT added to AUTOMATED_DIRS above, which would fail them for reading data a
+  // page load the user asked for already put in front of them.
+  //
+  // What they must never do is originate a request or a navigation of their own -- that is the one
+  // line this rule actually cares about, and this is the complementary check for it.
+  const dir = join(REPO, "extension/src/content/oddsjam-site");
+  const FORBIDDEN = [/\bfetch\s*\(/, /XMLHttpRequest/, /chrome\.tabs\.create/, /chrome\.tabs\.update/];
+
+  it("issues no request and opens no tab of its own", () => {
+    const offenders: string[] = [];
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
+      const source = codeOnly(readFileSync(join(dir, file), "utf8"));
+      for (const pattern of FORBIDDEN) {
+        if (pattern.test(source)) offenders.push(`${file}: ${pattern}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

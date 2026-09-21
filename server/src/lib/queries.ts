@@ -1,3 +1,4 @@
+import { oddsJamSportSlug } from "@clv/shared";
 import { prisma } from "./prisma";
 import { CLV_STATUSES, OPEN_STATUSES, SETTLED_STATUSES, STATUSES, type MarketType, type Status } from "./constants";
 import { getAppSettings, sortByBookOrder } from "./app-settings";
@@ -295,22 +296,6 @@ export async function getFacets(): Promise<Facets> {
   };
 }
 
-/** Sport strings the boards emit -> OddsJam's URL path segment. */
-const ODDSJAM_SPORT_SLUG: Record<string, string> = {
-  nfl: "nfl",
-  ncaaf: "ncaaf",
-  "college football": "ncaaf",
-  nba: "nba",
-  wnba: "wnba",
-  mlb: "mlb",
-  nhl: "nhl",
-  ncaab: "ncaab",
-  // The boards label tennis by tour; OddsJam files them all under one path.
-  atp: "tennis",
-  wta: "tennis",
-  tennis: "tennis",
-};
-
 /**
  * Link to the site's own odds page for this pick, for looking a number up by hand.
  *
@@ -344,7 +329,7 @@ export function oddsScreenUrlFor(bet: { site: string; sport: string | null }): {
     return { url: "https://www.propprofessor.com/screen", filteredTo: "nothing" };
   }
 
-  const sportSlug = ODDSJAM_SPORT_SLUG[(bet.sport ?? "").trim().toLowerCase()];
+  const sportSlug = oddsJamSportSlug(bet.sport);
   if (!sportSlug) return { url: "https://oddsjam.com/betting-tools", filteredTo: "nothing" };
 
   return { url: `https://oddsjam.com/${sportSlug}/odds`, filteredTo: "sport" };
