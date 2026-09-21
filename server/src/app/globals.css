@@ -266,6 +266,16 @@ button .spinner { vertical-align: -2px; }
   font-size: 18px; line-height: 1; padding: 4px 8px; color: var(--muted);
 }
 
+/* The Odds modal's source tabs. A bottom border rather than a pill row, so the strip reads as part
+   of the dialog's own chrome and does not compete with the Refresh/Close buttons above it. */
+.odds-tabs { display: flex; gap: 4px; margin: 12px 0 0; border-bottom: 1px solid var(--border); }
+.odds-tab {
+  background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  padding: 7px 12px; color: var(--muted); font-size: 13px; margin-bottom: -1px; cursor: pointer;
+}
+.odds-tab:hover { color: var(--text); }
+.odds-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+
 /* Pick rows highlight on hover so the eye can follow one across twelve columns, but the row itself
    is not a control: only the pick's own name navigates. See bet-row.tsx for why. */
 tr.bet-row:hover > td { background: var(--panel-2); }

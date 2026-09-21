@@ -4,7 +4,14 @@ import { revalidatePath } from "next/cache";
 import { planScreenRead, type ClosingWorkItem } from "@clv/shared";
 import { prisma } from "./prisma";
 import type { ActionResult } from "@/components/action-button";
-import { getPreviewResult, isPreviewPending, previewNow, type OddsPreview } from "./odds-preview";
+import {
+  getPreviewResult,
+  isPreviewPending,
+  previewNow,
+  type OddsPreview,
+  type OddsSource,
+} from "./odds-preview";
+import { planOddsApiRead } from "@clv/shared";
 
 /**
  * Quick actions for the `/bets` list's right-click menu. A file marked `"use server"` at the top
@@ -51,10 +58,15 @@ export async function deleteBetQuick(id: string): Promise<ActionResult> {
  * it means the server has no PropProfessor token yet and the request has been handed to the
  * extension, which is the only thing that can mint one -- that read costs a `chrome.alarms` period,
  * and is the only case where the modal still polls.
+ *
+ * `source` picks which feed answers. The same up-front plannability check is applied either way,
+ * against whichever source's own market table -- the two carry different markets, so a pick The
+ * Odds API cannot express is a different (and equally immediate) answer from one PropProfessor
+ * cannot. The Odds API path never returns `queued`: it has no extension fallback to queue to.
  */
 export async function requestOddsPreview(
   id: string,
-  options: { refresh?: boolean } = {}
+  options: { refresh?: boolean; source?: OddsSource } = {}
 ): Promise<
   | { ok: true; mode: "result"; preview: OddsPreview }
   | { ok: true; mode: "queued" }
@@ -63,11 +75,13 @@ export async function requestOddsPreview(
   const bet = await prisma.bet.findUnique({ where: { id } });
   if (!bet) return { ok: false, reason: "This pick no longer exists." };
 
-  const plan = planScreenRead({
+  const target = {
     sport: bet.sport,
     statMarket: bet.statMarket,
     marketType: bet.marketType as ClosingWorkItem["marketType"],
-  });
+  };
+  const plan =
+    options.source === "ODDS_API" ? planOddsApiRead(target) : planScreenRead(target);
   if ("kind" in plan) return { ok: false, reason: plan.reason };
 
   const item: ClosingWorkItem = {
@@ -87,8 +101,12 @@ export async function requestOddsPreview(
     takenLine: bet.takenLine,
   };
 
-  // Refresh means "ask again", so it must never be served the answer a moment ago produced.
-  const attempt = await previewNow(item, { allowCache: options.refresh !== true });
+  // Refresh means "ask again", so it must never be served the answer a moment ago produced. On the
+  // Odds API path the reader narrows this to its own publish interval -- see `fetchOdds`.
+  const attempt = await previewNow(item, {
+    allowCache: options.refresh !== true,
+    source: options.source,
+  });
   return attempt.mode === "result"
     ? { ok: true, mode: "result", preview: attempt.preview }
     : { ok: true, mode: "queued" };

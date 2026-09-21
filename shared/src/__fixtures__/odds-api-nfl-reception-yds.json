@@ -1,0 +1,98 @@
+{
+  "_note": "Shaped exactly as documented at the-odds-api.com/liveapi/guides/v4 (GET event odds). Books, players and prices are representative rather than a live capture: the traps being exercised are structural -- one book quoting two points for the same player, a book pricing only one side, a DFS app that must not be averaged, and an exchange resting a far-off-market order.",
+  "id": "a512a48a58c4329048174217b2cc7ce0",
+  "sport_key": "americanfootball_nfl",
+  "sport_title": "NFL",
+  "commence_time": "2026-09-21T17:00:00Z",
+  "home_team": "Atlanta Falcons",
+  "away_team": "Arizona Cardinals",
+  "bookmakers": [
+    {
+      "key": "fanduel",
+      "title": "FanDuel",
+      "markets": [
+        {
+          "key": "player_reception_yds",
+          "last_update": "2026-09-21T16:31:29Z",
+          "outcomes": [
+            { "name": "Over", "description": "Drake London", "price": -114, "point": 62.5 },
+            { "name": "Under", "description": "Drake London", "price": -106, "point": 62.5 },
+            { "name": "Over", "description": "Marvin Harrison Jr", "price": -110, "point": 48.5 },
+            { "name": "Under", "description": "Marvin Harrison Jr", "price": -110, "point": 48.5 }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "draftkings",
+      "title": "DraftKings",
+      "markets": [
+        {
+          "key": "player_reception_yds",
+          "last_update": "2026-09-21T16:33:02Z",
+          "outcomes": [
+            { "name": "Over", "description": "Drake London", "price": -118, "point": 62.5 },
+            { "name": "Under", "description": "Drake London", "price": -104, "point": 62.5 },
+            { "name": "Over", "description": "Drake London", "price": 138, "point": 70.5 },
+            { "name": "Under", "description": "Drake London", "price": -172, "point": 70.5 }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "pinnacle",
+      "title": "Pinnacle",
+      "markets": [
+        {
+          "key": "player_reception_yds",
+          "last_update": "2026-09-21T16:34:55Z",
+          "outcomes": [
+            { "name": "Over", "description": "Drake London", "price": -112, "point": 63.5 },
+            { "name": "Under", "description": "Drake London", "price": -108, "point": 63.5 }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "williamhill_us",
+      "title": "Caesars",
+      "markets": [
+        {
+          "key": "player_reception_yds",
+          "last_update": "2026-09-21T16:30:10Z",
+          "outcomes": [
+            { "name": "Over", "description": "Drake London", "price": -115, "point": 62.5 }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "novig",
+      "title": "Novig",
+      "markets": [
+        {
+          "key": "player_reception_yds",
+          "last_update": "2026-09-21T16:20:00Z",
+          "outcomes": [
+            { "name": "Over", "description": "Drake London", "price": -1200, "point": 62.5 },
+            { "name": "Under", "description": "Drake London", "price": 700, "point": 62.5 }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "prizepicks",
+      "title": "PrizePicks",
+      "markets": [
+        {
+          "key": "player_reception_yds",
+          "last_update": "2026-09-21T16:35:41Z",
+          "outcomes": [
+            { "name": "Over", "description": "Drake London", "price": -119, "point": 59.5 },
+            { "name": "Under", "description": "Drake London", "price": -119, "point": 59.5 }
+          ]
+        }
+      ]
+    }
+  ]
+}

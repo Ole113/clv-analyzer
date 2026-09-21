@@ -80,6 +80,24 @@ export interface OddsLookupPick {
   externalPropId: string | null;
   /** Set by the modal's Refresh button so a deliberate re-check skips the server's response cache. */
   refresh?: boolean;
+  /**
+   * Which source to ask. Omitted means PropProfessor, which is what the modal loads on open.
+   *
+   * `ODDS_API` costs the user one metered credit per call, so it is only ever sent when the
+   * second tab is deliberately clicked -- never on open, and never on a background refresh.
+   */
+  source?: OddsSource;
+}
+
+/** The two sources the Odds modal can ask. See the server's `lookupOddsNow`. */
+export type OddsSource = "PROPPROFESSOR" | "ODDS_API";
+
+/** What is left of this month's Odds API quota, off the API's own response headers. */
+export interface OddsQuota {
+  remaining: number | null;
+  used: number | null;
+  lastCost: number | null;
+  readAt: string;
 }
 
 /**
@@ -105,8 +123,15 @@ export interface OddsLookupResponse {
      *  so the background worker answers it by doing that and asking once more. */
     tokenRejected?: boolean;
     /** The odds screen filtered to this exact market, game and player. Null when the read matched
-     *  nothing, since the filters are built from the matched row's own identifiers. */
+     *  nothing, since the filters are built from the matched row's own identifiers. Always null on
+     *  the Odds API path, which has no page of its own to link into. */
     screenUrl?: string | null;
+    /** Which source answered. Absent on older server builds, which only had the one. */
+    source?: OddsSource;
+    /** Odds API only: remaining credits, shown in that tab's footer. */
+    quota?: OddsQuota | null;
+    /** Odds API only: the minute-long cache answered, so no credit was spent on this click. */
+    servedFromCache?: boolean;
     verdict: {
       avgClosingLine: number | null;
       closingBookCount: number;

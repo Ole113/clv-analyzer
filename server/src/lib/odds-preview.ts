@@ -1,9 +1,17 @@
 import { screenPageUrl, type ClosingReadOutcome, type ClosingWorkItem } from "@clv/shared";
 import { prisma } from "./prisma";
 import type { MarketType, Side } from "./constants";
-import { buildClosingVerdict, type ClosingVerdict } from "./closing";
+import { buildClosingVerdict, type ClosingSourceSite, type ClosingVerdict } from "./closing";
 import { getAppSettings, sortByBookOrder } from "./app-settings";
 import { NoTokenError, TokenRejectedError, readScreenNow } from "./pp-screen-read";
+import {
+  NoOddsApiKeyError,
+  OddsApiKeyRejectedError,
+  OddsApiQuotaExhaustedError,
+  getOddsApiQuota,
+  readOddsApiNow,
+  type OddsApiQuota,
+} from "./odds-api-read";
 
 /**
  * On-demand "what does PropProfessor say right now" reads, triggered by the Odds modal on a bet
@@ -52,7 +60,31 @@ export interface OddsPreview {
    * modals fall back to the bare screen, which is where the link always used to go.
    */
   screenUrl?: string | null;
+  /**
+   * Which source answered. Absent on the PropProfessor path so every existing caller and stored
+   * shape is untouched; set only by the Odds modal's second tab.
+   */
+  source?: OddsSource;
+  /**
+   * What is left of this month's Odds API quota, off the response's own headers. Only ever set on
+   * an `ODDS_API` read, and shown in that tab's footer so the cost of a click is never a mystery.
+   */
+  quota?: OddsApiQuota | null;
+  /**
+   * The answer came from the minute-long cache rather than a fresh request, so no credit was
+   * spent. Surfaced because Refresh on this tab deliberately does not bypass that cache -- the
+   * source republishes once a minute and a re-fetch inside the window would buy identical bytes.
+   */
+  servedFromCache?: boolean;
 }
+
+/**
+ * Which source a lookup should ask.
+ *
+ * PropProfessor is the default everywhere and is what the modal loads on open. The Odds API is
+ * opt-in per click because it is metered -- see `odds-api-read.ts` for the credit arithmetic.
+ */
+export type OddsSource = "PROPPROFESSOR" | "ODDS_API";
 
 // On `globalThis`, the same way `prisma.ts` pins its client: Next.js compiles Server Actions and
 // Route Handlers as separate module graphs, so a plain module-level `const` here would give each
@@ -111,12 +143,23 @@ function rememberResult(betId: string, preview: OddsPreview): void {
   }
 }
 
-function reasonFor(outcome: Exclude<ClosingReadOutcome, { kind: "MATCHED" }>): string {
+/**
+ * Why there is nothing to show, in the words of whichever source was asked.
+ *
+ * The source is named rather than left generic because the modal shows two tabs side by side: "not
+ * listing this market right now" is only actionable if the reader knows *which* of the two said it,
+ * and a user looking at an empty Odds API tab should not be told PropProfessor has no market.
+ */
+function reasonFor(
+  outcome: Exclude<ClosingReadOutcome, { kind: "MATCHED" }>,
+  source: OddsSource = "PROPPROFESSOR"
+): string {
+  const name = source === "ODDS_API" ? "The Odds API" : "PropProfessor";
   switch (outcome.kind) {
     case "SELECTION_ABSENT":
-      return `Not currently among the ${outcome.candidateCount} selections PropProfessor lists for this market.`;
+      return `Not currently among the ${outcome.candidateCount} selections ${name} lists for this market.`;
     case "MARKET_NOT_OFFERED":
-      return "PropProfessor isn't listing this market right now -- the game may have started or ended.";
+      return `${name} isn't listing this market right now -- the game may have started or ended.`;
     case "NO_CLOSING_MARKET":
     case "READ_FAILED":
       return outcome.reason;
@@ -140,12 +183,27 @@ function screenUrlFor(outcome: Extract<ClosingReadOutcome, { kind: "MATCHED" }>)
   });
 }
 
-/** Turns a read outcome into a preview, computed the same way a real close is. */
-export async function recordPreviewResult(betId: string, outcome: ClosingReadOutcome): Promise<void> {
+/**
+ * Turns a read outcome into a preview, computed the same way a real close is.
+ *
+ * `source` defaults to PropProfessor so the extension-facing callback route -- which only ever
+ * reports PropProfessor reads -- needs no change and cannot accidentally mislabel one.
+ */
+export async function recordPreviewResult(
+  betId: string,
+  outcome: ClosingReadOutcome,
+  source: OddsSource = "PROPPROFESSOR"
+): Promise<void> {
   const fetchedAt = new Date().toISOString();
 
   if (outcome.kind !== "MATCHED") {
-    rememberResult(betId, { fetchedAt, ok: false, reason: reasonFor(outcome), verdict: null });
+    rememberResult(betId, {
+      fetchedAt,
+      ok: false,
+      reason: reasonFor(outcome, source),
+      verdict: null,
+      source,
+    });
     return;
   }
 
@@ -159,7 +217,7 @@ export async function recordPreviewResult(betId: string, outcome: ClosingReadOut
     bet.takenLine,
     outcome.row,
     settings.useWeightedAverage ? settings.bookWeights : null,
-    "PP_SCREEN",
+    source === "ODDS_API" ? "ODDS_API" : "PP_SCREEN",
     { openFairProb: bet.openFairProb, useLiquidityWeighting: settings.useLiquidityWeighting }
   );
   // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
@@ -170,7 +228,9 @@ export async function recordPreviewResult(betId: string, outcome: ClosingReadOut
     ok: true,
     reason: null,
     verdict,
-    screenUrl: screenUrlFor(outcome),
+    // The Odds API has no page of its own to deep-link into.
+    screenUrl: source === "ODDS_API" ? null : screenUrlFor(outcome),
+    source,
   });
 }
 
@@ -193,8 +253,10 @@ export type PreviewAttempt =
  */
 export async function previewNow(
   item: ClosingWorkItem,
-  options: { allowCache?: boolean } = {}
+  options: { allowCache?: boolean; source?: OddsSource } = {}
 ): Promise<PreviewAttempt> {
+  if (options.source === "ODDS_API") return previewViaOddsApi(item);
+
   let outcome: ClosingReadOutcome;
   try {
     outcome = await readScreenNow(item, options);
@@ -219,6 +281,61 @@ export async function previewNow(
 }
 
 /**
+ * The same preview, from The Odds API.
+ *
+ * Never queues. The extension fallback exists solely because only a browser can mint a
+ * PropProfessor session; a keyed API has nothing for it to contribute, so every outcome here --
+ * including "no key configured" -- is a final answer shown in the tab rather than a request handed
+ * off to wait on an alarm.
+ */
+async function previewViaOddsApi(item: ClosingWorkItem): Promise<PreviewAttempt> {
+  const fetchedAt = new Date().toISOString();
+  try {
+    const { outcome, quota, servedFromCache } = await readOddsApiNow(item);
+    await recordPreviewResult(item.id, outcome, "ODDS_API");
+    const preview = getPreviewResult(item.id);
+    return {
+      mode: "result",
+      preview: preview
+        ? { ...preview, quota, servedFromCache }
+        : {
+            fetchedAt,
+            ok: false,
+            reason: "This pick no longer exists.",
+            verdict: null,
+            source: "ODDS_API",
+          },
+    };
+  } catch (error) {
+    return {
+      mode: "result",
+      preview: {
+        fetchedAt,
+        ok: false,
+        reason: oddsApiErrorMessage(error),
+        verdict: null,
+        source: "ODDS_API",
+        quota: getOddsApiQuota(),
+      },
+    };
+  }
+}
+
+/** The three Odds API failures a person can actually fix, each said with the fix in it. */
+function oddsApiErrorMessage(error: unknown): string {
+  if (error instanceof NoOddsApiKeyError) {
+    return "No Odds API key is set. Add one under Settings -> Odds API, then try again.";
+  }
+  if (error instanceof OddsApiKeyRejectedError) {
+    return "The Odds API rejected your key. Check it under Settings -> Odds API.";
+  }
+  if (error instanceof OddsApiQuotaExhaustedError) {
+    return "This month's Odds API quota is used up. It resets on your plan's renewal date; the PropProfessor tab still works.";
+  }
+  return error instanceof Error ? error.message : "The Odds API could not be read";
+}
+
+/**
  * What the odds screen says about a market nobody has ticked yet.
  *
  * `previewNow` above answers "what is this *pick* worth right now" and needs a bet row to do it --
@@ -234,7 +351,17 @@ export async function previewNow(
  */
 export async function lookupOddsNow(
   item: ClosingWorkItem,
-  options: { allowCache?: boolean } = {}
+  options: { allowCache?: boolean; source?: OddsSource } = {}
+): Promise<OddsPreview> {
+  return options.source === "ODDS_API"
+    ? lookupViaOddsApi(item)
+    : lookupViaPropProfessor(item, options);
+}
+
+/** The default source. Unchanged from before the second source existed. */
+async function lookupViaPropProfessor(
+  item: ClosingWorkItem,
+  options: { allowCache?: boolean }
 ): Promise<OddsPreview> {
   let outcome: ClosingReadOutcome;
   try {
@@ -253,14 +380,97 @@ export async function lookupOddsNow(
             : "the odds screen could not be read",
       verdict: null,
       tokenRejected: rejected,
+      source: "PROPPROFESSOR",
     };
   }
 
   const fetchedAt = new Date().toISOString();
   if (outcome.kind !== "MATCHED") {
-    return { fetchedAt, ok: false, reason: reasonFor(outcome), verdict: null };
+    return {
+      fetchedAt,
+      ok: false,
+      reason: reasonFor(outcome, "PROPPROFESSOR"),
+      verdict: null,
+      source: "PROPPROFESSOR",
+    };
   }
 
+  return {
+    fetchedAt,
+    ok: true,
+    reason: null,
+    verdict: await verdictFor(item, outcome.row, "PP_SCREEN"),
+    screenUrl: screenUrlFor(outcome),
+    source: "PROPPROFESSOR",
+  };
+}
+
+/**
+ * The second source, reached only when the modal's Odds API tab is clicked.
+ *
+ * Note what is *not* here: no token, no extension fallback, no queueing. Those exist on the
+ * PropProfessor path because that read borrows a browser session and only the extension can mint
+ * one. A keyed API needs none of it -- the server either has the key or it does not, and when it
+ * does the answer arrives inside this request or not at all.
+ *
+ * The three thrown errors are the three a person can actually fix, and each says what to do. Every
+ * other failure is already a `READ_FAILED` outcome carrying its own reason.
+ */
+async function lookupViaOddsApi(item: ClosingWorkItem): Promise<OddsPreview> {
+  let result: Awaited<ReturnType<typeof readOddsApiNow>>;
+  try {
+    result = await readOddsApiNow(item);
+  } catch (error) {
+    return {
+      fetchedAt: new Date().toISOString(),
+      ok: false,
+      reason: oddsApiErrorMessage(error),
+      verdict: null,
+      source: "ODDS_API",
+      quota: getOddsApiQuota(),
+    };
+  }
+
+  const fetchedAt = new Date().toISOString();
+  const common = {
+    source: "ODDS_API" as const,
+    quota: result.quota,
+    servedFromCache: result.servedFromCache,
+  };
+  if (result.outcome.kind !== "MATCHED") {
+    return {
+      fetchedAt,
+      ok: false,
+      reason: reasonFor(result.outcome, "ODDS_API"),
+      verdict: null,
+      ...common,
+    };
+  }
+
+  return {
+    fetchedAt,
+    ok: true,
+    reason: null,
+    verdict: await verdictFor(item, result.outcome.row, "ODDS_API"),
+    // The Odds API has no page of its own to deep-link into, so this stays null and the modal
+    // falls back to explaining where the numbers came from rather than offering a dead link.
+    screenUrl: null,
+    ...common,
+  };
+}
+
+/**
+ * The verdict for a matched lookup row.
+ *
+ * Shared by both sources deliberately and in full: the same settings, the same weighting, the same
+ * `lookup: true`, the same book ordering. It is the single reason the two tabs are comparable at
+ * all -- everything that turns quotes into a number happens here, once.
+ */
+async function verdictFor(
+  item: ClosingWorkItem,
+  row: Parameters<typeof buildClosingVerdict>[3],
+  sourceSite: ClosingSourceSite
+): Promise<ClosingVerdict> {
   const settings = await getAppSettings();
   const verdict = buildClosingVerdict(
     item.marketType as MarketType,
@@ -268,13 +478,12 @@ export async function lookupOddsNow(
     // A row with no line of its own still has a market worth reading; 0 is only ever used as the
     // baseline `edge` is measured from, and the caller is told the line rather than the edge.
     item.takenLine ?? 0,
-    outcome.row,
+    row,
     settings.useWeightedAverage ? settings.bookWeights : null,
-    "PP_SCREEN",
+    sourceSite,
     { useLiquidityWeighting: settings.useLiquidityWeighting, lookup: true }
   );
   // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
   verdict.closeLines = sortByBookOrder(verdict.closeLines, settings.bookOrder);
-
-  return { fetchedAt, ok: true, reason: null, verdict, screenUrl: screenUrlFor(outcome) };
+  return verdict;
 }

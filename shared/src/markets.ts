@@ -509,8 +509,17 @@ const SOCCER_COMPETITIONS = [
   "nations league",
 ];
 
-/** The league a board's sport column resolves to, competition names included. */
-function propProfessorLeague(sport: string | null): string | null {
+/**
+ * The league a board's sport column resolves to, competition names included.
+ *
+ * Exported because it is the project's one canonical "what sport is this pick" resolver, and The
+ * Odds API adapter needs the same answer: it maps this league code onto its own sport key rather
+ * than re-reading the board's raw sport text, so a spelling the boards use ("Japan - NPB",
+ * "Germany - Bundesliga") is understood identically by both sources. The name keeps its
+ * PropProfessor prefix because these are PropProfessor's league spellings -- they are simply also
+ * the internal vocabulary everything else keys off.
+ */
+export function propProfessorLeague(sport: string | null): string | null {
   const normalized = normalizeMarketName(sport);
   if (!normalized) return null;
   const direct = PROPPROFESSOR_LEAGUES[normalized];

@@ -14,9 +14,16 @@ import type { MarketType, Side } from "./constants";
  *
  * OPTIMIZER is the legacy read off the edge-filtered Fantasy Optimizer. PP_SCREEN is the odds
  * screen, which lists every market whether or not any edge is left -- the whole point of the
- * redesign -- but in exchange shows far more columns, most of which are not sportsbooks.
+ * redesign -- but in exchange shows far more columns, most of which are not sportsbooks. ODDS_API
+ * is the modal's second source and is filtered exactly like PP_SCREEN, for the same reason: it too
+ * carries a line on essentially every column, DFS apps included, so a denylist would admit them.
+ *
+ * ODDS_API is deliberately grouped with PP_SCREEN rather than given its own filtering rules. The
+ * two tabs are only worth comparing if the books that count and the outliers that are dropped are
+ * decided the same way in both -- otherwise a difference between the tabs reads as a difference
+ * between sportsbooks when it is really a difference between our own settings.
  */
-export type ClosingSourceSite = "OPTIMIZER" | "PP_SCREEN";
+export type ClosingSourceSite = "OPTIMIZER" | "PP_SCREEN" | "ODDS_API";
 
 export interface ClosingLineRecord {
   bookKey: string;
@@ -128,10 +135,10 @@ export function buildClosingVerdict(
     lookup?: boolean;
   } = {}
 ): ClosingVerdict {
-  // The screen needs an allowlist: on the optimizer the `hasLine` test did most of the filtering,
-  // because DFS and algo columns there are price-only. On an odds screen essentially every column
-  // carries a line, so a denylist admits anything it has not been told about yet.
-  const classify = sourceSite === "PP_SCREEN" ? isSportsbookForClose : isSportsbookForAverage;
+  // Both odds sources need an allowlist: on the optimizer the `hasLine` test did most of the
+  // filtering, because DFS and algo columns there are price-only. On an odds feed essentially every
+  // column carries a line, so a denylist admits anything it has not been told about yet.
+  const classify = sourceSite === "OPTIMIZER" ? isSportsbookForAverage : isSportsbookForClose;
 
   const closeLines: ClosingLineRecord[] = row.bookLines.map((b) => ({
     bookKey: b.bookKey,
@@ -146,10 +153,10 @@ export function buildClosingVerdict(
     includedInAverage: classify(b.bookKey, b.label, typeof b.line === "number"),
   }));
 
-  // Only on the screen path: it is the one that surfaces stale and mis-mapped books, and the
-  // optimizer path must not silently change its numbers.
+  // On both odds-source paths, never on the optimizer: they are the ones that surface stale and
+  // mis-mapped books, and the optimizer path must not silently change its numbers.
   const outliers =
-    sourceSite === "PP_SCREEN" ? findLineOutliers(closeLines, marketType) : new Set<string>();
+    sourceSite === "OPTIMIZER" ? new Set<string>() : findLineOutliers(closeLines, marketType);
   for (const line of closeLines) {
     if (outliers.has(line.bookKey)) line.includedInAverage = false;
   }

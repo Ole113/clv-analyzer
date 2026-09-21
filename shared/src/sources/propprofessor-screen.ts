@@ -36,6 +36,7 @@ import { bookLogoUrl, normalizeBookKey } from "../books";
 import type { ClosingWorkItem, MarketType, ParseResult, ParsedRow, PickSide } from "../types";
 import { resolveClosingMarket } from "../markets";
 import { devigTwoWay } from "../devig";
+import { pickMainLines, type BookMainLine, type BookQuote } from "./main-line";
 
 /** The screen's own backend. A different subdomain from the www host the content scripts run on. */
 export const PROPPROFESSOR_SCREEN_ENDPOINT = "https://backend.propprofessor.com/screen";
@@ -176,11 +177,6 @@ const num = (v: unknown): number | null =>
 const str = (v: unknown): string | null =>
   typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 
-/** American odds as a 0-1 probability, vig included. */
-function impliedProbability(price: number): number {
-  return price > 0 ? 100 / (price + 100) : Math.abs(price) / (Math.abs(price) + 100);
-}
-
 /** A market name without its period qualifier: "Total Points - 1st Half" -> "total points". */
 function baseMarket(market: string): string {
   return market.split(" - ")[0].trim().toLowerCase();
@@ -210,91 +206,15 @@ function lineForSide(sel: RawSelection, side: 1 | 2, key: string): number | null
 }
 
 /**
- * How near even money a quote has to be, in implied probability, to read as a real market rather
- * than a stray order. 0.2 is roughly -400/+400 -- comfortably wider than any main line on a player
- * prop, so this only ever fires on quotes that were never a serious price.
+ * Flattens one market's `selections` object into the quote list `pickMainLines` reads.
+ *
+ * Every trap in the header comment is handled here rather than downstream: the `"null"` selection
+ * key, the per-side `line` field, and the one-sided quote. What comes out is shape-identical to
+ * what The Odds API's adapter produces, which is what lets both sources share the consensus rule --
+ * see `main-line.ts` for why that matters.
  */
-const NEAR_MARKET_MIN_PROB = 0.2;
-
-interface BookMainLine {
-  label: string;
-  line: number | null;
-  /** The taken side's price where the book quotes it. Null is normal and not disqualifying. */
-  price: number | null;
-  /**
-   * The opposite side's price at the same selection. Already needed to decide which selection is
-   * this book's main line; kept rather than discarded because it is the second half a de-vig needs,
-   * and it is the only place a de-vigged closing probability can come from -- the screen publishes
-   * none of its own.
-   */
-  otherSidePrice: number | null;
-  /**
-   * Money resting behind the chosen selection, when the screen reports any. Almost always 0 on a
-   * traditional sportsbook (they do not publish depth); real numbers come from the exchanges and
-   * from Pinnacle, which is exactly where a size-weighted average is worth having.
-   */
-  liquidity: number | null;
-  /** False when even this book's best selection is priced nowhere near a real market. */
-  nearMarket: boolean;
-  /** Every distinct line this book was seen quoting, so alt-line collapsing stays auditable. */
-  selectionsSeen: number[];
-  /**
-   * The taken side's price at the line the caller asked about, when this book quotes that line.
-   *
-   * Independent of `line`/`price` above, which stay the book's own main number: a book on 14.5 that
-   * also hangs 15.5 contributes both, and neither displaces the other.
-   */
-  priceAtLine: number | null;
-}
-
-/**
- * Rebuilds each book's own main line across the selection list.
- *
- * The optimizer used to show every book's line side by side in one row. The screen instead splits a
- * player's market into one selection per line, with a different set of books under each -- so a
- * naive read of any single selection sees only the handful of books quoting that exact number.
- *
- * Reconstructing the optimizer's shape keeps `edge` denominated in line units and leaves every
- * downstream convention (Over/Under direction, spread sign, moneyline price handling) untouched.
- *
- * A book's main line is, first, whichever line the *majority of books* are quoting -- the real
- * consensus number -- if this book quotes that line at all. "Least lopsided" is only the
- * tie-breaker for books that don't: a book hanging Over 9.5 at -400 is not quoting 9.5 as its
- * number, it is selling a near-certainty, so among a book's *other* selections the more balanced
- * one is the better guess at its real line. Picking least-lopsided globally, before checking for a
- * consensus line, has a real failure mode -- a book can quote the correct, consensus line at a
- * perfectly normal but not perfectly balanced price (say -105/-115) while also hanging some unrelated
- * deep alt line dead even (-110/-110); "most balanced wins" would pick the alt line and silently
- * throw away a book that was quoting the real market all along. Preferring the consensus line
- * whenever a book has it avoids that.
- *
- * A book is kept whenever it quotes the selection *at all*, even if the side actually taken has no
- * price. The line is a property of the market, not of one side of it -- a book hanging Over 21.5 is
- * quoting 21.5 to an Under bettor too -- and CLV here is measured in line units, so the price only
- * ever serves to identify which selection is the book's real number. Requiring a price on the taken
- * side is not a stricter test, just a lossy one: in the captured Xavier Robinson market only 10 of
- * 18 books carry an Under price, and demanding one drops DraftKings, Fanatics and theScore out of
- * the closing average despite all three plainly quoting the market.
- */
-function mainLineByBook(
-  selections: Record<string, RawSelection>,
-  side: 1 | 2,
-  atLine: number | null
-): Map<string, BookMainLine> {
-  type Candidate = {
-    line: number | null;
-    price: number | null;
-    otherSidePrice: number | null;
-    liquidity: number | null;
-    nearMarket: boolean;
-    lopsidedness: number;
-    label: string;
-  };
-  const candidatesByBook = new Map<string, Candidate[]>();
-  // How many distinct books quote each line at all, to find the real consensus number rather than
-  // just whichever selection happens to price closest to even money.
-  const bookCountByLine = new Map<number, Set<string>>();
-
+function quotesFrom(selections: Record<string, RawSelection>, side: 1 | 2): BookQuote[] {
+  const quotes: BookQuote[] = [];
   for (const [key, sel] of Object.entries(selections ?? {})) {
     if (!sel || typeof sel !== "object") continue;
     const line = lineForSide(sel, side, key);
@@ -307,72 +227,50 @@ function mainLineByBook(
       const other = num(side === 1 ? quote.odds2 : quote.odds1);
       if (price === null && other === null) continue;
 
-      // The taken side's depth, falling back to the other side's when this side is unpriced -- the
-      // book is still making a market, and reading 0 there would understate it as a dead column.
-      const liquidity =
-        num(side === 1 ? quote.liquidity1 : quote.liquidity2) ??
-        num(side === 1 ? quote.liquidity2 : quote.liquidity1);
-
-      // Deliberately computed from both prices rather than the taken side's, so the OVER and the
-      // UNDER row agree on which selection is a given book's main line.
-      const lopsidedness =
-        price === null || other === null
-          ? Math.abs(impliedProbability((price ?? other) as number) - 0.5) + 1
-          : Math.abs(impliedProbability(price) - impliedProbability(other));
-
-      // Whether this quote looks like a real two-sided market at all. Kept alongside the chosen
-      // entry so a book can be dropped when even its *best* selection is a stray order.
-      const nearMarket = [price, other]
-        .filter((p): p is number => p !== null)
-        .some((p) => {
-          const prob = impliedProbability(p);
-          return prob >= NEAR_MARKET_MIN_PROB && prob <= 1 - NEAR_MARKET_MIN_PROB;
-        });
-
-      const label = str(quote.book) ?? bookName;
-      const list = candidatesByBook.get(bookName) ?? [];
-      list.push({ line, price, otherSidePrice: other, liquidity, nearMarket, lopsidedness, label });
-      candidatesByBook.set(bookName, list);
-
-      if (line !== null) {
-        if (!bookCountByLine.has(line)) bookCountByLine.set(line, new Set());
-        bookCountByLine.get(line)!.add(bookName);
-      }
+      quotes.push({
+        bookKey: bookName,
+        label: str(quote.book) ?? bookName,
+        line,
+        price,
+        otherSidePrice: other,
+        // The taken side's depth, falling back to the other side's when this side is unpriced --
+        // the book is still making a market, and reading 0 there would understate it as a dead
+        // column.
+        liquidity:
+          num(side === 1 ? quote.liquidity1 : quote.liquidity2) ??
+          num(side === 1 ? quote.liquidity2 : quote.liquidity1),
+      });
     }
   }
+  return quotes;
+}
 
-  let consensusLine: number | null = null;
-  let consensusCount = -1;
-  for (const [line, books] of bookCountByLine) {
-    if (books.size > consensusCount) {
-      consensusCount = books.size;
-      consensusLine = line;
-    }
-  }
-
-  const out = new Map<string, BookMainLine>();
-  for (const [bookName, candidates] of candidatesByBook) {
-    const atConsensus = consensusLine !== null ? candidates.find((c) => c.line === consensusLine) : undefined;
-    const chosen =
-      atConsensus ??
-      candidates.reduce((best, c) => (c.lopsidedness < best.lopsidedness ? c : best));
-    // Read off the same candidate list rather than a second pass: every selection this book quotes
-    // is already here, which is the whole reason the alt line asked about can be answered at all.
-    const asked = atLine === null ? undefined : candidates.find((c) => c.line === atLine);
-    out.set(bookName, {
-      label: chosen.label,
-      line: chosen.line,
-      price: chosen.price,
-      otherSidePrice: chosen.otherSidePrice,
-      liquidity: chosen.liquidity,
-      nearMarket: chosen.nearMarket,
-      priceAtLine: asked?.price ?? null,
-      selectionsSeen: [...new Set(candidates.map((c) => c.line).filter((l): l is number => l !== null))].sort(
-        (a, b) => a - b
-      ),
-    });
-  }
-  return out;
+/**
+ * Rebuilds each book's own main line across the selection list.
+ *
+ * The optimizer used to show every book's line side by side in one row. The screen instead splits a
+ * player's market into one selection per line, with a different set of books under each -- so a
+ * naive read of any single selection sees only the handful of books quoting that exact number.
+ *
+ * Reconstructing the optimizer's shape keeps `edge` denominated in line units and leaves every
+ * downstream convention (Over/Under direction, spread sign, moneyline price handling) untouched.
+ *
+ * A book is kept whenever it quotes the selection *at all*, even if the side actually taken has no
+ * price. The line is a property of the market, not of one side of it -- a book hanging Over 21.5 is
+ * quoting 21.5 to an Under bettor too -- and CLV here is measured in line units, so the price only
+ * ever serves to identify which selection is the book's real number. Requiring a price on the taken
+ * side is not a stricter test, just a lossy one: in the captured Xavier Robinson market only 10 of
+ * 18 books carry an Under price, and demanding one drops DraftKings, Fanatics and theScore out of
+ * the closing average despite all three plainly quoting the market.
+ *
+ * Which selection *is* a book's main line is decided by `pickMainLines`; see its own doc comment.
+ */
+function mainLineByBook(
+  selections: Record<string, RawSelection>,
+  side: 1 | 2,
+  atLine: number | null
+): Map<string, BookMainLine> {
+  return pickMainLines(quotesFrom(selections, side), atLine);
 }
 
 function buildRow(

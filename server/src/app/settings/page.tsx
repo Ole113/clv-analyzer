@@ -17,6 +17,7 @@ import {
   saveBookOrder,
   saveBookWeights,
   saveKellySettings,
+  saveOddsApiKey,
   saveThemePreference,
   type ThemePreference,
 } from "@/lib/app-settings";
@@ -28,6 +29,7 @@ const SECTIONS = [
   { id: "database", label: "Database" },
   { id: "books", label: "Books" },
   { id: "kelly", label: "Kelly staking" },
+  { id: "odds-api", label: "Odds API" },
   { id: "grading", label: "Grading" },
   { id: "closing-config", label: "Closing read config" },
   { id: "ingest-failures", label: "Ingest failures" },
@@ -99,6 +101,22 @@ export default async function SettingsPage() {
     revalidatePath("/settings");
     revalidatePath("/kelly");
     return { ok: true, message: "Kelly settings saved" };
+  }
+
+  /**
+   * Saves (or clears) The Odds API key.
+   *
+   * No format validation beyond "not obviously not a key": the only authority on whether a key
+   * works is the API itself, and a regex here would reject a valid key the day their format
+   * changes. A wrong key is reported by the modal, in the tab that tried to use it.
+   */
+  async function saveOddsApiKeyAction(formData: FormData): Promise<ActionResult> {
+    "use server";
+    const key = String(formData.get("oddsApiKey") ?? "").trim();
+    if (key && key.length < 8) return { ok: false, message: "That does not look like a key" };
+    await saveOddsApiKey(key);
+    revalidatePath("/settings");
+    return { ok: true, message: key ? "Odds API key saved" : "Odds API key cleared" };
   }
 
   async function saveBookSettingsAction(
@@ -361,6 +379,44 @@ export default async function SettingsPage() {
             pick&apos;em board&apos;s fixed payout has no discrepancy from fair to price. Leave it
             empty to restore the defaults.
           </p>
+        </ActionForm>
+      </section>
+
+      <section className="chart-card" id="odds-api">
+        <h3>Odds API</h3>
+        <p className="lede">
+          A second source for the Odds modal, alongside PropProfessor. Both tabs are averaged by the
+          same code, with the same book order and the same exclusions, so the two are directly
+          comparable — a difference between them is a difference between the feeds.
+        </p>
+        <p className="muted" style={{ fontSize: 12, maxWidth: 620 }}>
+          Get a free key at{" "}
+          <a href="https://the-odds-api.com" target="_blank" rel="noopener noreferrer">
+            the-odds-api.com ↗
+          </a>
+          . The free plan is 500 requests a month and one click of the Odds API tab costs exactly
+          one, so the tab never loads on its own — it reads only when you click it, and remembers
+          the answer for as long as the modal stays open. Prices republish once a minute, so a
+          Refresh inside that minute is served from cache and costs nothing.
+        </p>
+        <p className="muted" style={{ fontSize: 12, maxWidth: 620 }}>
+          Stored in this install&apos;s database, which means it is in any backup you take of it.
+          It grants nothing but your own account&apos;s read quota. Clear the field and save to
+          remove it.
+        </p>
+        <ActionForm action={saveOddsApiKeyAction} submitLabel="Save" success="Odds API key saved">
+          <label className="field grow">
+            <span>API key</span>
+            <input
+              type="password"
+              name="oddsApiKey"
+              defaultValue={bookSettings.oddsApiKey}
+              placeholder="not set"
+              autoComplete="off"
+              spellCheck={false}
+              style={{ maxWidth: 420 }}
+            />
+          </label>
         </ActionForm>
       </section>
 

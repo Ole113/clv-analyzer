@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { planScreenRead, PROPPROFESSOR_SCREEN_ENDPOINT } from "@clv/shared";
+import {
+  planScreenRead,
+  planOddsApiRead,
+  oddsApiEventsUrl,
+  oddsApiOddsUrl,
+  ODDS_API_COST_PER_READ,
+  ODDS_API_MAX_BOOKMAKERS,
+  PROPPROFESSOR_SCREEN_ENDPOINT,
+} from "@clv/shared";
 
 /**
  * Guards the one rule in this project that cannot be allowed to rot: nothing here ever sends
@@ -38,7 +46,25 @@ const AUTOMATED_DIRS = [
 const AUTOMATED_FILES = [
   join(REPO, "server/src/lib/pp-screen-read.ts"),
   join(REPO, "server/src/lib/odds-preview.ts"),
+  join(REPO, "server/src/lib/odds-api-read.ts"),
   join(REPO, "server/src/lib/pp-token.ts"),
+];
+
+/**
+ * Every host this project is permitted to contact automatically.
+ *
+ * Extended deliberately, one entry at a time, and never widened to a pattern. `www` is the pages a
+ * human opens and `backend` the odds screen's JSON endpoint; `api.the-odds-api.com` is the Odds
+ * modal's second source -- a third party to both boards, keyed and metered, contacted only when its
+ * tab is clicked. The point of listing hosts rather than excluding oddsjam.com is that a *new* host
+ * fails this test until someone writes it down here, which is the review step this rule exists for.
+ */
+const ALLOWED_HOSTS = [
+  /^https:\/\/(www|backend)\.propprofessor\.com\//,
+  /^https:\/\/api\.the-odds-api\.com\b/,
+  // The Odds API's own marketing site, linked from the modal footer and Settings so a user can go
+  // and get a key. A link a person clicks, never a fetch.
+  /^https:\/\/the-odds-api\.com\b/,
 ];
 
 function backgroundSources(): { file: string; source: string }[] {
@@ -58,13 +84,12 @@ function codeOnly(source: string): string {
 }
 
 describe("no automated OddsJam traffic", () => {
-  it("has background code that names no host except PropProfessor", () => {
+  it("has background code that names no host outside the allowlist", () => {
     const offenders: string[] = [];
     for (const { file, source } of backgroundSources()) {
       const urls = codeOnly(source).match(/https?:\/\/[^\s"'`)]+/g) ?? [];
       for (const url of urls) {
-        // www for the pages a human opens, backend for the odds screen's JSON endpoint.
-        if (!/^https:\/\/(www|backend)\.propprofessor\.com\//.test(url)) {
+        if (!ALLOWED_HOSTS.some((allowed) => allowed.test(url))) {
           offenders.push(`${file}: ${url}`);
         }
       }
@@ -105,6 +130,46 @@ describe("no automated OddsJam traffic", () => {
     expect(planScreenRead.length).toBeLessThanOrEqual(2);
     const params = planScreenRead.toString().slice(0, planScreenRead.toString().indexOf(")"));
     expect(params).not.toMatch(/pageUrl|url/i);
+  });
+});
+
+describe("The Odds API is a read of its own, not a route back to a board", () => {
+  it("plans an OddsJam-captured pick against The Odds API's own host", () => {
+    // Same assertion as the PropProfessor one above and for the same reason: the capture site is
+    // provenance, and adding a second source must not have introduced a path where it becomes a
+    // read target.
+    const planned = planOddsApiRead({
+      sport: "NFL",
+      statMarket: "Receiving Yards",
+      marketType: "PLAYER_PROP",
+    });
+    expect(planned).toMatchObject({ sportKey: "americanfootball_nfl", market: "player_reception_yds" });
+    if ("kind" in planned) throw new Error("expected a plan");
+    expect(oddsApiEventsUrl(planned, "KEY")).toMatch(/^https:\/\/api\.the-odds-api\.com\//);
+    expect(oddsApiOddsUrl(planned, "evt", "KEY")).toMatch(/^https:\/\/api\.the-odds-api\.com\//);
+  });
+
+  it("plans from the pick's identity alone, never from a stored pageUrl", () => {
+    expect(planOddsApiRead.length).toBeLessThanOrEqual(2);
+    const source = planOddsApiRead.toString();
+    expect(source.slice(0, source.indexOf(")"))).not.toMatch(/pageUrl|url/i);
+  });
+
+  it("never spends more than one credit on a read", () => {
+    // The cost formula is `unique markets x regions`, and a group of ten named bookmakers bills as
+    // one region. One market key and at most ten books is therefore exactly one credit -- the
+    // number the whole design is arranged around, and a silent regression here would multiply
+    // every user's spend against a 500-a-month free quota.
+    const planned = planOddsApiRead({
+      sport: "NBA",
+      statMarket: "Points",
+      marketType: "PLAYER_PROP",
+    });
+    if ("kind" in planned) throw new Error("expected a plan");
+    expect(planned.market).not.toContain(",");
+    expect(planned.bookmakers.length).toBeLessThanOrEqual(ODDS_API_MAX_BOOKMAKERS);
+    expect(ODDS_API_MAX_BOOKMAKERS).toBe(10);
+    expect(ODDS_API_COST_PER_READ).toBe(1);
   });
 });
 
