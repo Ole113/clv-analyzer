@@ -10,6 +10,11 @@ import type {
   PpTokenMessage,
   OddsLookupMessage,
   OddsLookupResponse,
+  OddsLookupPick,
+  OddsTerminalLookupMessage,
+  OddsTerminalPathMessage,
+  OddsTerminalPathResponse,
+  OddsTerminalResultMessage,
   KellySettingsMessage,
   KellySettingsResponse,
 } from "../content/shared/messages";
@@ -162,6 +167,105 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync" && changes.backendUrl) void registerDashboardWarmer();
 });
 
+/**
+ * Odds Terminal lookups waiting on the tab the user's click opened.
+ *
+ * ## Why the worker holds state at all
+ *
+ * Every other source answers inside one request. This one is a three-hop round trip -- the board
+ * opens a tab, the relay in that tab asks what to fetch, then reports what it read -- and the
+ * modal is sitting on a single `sendMessage` await across the whole thing. So the worker parks the
+ * modal's `sendResponse` here and resolves it when the third hop lands.
+ *
+ * ## Why an unguessable id is the authentication
+ *
+ * The worker cannot check that a snapshot message came from Odds Terminal the way the `clv:pp-token`
+ * handler below checks its sender, because doing so would mean naming that host in background code
+ * -- which is exactly what this design forbids, and what the automation guard asserts is absent.
+ * The pending id does that job instead: a result is only honoured if it quotes an id this worker
+ * minted itself, that is still within its timeout, and that has not already been answered. Each
+ * entry is consumed on first use, so a reload of the opened tab cannot replay a read either.
+ *
+ * Nothing here is persisted. A worker restart drops every pending lookup, which is correct: the
+ * modal that was waiting is gone too, and a read that survived its own asker would be precisely
+ * the unattended automation this whole arrangement exists to prevent.
+ */
+interface PendingOddsTerminal {
+  pick: OddsLookupPick;
+  /** The relative path the relay should fetch, resolved from the server before the relay asks. */
+  path: Promise<OddsTerminalPathResponse>;
+  respond: (response: OddsLookupResponse) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const pendingOddsTerminal = new Map<string, PendingOddsTerminal>();
+
+/**
+ * How long a lookup may stay parked.
+ *
+ * Long enough for a cold tab to clear Cloudflare and sign-in to be noticed, short enough that a
+ * user who closed the tab gets a real message rather than a spinner forever. The relay has its own,
+ * shorter timeout on the fetch itself; this one covers everything that can go wrong around it --
+ * the tab never loading, the user closing it, the content script never being injected at all.
+ */
+const ODDS_TERMINAL_TIMEOUT_MS = 30_000;
+
+function settleOddsTerminal(requestId: string, response: OddsLookupResponse): void {
+  const entry = pendingOddsTerminal.get(requestId);
+  if (!entry) return;
+  pendingOddsTerminal.delete(requestId);
+  clearTimeout(entry.timer);
+  entry.respond(response);
+}
+
+/** Asks the server what the relay should fetch. Returns a relative path, never an origin. */
+async function oddsTerminalPath(pick: OddsLookupPick): Promise<OddsTerminalPathResponse> {
+  const settings = await configured();
+  if (!settings) return { ok: false, reason: "not configured -- open the extension options" };
+  try {
+    const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-verdict"), {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+      body: JSON.stringify({ ...pick, plan: true }),
+    });
+    if (!response.ok) return { ok: false, reason: `server ${response.status}` };
+    const body = (await response.json()) as { ok?: boolean; path?: string; reason?: string };
+    return body?.ok && body.path
+      ? { ok: true, path: body.path }
+      : { ok: false, reason: body?.reason ?? "Odds Terminal cannot answer this market." };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : "could not reach the backend",
+    };
+  }
+}
+
+/** Turns a relayed snapshot into the verdict the modal renders. The server does the computing; it
+ *  never does the fetching. */
+async function oddsTerminalVerdict(
+  pick: OddsLookupPick,
+  snapshot: unknown
+): Promise<OddsLookupResponse> {
+  const settings = await configured();
+  if (!settings) return { ok: false, error: "not configured -- open the extension options" };
+  try {
+    const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-verdict"), {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+      body: JSON.stringify({ ...pick, snapshot }),
+    });
+    if (!response.ok) return { ok: false, error: `server ${response.status}` };
+    const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
+    return { ok: true, preview: body.preview };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "odds lookup failed",
+    };
+  }
+}
+
 chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }, sender, sendResponse) => {
   if (message?.type === "clv:pp-token") {
     // Only from a content script actually running on PropProfessor. A message claiming to carry
@@ -170,6 +274,55 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
     if (/^https:\/\/www\.propprofessor\.com\//.test(from)) {
       void storeToken((message as PpTokenMessage).token);
     }
+    return false;
+  }
+
+  if (message?.type === "clv:odds-terminal-lookup") {
+    const { requestId, pick } = message as OddsTerminalLookupMessage;
+    // The path is resolved immediately rather than when the relay asks for it, so the server round
+    // trip overlaps with the tab loading instead of following it. The relay awaits this promise.
+    const path = oddsTerminalPath(pick);
+    const timer = setTimeout(() => {
+      settleOddsTerminal(requestId, {
+        ok: false,
+        error:
+          "Odds Terminal did not answer. Make sure the tab that opened is signed in, then hit Refresh.",
+      });
+    }, ODDS_TERMINAL_TIMEOUT_MS);
+    pendingOddsTerminal.set(requestId, { pick, path, respond: sendResponse, timer });
+
+    // A plan the server refuses ("this source does not carry that market") is final and there is
+    // nothing for the tab to do, so it is answered now rather than left to time out.
+    void path.then((resolved) => {
+      if (!resolved.ok) settleOddsTerminal(requestId, { ok: false, error: resolved.reason });
+    });
+    return true;
+  }
+
+  if (message?.type === "clv:odds-terminal-path") {
+    const { requestId } = message as OddsTerminalPathMessage;
+    const entry = pendingOddsTerminal.get(requestId);
+    // An id nobody is waiting on gets nothing. This is what stops a reload of the opened tab, or
+    // any other page, from provoking a read.
+    if (!entry) {
+      sendResponse({ ok: false, reason: "This lookup is no longer waiting for an answer." } satisfies OddsTerminalPathResponse);
+      return false;
+    }
+    void entry.path.then(sendResponse);
+    return true;
+  }
+
+  if (message?.type === "clv:odds-terminal-result") {
+    const result = message as OddsTerminalResultMessage;
+    const entry = pendingOddsTerminal.get(result.requestId);
+    if (!entry) return false; // Timed out, already answered, or never ours.
+    if (!result.ok) {
+      settleOddsTerminal(result.requestId, { ok: false, error: result.reason ?? "Odds Terminal could not be read." });
+      return false;
+    }
+    void oddsTerminalVerdict(entry.pick, result.snapshot).then((response) => {
+      settleOddsTerminal(result.requestId, response);
+    });
     return false;
   }
 

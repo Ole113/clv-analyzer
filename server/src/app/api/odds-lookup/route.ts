@@ -26,6 +26,12 @@ export const dynamic = "force-dynamic";
  * clicked. That automation is what got the PropProfessor account banned (2026-09), so `source` is
  * now fixed to `"ODDS_API"` -- kept as a field, rather than dropped, so an older extension build
  * that still sends `"PROPPROFESSOR"` gets routed to the only source that exists rather than a 422.
+ *
+ * `"ODDS_TERMINAL"` is deliberately *not* in that enum, so sending it here is a 422 rather than a
+ * silent coercion. This route reads The Odds API; quietly answering an Odds Terminal request with
+ * Odds API numbers would put one source's data under the other's tab heading, which is worse than
+ * an error. That source has its own route (`/api/odds-verdict`) because it is not a read at all --
+ * the server never contacts it, and only ever receives a snapshot the extension already fetched.
  */
 
 const lookupSchema = z.object({

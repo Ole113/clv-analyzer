@@ -80,19 +80,68 @@ export interface OddsLookupPick {
   externalPropId: string | null;
   /** Set by the modal's Refresh button so a deliberate re-check skips the server's response cache. */
   refresh?: boolean;
-  /**
-   * Which source to ask. There is only one now -- The Odds API -- kept as a field so this shape
-   * still matches the server's `lookupOddsNow`.
-   */
+  /** Which source to ask. Decides the transport, not just the answer -- see `OddsSource`. */
   source?: OddsSource;
 }
 
 /**
- * The only source the Odds modal can ask. Used to be `"PROPPROFESSOR" | "ODDS_API"`; the
- * PropProfessor side was removed after that account was banned for automated access (2026-09).
- * See the server's `lookupOddsNow`.
+ * The sources the Odds modal can ask. Used to be `"PROPPROFESSOR" | "ODDS_API"`; the PropProfessor
+ * side was removed after that account was banned for automated access (2026-09) and is never
+ * coming back -- the literal is kept out of this union so a stray one fails to compile.
+ *
+ * Must agree with the server's own `OddsSource` (`server/src/lib/odds-preview.ts`), which is
+ * declared separately so the extension does not depend on a server module.
+ *
+ * The two reach their data by completely different routes, which is the whole design:
+ *
+ *  - `ODDS_API` is answered entirely by the server, which calls a keyed third-party API.
+ *  - `ODDS_TERMINAL` is answered by a tab the user's own click opens: the relay fetches it from
+ *    inside that tab and the server only ever sees the bytes. See `oddsterminal-site/relay.ts`.
  */
-export type OddsSource = "ODDS_API";
+export type OddsSource = "ODDS_API" | "ODDS_TERMINAL";
+
+/**
+ * Starts an Odds Terminal lookup the board has just opened a tab for.
+ *
+ * Sent immediately after `window.open`, from inside the same click, and deliberately *not*
+ * answered straight away: the worker registers `requestId` as pending and holds the response open
+ * until the relay in that tab reports back, so the modal's existing await-a-response shape works
+ * unchanged across what is really a three-hop round trip.
+ */
+export interface OddsTerminalLookupMessage {
+  type: "clv:odds-terminal-lookup";
+  requestId: string;
+  pick: OddsLookupPick;
+}
+
+/**
+ * The relay asking what to fetch.
+ *
+ * The query is built by our server, from the market vocabulary and the user's book ordering, and
+ * handed back as a relative path -- so the content script never has to know either, and a read is
+ * impossible for an id the worker is not already waiting on.
+ */
+export interface OddsTerminalPathMessage {
+  type: "clv:odds-terminal-path";
+  requestId: string;
+}
+
+export interface OddsTerminalPathResponse {
+  ok: boolean;
+  /** Relative, always: `/api/snapshot?...`. Never carries an origin. */
+  path?: string;
+  reason?: string;
+}
+
+/** The relay's answer: either the snapshot it read, or why it could not. */
+export interface OddsTerminalResultMessage {
+  type: "clv:odds-terminal-result";
+  requestId: string;
+  ok: boolean;
+  /** The raw `/api/snapshot` body, passed through untouched for the server to parse. */
+  snapshot?: unknown;
+  reason?: string;
+}
 
 /** What is left of this month's Odds API quota, off the API's own response headers. */
 export interface OddsQuota {
@@ -107,7 +156,11 @@ export interface OddsQuota {
  *
  * Answered by the server rather than here: the averaging, the sportsbook allowlist and the outlier
  * test all live in `buildClosingVerdict`, and a second copy in a content script would drift from it
- * without anyone noticing. The read target is always The Odds API regardless of which board asked.
+ * without anyone noticing. That stays true for both sources -- what differs is only who does the
+ * *fetching*, never who does the arithmetic.
+ *
+ * This message carries the `ODDS_API` path alone. `ODDS_TERMINAL` goes through
+ * `OddsTerminalLookupMessage` instead, because it has to open a tab first.
  */
 export interface OddsLookupMessage {
   type: "clv:odds-lookup";
@@ -124,7 +177,7 @@ export interface OddsLookupResponse {
     /** The odds screen filtered to this exact market, game and player. Always null now: The Odds
      *  API has no page of its own to link into. */
     screenUrl?: string | null;
-    /** Which source answered. Always `"ODDS_API"`. */
+    /** Which source answered. */
     source?: OddsSource;
     /** Remaining credits, shown in the modal's footer. */
     quota?: OddsQuota | null;

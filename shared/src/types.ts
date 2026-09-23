@@ -142,11 +142,16 @@ export interface ParseResult {
 /** Which screen, and for what, so a recorded verdict can always be traced back to its source. */
 export interface ClosingSourceInfo {
   /**
-   * Which source answered. `ODDS_API` only ever appears on an on-demand modal lookup -- the
-   * scheduled closing read is PropProfessor's alone, so nothing persisted carries it.
+   * Which source answered. `ODDS_API` and `ODDS_TERMINAL` only ever appear on an on-demand modal
+   * lookup -- the scheduled closing read is PropProfessor's alone, so nothing persisted carries
+   * either of them.
    */
-  site: "PROPPROFESSOR_SCREEN" | "ODDS_API";
-  /** The screen URL on PropProfessor; "<sportKey>/<eventId>" on The Odds API, which has no page. */
+  site: "PROPPROFESSOR_SCREEN" | "ODDS_API" | "ODDS_TERMINAL";
+  /**
+   * The screen URL on PropProfessor; "<sportKey>/<eventId>" on The Odds API, which has no page.
+   * On Odds Terminal this is "<sport>/<fixtureId>" and is deliberately NOT a URL: nothing in this
+   * project may hold an address that something could later decide to fetch.
+   */
   url: string;
   /** The source's own league or sport key. */
   league: string;

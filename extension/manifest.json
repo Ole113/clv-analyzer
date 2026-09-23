@@ -13,6 +13,7 @@
     "https://fantasy.oddsjam.com/*",
     "https://www.propprofessor.com/*",
     "https://backend.propprofessor.com/*",
+    "https://oddsterminal.org/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
@@ -91,6 +92,15 @@
         "content/pp-token-relay.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://oddsterminal.org/*"
+      ],
+      "js": [
+        "content/oddsterminal-site.js"
+      ],
+      "run_at": "document_idle"
     }
   ]
 }

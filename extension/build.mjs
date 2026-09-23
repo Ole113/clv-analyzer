@@ -30,6 +30,10 @@ const options = {
     // oddsjam.com itself: passively fills the deep-link cache from every page it is on, and
     // finishes a deep link the board could not answer when the tab was opened carrying one.
     "content/oddsjam-site": "src/content/oddsjam-site/index.ts",
+    // oddsterminal.org: does nothing at all unless the page was opened carrying a request id in
+    // its fragment, in which case it reads one market and hands the bytes back. Isolated world --
+    // the session is a cookie, so nothing here needs page context.
+    "content/oddsterminal-site": "src/content/oddsterminal-site/relay.ts",
     // Registered at runtime rather than in the manifest -- the dashboard's origin is whatever the
     // user configured -- so it has no `content_scripts` entry to match it against.
     "content/dashboard-warm": "src/content/dashboard/warm.ts",

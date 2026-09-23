@@ -18,12 +18,17 @@ import type { MarketType, Side } from "./constants";
  * is the modal's second source and is filtered exactly like PP_SCREEN, for the same reason: it too
  * carries a line on essentially every column, DFS apps included, so a denylist would admit them.
  *
- * ODDS_API is deliberately grouped with PP_SCREEN rather than given its own filtering rules. The
- * two tabs are only worth comparing if the books that count and the outliers that are dropped are
- * decided the same way in both -- otherwise a difference between the tabs reads as a difference
- * between sportsbooks when it is really a difference between our own settings.
+ * ODDS_TERMINAL is the modal's default source and is filtered identically again, for the identical
+ * reason: it too quotes a line on essentially every column it returns, DFS apps included.
+ *
+ * ODDS_API and ODDS_TERMINAL are deliberately grouped with PP_SCREEN rather than given their own
+ * filtering rules. The tabs are only worth comparing if the books that count and the outliers that
+ * are dropped are decided the same way in all of them -- otherwise a difference between the tabs
+ * reads as a difference between sportsbooks when it is really a difference between our own
+ * settings. Note this needs no new branch below: the `sourceSite === "OPTIMIZER"` test is an
+ * else-catchall, so every feed source lands on `isSportsbookForClose` by construction.
  */
-export type ClosingSourceSite = "OPTIMIZER" | "PP_SCREEN" | "ODDS_API";
+export type ClosingSourceSite = "OPTIMIZER" | "PP_SCREEN" | "ODDS_API" | "ODDS_TERMINAL";
 
 export interface ClosingLineRecord {
   bookKey: string;

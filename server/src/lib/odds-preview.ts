@@ -11,6 +11,7 @@ import {
   readOddsApiNow,
   type OddsApiQuota,
 } from "./odds-api-read";
+import { planRelayRead, readRelayedSnapshot, type RelayedSnapshot } from "./odds-terminal-verdict";
 
 /**
  * On-demand "what does the market say right now" reads, triggered by the Odds modal on a bet page
@@ -21,8 +22,14 @@ import {
  *
  * This used to try a direct server-side read of PropProfessor's odds screen first, falling back to
  * the extension only when the server had no session token. That automation is what got the
- * PropProfessor account banned (2026-09), so the only source now is The Odds API
- * (`odds-api-read.ts`) -- a keyed, metered third-party API that needs no browser session at all.
+ * PropProfessor account banned (2026-09), so nothing here reads a site with a borrowed session any
+ * more. There are two sources, and neither repeats that mistake:
+ *
+ *  - **The Odds API** (`odds-api-read.ts`) -- a keyed, metered third-party API this server calls
+ *    directly, because a key is not a hijacked browser session and the API is sold to be called.
+ *  - **Odds Terminal** (`odds-terminal-verdict.ts`) -- fetched by the extension inside a tab the
+ *    user's own click opened, and only ever handed to this server as bytes. `lookupFromRelay`
+ *    below is that path, and the thing it conspicuously does not do is fetch anything.
  *
  * State lives in memory, not the database, on purpose: this app runs as one long-lived Node
  * process (the grading and closing pollers already depend on that -- see the `[grader] started`
@@ -62,13 +69,25 @@ export interface OddsPreview {
 /**
  * Which source a lookup should ask.
  *
- * The Odds API is the only source: PropProfessor automation was permanently disabled after the
- * account was banned for it (2026-09). This is a single-member union rather than a plain constant
- * so every existing caller still names the source explicitly -- the type is what is left of the
- * PropProfessor tab, kept narrow on purpose so a stray `"PROPPROFESSOR"` literal fails to compile
- * instead of silently doing nothing.
+ * Two again, after a spell at one. `PROPPROFESSOR` is gone for good -- that account was banned for
+ * automated access (2026-09) and the literal is kept out of this union on purpose, so a stray
+ * `"PROPPROFESSOR"` fails to compile rather than silently doing nothing.
+ *
+ * The two that remain reach their data by completely different routes, and the difference is the
+ * whole design:
+ *
+ *  - `ODDS_API` is a keyed third-party API this server calls directly (`odds-api-read.ts`).
+ *  - `ODDS_TERMINAL` is **never called by this server at all.** Its bytes are fetched by a content
+ *    script inside a tab the user's own click opened, and POSTed here for the verdict alone. See
+ *    `odds-terminal-verdict.ts`, which is where that distinction is written out in full.
  */
-export type OddsSource = "ODDS_API";
+export type OddsSource = "ODDS_API" | "ODDS_TERMINAL";
+
+/** How each source refers to itself in a sentence shown to the user. */
+const SOURCE_NAMES: Record<OddsSource, string> = {
+  ODDS_API: "The Odds API",
+  ODDS_TERMINAL: "Odds Terminal",
+};
 
 // On `globalThis`, the same way `prisma.ts` pins its client: Next.js compiles Server Actions and
 // Route Handlers as separate module graphs, so a plain module-level `const` here would give each
@@ -129,7 +148,7 @@ function reasonFor(
   outcome: Exclude<ClosingReadOutcome, { kind: "MATCHED" }>,
   source: OddsSource = "ODDS_API"
 ): string {
-  const name = "The Odds API";
+  const name = SOURCE_NAMES[source];
   switch (outcome.kind) {
     case "SELECTION_ABSENT":
       return `Not currently among the ${outcome.candidateCount} selections ${name} lists for this market.`;
@@ -364,4 +383,58 @@ async function verdictFor(
   // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
   verdict.closeLines = sortByBookOrder(verdict.closeLines, settings.bookOrder);
   return verdict;
+}
+
+
+/**
+ * The Odds Terminal answer, computed from a snapshot the extension's relay already fetched.
+ *
+ * The shape to notice is the one that is missing: there is no fetch, no cache, no timeout and no
+ * credential anywhere in this function or anything it calls. It is handed a response body and
+ * produces a verdict from it. Every byte of Odds Terminal data that reaches this process arrives
+ * this way, as the payload of a POST from an extension acting on a click a person just made.
+ *
+ * Everything past the parse is identical to the Odds API path -- the same `verdictFor`, the same
+ * settings, the same weighting, the same book ordering -- which is the only reason the two tabs in
+ * the modal are comparable at all.
+ */
+export async function lookupFromRelay(
+  item: ClosingWorkItem,
+  snapshot: RelayedSnapshot
+): Promise<OddsPreview> {
+  const fetchedAt = new Date().toISOString();
+  const plan = await planRelayRead(item);
+  if ("kind" in plan) {
+    return {
+      fetchedAt,
+      ok: false,
+      // `noEquivalent` is a blameless dead end this source genuinely does not cover; `unmapped` is
+      // a gap in our own alias table. Both are shown, but only the second is a bug.
+      reason: plan.reason,
+      verdict: null,
+      source: "ODDS_TERMINAL",
+    };
+  }
+
+  const outcome = readRelayedSnapshot(item, plan, snapshot);
+  if (outcome.kind !== "MATCHED") {
+    return {
+      fetchedAt,
+      ok: false,
+      reason: reasonFor(outcome, "ODDS_TERMINAL"),
+      verdict: null,
+      source: "ODDS_TERMINAL",
+    };
+  }
+
+  return {
+    fetchedAt,
+    ok: true,
+    reason: null,
+    verdict: await verdictFor(item, outcome.row, "ODDS_TERMINAL"),
+    // No deep link. Odds Terminal has a page per market, but pointing at it would mean holding one
+    // of its URLs in this process, and this server is deliberately kept ignorant of the host.
+    screenUrl: null,
+    source: "ODDS_TERMINAL",
+  };
 }

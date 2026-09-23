@@ -10,3 +10,8 @@ dist/
 *.tsbuildinfo
 .next-build/
 server/storageState/
+
+# Captured Odds Terminal responses, used once to verify the market/book/league vocabulary
+# (server/src/lib/__tests__/odds-terminal-vocabulary.test.ts). Evidence for a one-off check, not a
+# fixture: a real response can carry account identifiers.
+shared/src/__fixtures__/live/

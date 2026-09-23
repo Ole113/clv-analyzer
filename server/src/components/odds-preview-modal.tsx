@@ -12,14 +12,33 @@ type State =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "error"; reason: string }
+  /**
+   * This source exists but cannot be read from here. Distinct from `error` on purpose: nothing has
+   * gone wrong, and telling someone "the odds read could not be started" when the answer is "open
+   * this on a board instead" sends them looking for a fault that is not there.
+   */
+  | { kind: "unavailable"; reason: string }
   | { kind: "result"; preview: OddsPreview };
 
+/** The two source tabs, in the order they appear, mirroring the extension's own modal. */
+const SOURCE_TABS: { source: OddsSource; label: string }[] = [
+  { source: "ODDS_TERMINAL", label: "Odds Terminal" },
+  { source: "ODDS_API", label: "The Odds API" },
+];
+
 /**
- * The only source. This modal used to load a PropProfessor tab eagerly and a lazy, metered Odds
- * API tab beside it; the PropProfessor automation is what got that account banned (2026-09), so
- * the tab strip is gone and this is the only thing the modal ever asks.
+ * Why the dashboard cannot read Odds Terminal.
+ *
+ * Not a limitation to be worked around later -- it is the design. Odds Terminal is only ever read
+ * from inside a tab on that site which the user's own click opened, using the session in their own
+ * browser. This dashboard renders on a server that has no browser, no tabs and no session, and
+ * giving it one would rebuild precisely the arrangement that got the PropProfessor account banned
+ * (2026-09). So the tab is shown, and says so.
  */
-const SOURCE: OddsSource = "ODDS_API";
+const ODDS_TERMINAL_UNAVAILABLE =
+  "Odds Terminal is read from a tab on that site, opened by your own click — so it is available " +
+  "from the Odds button on a board, in the extension, but not from this dashboard. The Odds API " +
+  "tab works here and is averaged identically.";
 
 /**
  * The cost of the tab, stated where it is spent.
@@ -165,40 +184,78 @@ export function OddsPreviewButton({
   triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [state, setState] = useState<State>({ kind: "idle" });
+  const [active, setActive] = useState<OddsSource>(SOURCE_TABS[0].source);
+  // Each tab's own answer, kept for as long as the dialog is open so switching back is free and,
+  // on the metered tab, never re-bought.
+  const [states, setStates] = useState<Record<OddsSource, State>>({
+    ODDS_TERMINAL: { kind: "unavailable", reason: ODDS_TERMINAL_UNAVAILABLE },
+    ODDS_API: { kind: "idle" },
+  });
+  const state = states[active];
+  const setState = useCallback(
+    (next: State, source: OddsSource) => setStates((prev) => ({ ...prev, [source]: next })),
+    []
+  );
   /** Bumped on every request so a reply from a superseded one (a Refresh fired while the first was
    *  still in flight) cannot overwrite the newer answer. */
   const requestId = useRef(0);
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  /**
+   * Reads one source.
+   *
+   * `ODDS_TERMINAL` returns immediately without calling `requestOddsPreview` at all -- not as a
+   * guard against a failure, but because there is no server-side path to that source by
+   * construction and inventing one here is exactly the mistake this whole design avoids.
+   */
   const start = useCallback(
-    (refresh: boolean) => {
+    (refresh: boolean, source: OddsSource) => {
+      if (source === "ODDS_TERMINAL") {
+        setState({ kind: "unavailable", reason: ODDS_TERMINAL_UNAVAILABLE }, source);
+        return;
+      }
       const mine = ++requestId.current;
-      setState({ kind: "loading" });
+      setState({ kind: "loading" }, source);
       void (async () => {
         try {
-          const result = await requestOddsPreview(betId, { refresh, source: SOURCE });
+          const result = await requestOddsPreview(betId, { refresh, source });
           if (requestId.current !== mine) return;
           if (!result.ok) {
-            setState({ kind: "error", reason: result.reason });
+            setState({ kind: "error", reason: result.reason }, source);
             return;
           }
-          setState({ kind: "result", preview: result.preview });
+          setState({ kind: "result", preview: result.preview }, source);
         } catch (error) {
           if (requestId.current !== mine) return;
-          setState({
-            kind: "error",
-            reason: error instanceof Error ? error.message : "The odds read could not be started.",
-          });
+          setState(
+            {
+              kind: "error",
+              reason: error instanceof Error ? error.message : "The odds read could not be started.",
+            },
+            source
+          );
         }
       })();
     },
-    [betId]
+    [betId, setState]
+  );
+
+  /** Switches tabs, reading only the first time a tab is shown -- never re-buying an answer. */
+  const selectTab = useCallback(
+    (source: OddsSource) => {
+      setActive(source);
+      setStates((prev) => {
+        if (prev[source].kind === "idle") start(false, source);
+        return prev;
+      });
+    },
+    [start]
   );
 
   useEffect(() => {
     if (!open) return;
-    start(false);
+    // Only the eager tab loads on open, and on this surface it costs nothing to show.
+    start(false, SOURCE_TABS[0].source);
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -237,9 +294,13 @@ export function OddsPreviewButton({
           <div className="odds-preview-actions">
             <button
               type="button"
-              disabled={busy}
-              onClick={() => start(true)}
-              title="Read The Odds API again (it republishes once a minute, so a refresh inside that window is served from cache and costs nothing)"
+              disabled={busy || active === "ODDS_TERMINAL"}
+              onClick={() => start(true, active)}
+              title={
+                active === "ODDS_TERMINAL"
+                  ? "Odds Terminal is only readable from a board, in the extension"
+                  : "Read The Odds API again (it republishes once a minute, so a refresh inside that window is served from cache and costs nothing)"
+              }
             >
               {busy ? <span className="spinner" aria-hidden="true" /> : "Refresh"}
             </button>
@@ -248,6 +309,28 @@ export function OddsPreviewButton({
             </button>
           </div>
         </div>
+
+        <div className="odds-tabs" role="tablist">
+          {SOURCE_TABS.map(({ source, label: tabLabel }) => (
+            <button
+              key={source}
+              type="button"
+              role="tab"
+              className="odds-tab"
+              aria-selected={source === active}
+              onClick={() => selectTab(source)}
+            >
+              {tabLabel}
+            </button>
+          ))}
+        </div>
+
+        {/* Not `err`: nothing failed. See `ODDS_TERMINAL_UNAVAILABLE`. */}
+        {state.kind === "unavailable" && (
+          <p className="muted" style={{ margin: "18px 0" }}>
+            {state.reason}
+          </p>
+        )}
 
         {state.kind === "loading" && (
           <div className="page-loading" style={{ padding: "30px 0" }}>
@@ -278,16 +361,18 @@ export function OddsPreviewButton({
         {/* The Odds API has no page of its own to deep-link into, so this always falls back to a
             manual link -- a person can still check PropProfessor's screen by hand, this modal just
             never reads it for them any more. */}
-        <p className="muted" style={{ fontSize: 11, marginTop: 14 }}>
-          Sportsbook lines from{" "}
-          <a href="https://the-odds-api.com" target="_blank" rel="noopener noreferrer">
-            The Odds API ↗
-          </a>
-          . {fallbackNote}{" "}
-          <a href={fallbackUrl} target="_blank" rel="noopener noreferrer">
-            Open the odds screen manually ↗
-          </a>
-        </p>
+        {active === "ODDS_API" && (
+          <p className="muted" style={{ fontSize: 11, marginTop: 14 }}>
+            Sportsbook lines from{" "}
+            <a href="https://the-odds-api.com" target="_blank" rel="noopener noreferrer">
+              The Odds API ↗
+            </a>
+            . {fallbackNote}{" "}
+            <a href={fallbackUrl} target="_blank" rel="noopener noreferrer">
+              Open the odds screen manually ↗
+            </a>
+          </p>
+        )}
       </div>
     </div>
   );
