@@ -50,12 +50,20 @@ const AUTOMATED_DIRS = [
   join(REPO, "shared/src/sources"),
 ];
 
-/** Server modules that make outbound reads of their own. */
+/**
+ * Server modules that make outbound reads of their own -- plus one that pointedly does not.
+ *
+ * `odds-terminal-verdict.ts` issues no request at all: it is handed a snapshot the extension
+ * already fetched, from a tab the user opened. It is listed here precisely *because* of that, so
+ * the allowlist check below proves it names no host -- the property that makes a server-side read
+ * of Odds Terminal impossible rather than merely absent.
+ */
 const AUTOMATED_FILES = [
   join(REPO, "server/src/lib/pp-screen-read.ts"),
   join(REPO, "server/src/lib/odds-preview.ts"),
   join(REPO, "server/src/lib/odds-api-read.ts"),
   join(REPO, "server/src/lib/pp-token.ts"),
+  join(REPO, "server/src/lib/odds-terminal-verdict.ts"),
 ];
 
 /**
@@ -86,9 +94,23 @@ function backgroundSources(): { file: string; source: string }[] {
   ];
 }
 
-/** Strips comments so prose *about* OddsJam (including this rule's own rationale) is not a match. */
+/**
+ * Strips comments so prose *about* OddsJam (including this rule's own rationale) is not a match.
+ *
+ * The `[^:]` in the line-comment pattern is not a nicety -- without it this whole file was asleep.
+ * A bare `\/\/[^\n]*` also matches the `//` inside `"https://oddsjam.com"`, so every URL literal in
+ * the codebase was truncated to `"https:` before the checks below ever saw it. That made the
+ * allowlist test vacuous (it could never find a URL to reject) and the hostname bans blind to any
+ * host written with a scheme -- which is how every host in this project is written. Found 2026-09
+ * while adding the Odds Terminal rule, by checking that a deliberately planted violation actually
+ * failed the test. It did not.
+ *
+ * The captured leading character is put back so `a /* x *\/ b` and `x // y` still strip correctly.
+ */
 function codeOnly(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
 describe("no automated OddsJam traffic", () => {
@@ -102,6 +124,27 @@ describe("no automated OddsJam traffic", () => {
         }
       }
     }
+    expect(offenders).toEqual([]);
+  });
+
+  it("names no oddsterminal hostname in background or server code", () => {
+    // Deliberately an *absence* assertion rather than an allowlist entry, and it is the load-
+    // bearing half of the Odds Terminal design.
+    //
+    // That source is account-gated, Cloudflare-fronted and proxies a paid feed, so it is treated as
+    // being in the same risk class as PropProfessor and OddsJam. What got the PropProfessor account
+    // banned (2026-09) was a captured session driving *backend-initiated* reads on a timer. The
+    // defence here is structural rather than procedural: code that cannot name the host cannot
+    // contact it, on a timer or otherwise. Every read happens in a tab the user's own click opened
+    // (`extension/src/content/oddsterminal-site/relay.ts`), and the bytes reach the server as a
+    // POST body.
+    //
+    // The two places the host legitimately appears are `extension/manifest.json` (a permission
+    // declaration, not code) and `shared/src/oddsterminal-site.ts` (the URL a person's click
+    // opens). Neither is scanned here, exactly as `shared/src/oddsjam-site.ts` is not.
+    const offenders = backgroundSources()
+      .filter(({ source }) => /oddsterminal\.org/i.test(codeOnly(source)))
+      .map(({ file }) => file);
     expect(offenders).toEqual([]);
   });
 
@@ -248,6 +291,101 @@ describe("OddsJam-site scripting stays user-initiated", () => {
     const source = read("resolve.ts");
     const entry = source.slice(source.indexOf("export function startResolve"));
     expect(entry).toMatch(/decodeOddsJamRequest\(location\.hash\)[\s\S]{0,80}if \(!request\) return;/);
+  });
+});
+
+/**
+ * A new exception, written as one.
+ *
+ * Every other content script in this project is forbidden from originating a request: the OddsJam
+ * guard below bans `fetch` outright across `oddsjam-site/` with no carve-out anywhere, and
+ * PropProfessor's old `token-bridge.ts` only ever monkeypatched `window.fetch` to observe a header
+ * on a request the page was already making. `oddsterminal-site/relay.ts` genuinely does something
+ * neither of those does -- it calls `fetch` itself -- so it gets its own rule rather than being
+ * quietly folded into an existing one. Pretending this is "the same pattern OddsJam already uses"
+ * would be how the distinction gets lost.
+ *
+ * What makes the exception acceptable is the set of limits below, each asserted here:
+ *
+ *   1. It is the only file in that directory allowed to fetch, and every other one must not.
+ *   2. Its fetches are same-origin by construction -- a bare path, never a concatenated origin.
+ *   3. It opens no tabs and navigates nothing.
+ *   4. It does nothing at all unless a request id was decoded from the URL fragment first.
+ */
+describe("Odds Terminal is read only from inside the tab the user opened", () => {
+  const dir = join(REPO, "extension/src/content/oddsterminal-site");
+  const read = (file: string) => codeOnly(readFileSync(join(dir, file), "utf8"));
+  const files = () => readdirSync(dir).filter((f) => f.endsWith(".ts"));
+
+  it("confines fetching to relay.ts", () => {
+    const offenders: string[] = [];
+    for (const file of files().filter((f) => f !== "relay.ts")) {
+      if (/\bfetch\s*\(/.test(read(file))) offenders.push(file);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("opens no tab and navigates nothing, in any of its files", () => {
+    // The relay reads; it never moves the user around. Unlike the OddsJam resolver -- which is
+    // permitted to navigate its own tab -- there is nothing here that needs to.
+    const FORBIDDEN = [
+      /chrome\.tabs\.create/,
+      /chrome\.tabs\.update/,
+      /window\.open/,
+      /location\.assign/,
+      /location\.replace/,
+      /location\.href\s*=/,
+      /XMLHttpRequest/,
+      /EventSource/,
+      /\bnew WebSocket\b/,
+    ];
+    const offenders: string[] = [];
+    for (const file of files()) {
+      const source = read(file);
+      for (const pattern of FORBIDDEN) {
+        if (pattern.test(source)) offenders.push(`${file}: ${pattern}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("never builds a cross-origin URL: every fetch takes a bare path", () => {
+    // The strongest of the four, and the reason the relay is handed a path by the server rather
+    // than building one. A fetch whose argument cannot contain a scheme cannot leave the origin the
+    // user's own click put it on -- so this content script is incapable of reaching any other site,
+    // including the ones this project is most careful about.
+    const source = read("relay.ts");
+    const calls = source.match(/\bfetch\s*\(([^,)]*)/g) ?? [];
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call).not.toMatch(/https?:|ODDS_TERMINAL_ORIGIN|\borigin\b/);
+    }
+    // And the host itself is named nowhere in the relay: it does not need to know where it is.
+    expect(source).not.toMatch(/oddsterminal\.org/i);
+  });
+
+  it("gates relay.ts on a request decoded from the fragment before anything else", () => {
+    // Its entry point must bail on a page opened without a request -- which is every ordinary visit
+    // to Odds Terminal. Asserted structurally because the alternative (importing a content script
+    // into a Node test) would mean stubbing the whole DOM to prove one early return.
+    const source = read("relay.ts");
+    const entry = source.slice(source.indexOf("export function startOddsTerminalRelay"));
+    expect(entry).toMatch(
+      /decodeOddsTerminalRequest\(location\.hash\)[\s\S]{0,80}if \(!requestId\) return;/
+    );
+  });
+
+  it("has no timer, observer or load-time read anywhere in the directory", () => {
+    // The property that separates this from the automation that got PropProfessor banned: there is
+    // no clock in it. A read happens because a person clicked, or it does not happen.
+    const offenders: string[] = [];
+    for (const file of files()) {
+      const source = read(file);
+      for (const pattern of [/setInterval/, /MutationObserver/, /chrome\.alarms/]) {
+        if (pattern.test(source)) offenders.push(`${file}: ${pattern}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
