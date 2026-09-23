@@ -4,40 +4,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SnapshotTable, type LineRow } from "@/components/snapshot-table";
 import { fmtOdds } from "@/components/ui";
-import { requestOddsPreview, pollOddsPreview } from "@/lib/bet-actions";
+import { requestOddsPreview } from "@/lib/bet-actions";
 import type { OddsPreview, OddsSource } from "@/lib/odds-preview";
 import { Signed } from "@/components/value";
 
-/**
- * How often the modal checks back in the one case it still has to wait: the server had no
- * PropProfessor token, so the request was handed to the extension, whose `chrome.alarms` floor is a
- * minute. Nothing is gained by asking faster than this.
- */
-const POLL_MS = 3000;
-
-/**
- * How long the fallback path waits before giving up.
- *
- * Three `chrome.alarms` periods. Past that the extension is not coming -- no browser is running it,
- * or it has no PropProfessor session -- and an honest dead end with a retry button beats a spinner
- * that turns forever.
- */
-const QUEUED_TIMEOUT_MS = 3 * 60_000;
-
 type State =
   | { kind: "idle" }
-  /** The server is reading the screen inside this request. Normally a few hundred milliseconds. */
   | { kind: "loading" }
-  /** Handed to the extension because the server has no token yet; the slow path. */
-  | { kind: "queued" }
   | { kind: "error"; reason: string }
   | { kind: "result"; preview: OddsPreview };
 
-/** The two source tabs, in the order they appear. PropProfessor is first and loads on open. */
-const SOURCE_TABS: { source: OddsSource; label: string }[] = [
-  { source: "PROPPROFESSOR", label: "PropProfessor" },
-  { source: "ODDS_API", label: "The Odds API" },
-];
+/**
+ * The only source. This modal used to load a PropProfessor tab eagerly and a lazy, metered Odds
+ * API tab beside it; the PropProfessor automation is what got that account banned (2026-09), so
+ * the tab strip is gone and this is the only thing the modal ever asks.
+ */
+const SOURCE: OddsSource = "ODDS_API";
 
 /**
  * The cost of the tab, stated where it is spent.
@@ -183,112 +165,40 @@ export function OddsPreviewButton({
   triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
-  /**
-   * Each tab's own answer, kept for as long as the dialog is open.
-   *
-   * A map rather than a single `state` because the second tab costs a metered credit per read:
-   * switching back to a tab that already has an answer must re-render it, never re-buy it.
-   */
-  const [tabs, setTabs] = useState<Record<OddsSource, State>>({
-    PROPPROFESSOR: { kind: "idle" },
-    ODDS_API: { kind: "idle" },
-  });
-  const [active, setActive] = useState<OddsSource>("PROPPROFESSOR");
-  const state = tabs[active];
-  const setTabState = useCallback((source: OddsSource, next: State) => {
-    setTabs((previous) => ({ ...previous, [source]: next }));
-  }, []);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [state, setState] = useState<State>({ kind: "idle" });
   /** Bumped on every request so a reply from a superseded one (a Refresh fired while the first was
    *  still in flight) cannot overwrite the newer answer. */
   const requestId = useRef(0);
   const closeRef = useRef<HTMLButtonElement>(null);
 
-  const stopPolling = useCallback(() => {
-    if (pollTimer.current) clearTimeout(pollTimer.current);
-    pollTimer.current = null;
-  }, []);
-
-  // Only ever the PropProfessor tab: queueing exists solely for the extension's token, which the
-  // Odds API path has no use for and never waits on.
-  const poll = useCallback(
-    (id: string, forRequest: number, giveUpAt: number) => {
-      pollTimer.current = setTimeout(async () => {
-        if (requestId.current !== forRequest) return;
-        const { preview } = await pollOddsPreview(id);
-        if (requestId.current !== forRequest) return;
-        if (preview) {
-          setTabState("PROPPROFESSOR", { kind: "result", preview });
-          return;
-        }
-        if (Date.now() >= giveUpAt) {
-          setTabState("PROPPROFESSOR", {
-            kind: "error",
-            reason:
-              "Your browser extension did not answer. Open PropProfessor in a tab so it can pick up " +
-              "a session, then press Refresh.",
-          });
-          return;
-        }
-        // Nothing yet, and still inside the window: the extension's next alarm tick may pick it up.
-        poll(id, forRequest, giveUpAt);
-      }, POLL_MS);
-    },
-    [setTabState]
-  );
-
   const start = useCallback(
-    (source: OddsSource, refresh: boolean) => {
-      stopPolling();
+    (refresh: boolean) => {
       const mine = ++requestId.current;
-      setTabState(source, { kind: "loading" });
+      setState({ kind: "loading" });
       void (async () => {
         try {
-          const result = await requestOddsPreview(betId, { refresh, source });
+          const result = await requestOddsPreview(betId, { refresh, source: SOURCE });
           if (requestId.current !== mine) return;
           if (!result.ok) {
-            setTabState(source, { kind: "error", reason: result.reason });
+            setState({ kind: "error", reason: result.reason });
             return;
           }
-          if (result.mode === "result") {
-            setTabState(source, { kind: "result", preview: result.preview });
-            return;
-          }
-          setTabState(source, { kind: "queued" });
-          poll(betId, mine, Date.now() + QUEUED_TIMEOUT_MS);
+          setState({ kind: "result", preview: result.preview });
         } catch (error) {
           if (requestId.current !== mine) return;
-          setTabState(source, {
+          setState({
             kind: "error",
             reason: error instanceof Error ? error.message : "The odds read could not be started.",
           });
         }
       })();
     },
-    [betId, poll, stopPolling, setTabState]
-  );
-
-  /**
-   * Switches tabs, fetching only the first time a tab is shown.
-   *
-   * The whole point of the lazy second tab: a tab that already has an answer is re-rendered from
-   * `tabs`, so flipping back and forth to compare the two sources costs nothing after the first
-   * look at each.
-   */
-  const selectTab = useCallback(
-    (source: OddsSource) => {
-      if (source === active) return;
-      setActive(source);
-      if (tabs[source].kind === "idle") start(source, false);
-    },
-    [active, tabs, start]
+    [betId]
   );
 
   useEffect(() => {
     if (!open) return;
-    // PropProfessor only, and deliberately: the Odds API tab must never fire on open, or every
-    // dialog opened would spend a credit whether or not anyone looked at that tab.
-    start("PROPPROFESSOR", false);
+    start(false);
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -299,12 +209,10 @@ export function OddsPreviewButton({
       // Abandons whatever is outstanding: a reply arriving after the dialog closed has nowhere to
       // go, and without the bump a reopened dialog would briefly show the last one's answer.
       requestId.current++;
-      stopPolling();
     };
-  }, [open, start, stopPolling]);
+  }, [open, start]);
 
-  const busy = state.kind === "loading" || state.kind === "queued";
-  const screenUrl = state.kind === "result" ? (state.preview.screenUrl ?? null) : null;
+  const busy = state.kind === "loading";
 
   const dialog = (
     <div
@@ -330,12 +238,8 @@ export function OddsPreviewButton({
             <button
               type="button"
               disabled={busy}
-              onClick={() => start(active, true)}
-              title={
-                active === "ODDS_API"
-                  ? "Read The Odds API again (it republishes once a minute, so a refresh inside that window is served from cache and costs nothing)"
-                  : "Read the odds screen again"
-              }
+              onClick={() => start(true)}
+              title="Read The Odds API again (it republishes once a minute, so a refresh inside that window is served from cache and costs nothing)"
             >
               {busy ? <span className="spinner" aria-hidden="true" /> : "Refresh"}
             </button>
@@ -345,35 +249,10 @@ export function OddsPreviewButton({
           </div>
         </div>
 
-        {/* The source tabs. Tab 1 loads on open; tab 2 fires only when clicked, because each of
-            its reads spends one metered credit. */}
-        <div className="odds-tabs" role="tablist">
-          {SOURCE_TABS.map(({ source, label: tabLabel }) => (
-            <button
-              key={source}
-              type="button"
-              role="tab"
-              className="odds-tab"
-              aria-selected={source === active}
-              onClick={() => selectTab(source)}
-            >
-              {tabLabel}
-            </button>
-          ))}
-        </div>
-
         {state.kind === "loading" && (
           <div className="page-loading" style={{ padding: "30px 0" }}>
             <span className="spinner" aria-hidden="true" />
-            {active === "ODDS_API" ? "Reading The Odds API…" : "Reading PropProfessor's odds screen…"}
-          </div>
-        )}
-
-        {state.kind === "queued" && (
-          <div className="page-loading" style={{ padding: "30px 0", textAlign: "center" }}>
-            <span className="spinner" aria-hidden="true" />
-            Waiting on your browser extension for a PropProfessor session — this first read can take
-            up to a minute. Later ones are instant.
+            Reading The Odds API…
           </div>
         )}
 
@@ -386,11 +265,7 @@ export function OddsPreviewButton({
             <OddsSummary verdict={state.preview.verdict} fetchedAt={state.preview.fetchedAt} />
             <SnapshotTable
               title="Live read"
-              when={
-                active === "ODDS_API"
-                  ? "Pulled just now from The Odds API"
-                  : "Pulled just now from PropProfessor's odds screen"
-              }
+              when="Pulled just now from The Odds API"
               lines={toLineRows(state.preview)}
               atLine={state.preview.verdict.atLine}
               emptyNote="No book columns came back for this market."
@@ -398,33 +273,20 @@ export function OddsPreviewButton({
           </>
         )}
 
-        {active === "ODDS_API" && state.kind === "result" && <QuotaFooter preview={state.preview} />}
+        {state.kind === "result" && <QuotaFooter preview={state.preview} />}
 
-        {/* A matched read knows exactly where on PropProfessor this market lives and says so; the
-            prop is the standing fallback for a read that matched nothing, or has not run yet. The
-            Odds API has no page of its own to deep-link into, so that tab explains its source
-            instead of offering a link that would go nowhere useful. */}
+        {/* The Odds API has no page of its own to deep-link into, so this always falls back to a
+            manual link -- a person can still check PropProfessor's screen by hand, this modal just
+            never reads it for them any more. */}
         <p className="muted" style={{ fontSize: 11, marginTop: 14 }}>
-          {active === "ODDS_API" ? (
-            <>
-              Sportsbook lines from{" "}
-              <a href="https://the-odds-api.com" target="_blank" rel="noopener noreferrer">
-                The Odds API ↗
-              </a>
-              , averaged the same way the PropProfessor tab is — so the two are directly comparable.
-            </>
-          ) : screenUrl ? (
-            <a href={screenUrl} target="_blank" rel="noopener noreferrer">
-              Open this market on PropProfessor ↗
-            </a>
-          ) : (
-            <>
-              {fallbackNote}{" "}
-              <a href={fallbackUrl} target="_blank" rel="noopener noreferrer">
-                Open the odds screen manually ↗
-              </a>
-            </>
-          )}
+          Sportsbook lines from{" "}
+          <a href="https://the-odds-api.com" target="_blank" rel="noopener noreferrer">
+            The Odds API ↗
+          </a>
+          . {fallbackNote}{" "}
+          <a href={fallbackUrl} target="_blank" rel="noopener noreferrer">
+            Open the odds screen manually ↗
+          </a>
         </p>
       </div>
     </div>

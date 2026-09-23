@@ -18,15 +18,14 @@ export const dynamic = "force-dynamic";
  * start disagreeing about what the closing number is, which is worse than not having the board
  * modal at all.
  *
- * Reads PropProfessor by default and The Odds API when `source` asks for it -- never the board the
- * request came from. An OddsJam row asks this the same way a PropProfessor row does, and gets an
- * answer from the same place: the capture site is provenance and has no influence on where the read
- * goes. See `oddsjam-automation-guard.test.ts`.
+ * Always reads The Odds API, never the board the request came from -- an OddsJam row asks this the
+ * same way a PropProfessor row does, and gets an answer from the same place: the capture site is
+ * provenance and has no influence on where the read goes. See `oddsjam-automation-guard.test.ts`.
  *
- * `source` is a field here rather than a second route on purpose. Auth, the zod schema and the
- * identity-to-`ClosingWorkItem` mapping are identical for both, and a second route would be a copy
- * of all three that has to be kept in step. What differs between the sources is entirely downstream
- * of this file, in `lookupOddsNow`.
+ * Used to read PropProfessor's odds screen by default and The Odds API only when a second tab was
+ * clicked. That automation is what got the PropProfessor account banned (2026-09), so `source` is
+ * now fixed to `"ODDS_API"` -- kept as a field, rather than dropped, so an older extension build
+ * that still sends `"PROPPROFESSOR"` gets routed to the only source that exists rather than a 422.
  */
 
 const lookupSchema = z.object({
@@ -45,13 +44,15 @@ const lookupSchema = z.object({
   /** Set by the modal's Refresh button, so a deliberate re-check is never served from the cache. */
   refresh: z.boolean().optional().default(false),
   /**
-   * Which source to ask. Defaults to PropProfessor, so every existing caller -- including an
-   * extension build from before the second source shipped -- keeps its current behaviour exactly.
-   *
-   * `ODDS_API` spends one metered credit per call, which is why it is never the default and why
-   * the modal only sends it on a deliberate tab click.
+   * Which source to ask. Only `"ODDS_API"` actually does anything now -- accepting the old
+   * `"PROPPROFESSOR"` literal too, and coercing it, means an extension build from before the ban
+   * still gets an answer instead of a 422.
    */
-  source: z.enum(["PROPPROFESSOR", "ODDS_API"]).optional().default("PROPPROFESSOR"),
+  source: z
+    .enum(["PROPPROFESSOR", "ODDS_API"])
+    .optional()
+    .default("ODDS_API")
+    .transform((): "ODDS_API" => "ODDS_API"),
 });
 
 export async function POST(request: Request) {

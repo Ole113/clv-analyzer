@@ -3,11 +3,13 @@ import { apiUrl, loadSettings } from "../content/shared/config";
 import { readClosingLines } from "./closing-reader";
 
 /**
- * Answers on-demand "what does the screen say right now" requests from the Odds modal, the same
- * way `closing-worker.ts` answers the scheduled closing-read queue -- same reader, same auth, same
- * PropProfessor-only endpoint. The two are kept as separate queues (see the module comment on
- * `/api/odds-preview-work`) rather than merged into one, so a burst of manual "check the odds"
- * clicks can never compete with or delay the real closing reads a pick only gets one shot at.
+ * Answered on-demand "what does the screen say right now" requests from the Odds modal, the same
+ * way `closing-worker.ts` answered the scheduled closing-read queue -- same reader, same auth, same
+ * PropProfessor-only endpoint.
+ *
+ * Disabled along with `closing-worker.ts`: nothing calls `runOddsPreviewWork` any more, and the
+ * Odds modal now answers from The Odds API inside its own request instead of queuing through here.
+ * See `closing-worker.ts` for why.
  */
 let inFlight = false;
 

@@ -1,38 +1,23 @@
 /**
- * Holds the PropProfessor odds-screen bearer token, and gets a fresh one when it has none.
+ * Held the PropProfessor odds-screen bearer token, and minted a fresh one -- by loading the screen
+ * in a background tab -- when it had none. That tab-opening automation, on top of the scheduled
+ * closing reads it fed, is what got the PropProfessor account banned (2026-09), so `captureFreshToken`
+ * below is now a stub that never touches `chrome.tabs`.
  *
- * The screen backend rejects unauthenticated requests, and the token lives only in the page's JS
- * memory, so it has to be observed there (see `content/propprofessor/token-bridge.ts`). This module
- * owns the consequences of that: caching it, noticing when it has gone stale, and prompting the app
- * to mint a new one by loading the screen in a background tab.
- *
- * The token is kept in `chrome.storage.session`, which lives in memory and is cleared when the
- * browser closes -- deliberately, so a credential is never written to disk.
- *
- * The token is also relayed to the CLV server (`POST /api/pp-token`), which is what lets the Odds
- * modal answer a "current odds" click in one round trip instead of parking it in a queue until this
- * worker's next alarm. Only the change is relayed, not every observation -- the bridge sees the
- * header on every request PropProfessor's own app makes -- plus a re-push whenever the server says
- * it has none, since the server holds it in memory and a restart forgets it.
- *
- * `ensureServerToken` is the front door for all of that and is called *ahead* of need: on browser
- * startup, on every closing alarm, and the moment the dashboard is opened. The modal's slow
- * "waiting on your browser extension" path still exists, but it should now only be reached when
- * PropProfessor itself cannot be signed into.
- *
- * Opening a tab is a step back toward what this redesign removed, and it is worth being precise
- * about why it is acceptable here where it was not for OddsJam. It only ever targets
- * propprofessor.com, which the user has said is expendable; it happens roughly once per token
- * lifetime rather than once per pick; and it is skipped entirely whenever a cached token still
- * works. OddsJam is not reachable from this path at all.
+ * The rest of this module is unchanged and mostly harmless to leave running: `storeToken` still
+ * caches whatever `content/propprofessor/token-bridge.ts` passively observes on a page the user
+ * opened themselves, and still relays it to the CLV server (`POST /api/pp-token`) -- but the server
+ * no longer does anything with a stored token (`pp-screen-read.ts` is disabled the same way), so
+ * this is now a credential that is captured and stored for no purpose. It stays rather than being
+ * deleted for the same reason `closing-reader.ts` does: so a future decision to read PropProfessor
+ * again has one obvious place to undo this, and this token is never *sent* to PropProfessor --
+ * only relayed to this project's own server -- so leaving it running does not reintroduce any
+ * automated contact with PropProfessor itself.
  */
 
 import { apiUrl, loadSettings } from "../content/shared/config";
 
 const TOKEN_KEY = "clv:pp-token";
-const SCREEN_PAGE = "https://www.propprofessor.com/screen";
-/** How long to wait for the app to make its own backend call after the page loads. */
-const CAPTURE_TIMEOUT_MS = 30_000;
 
 interface StoredToken {
   token: string;
@@ -179,44 +164,14 @@ export async function clearToken(): Promise<void> {
 }
 
 /**
- * Waits for the token bridge to report a token, opening the screen in a background tab so the app
- * makes the request that reveals one.
- *
- * A tab the user already has open on PropProfessor is used in preference and left alone
- * afterwards; only a tab this function opened is closed again.
+ * Used to open the screen in a background tab (or reload one the user already had open) and wait
+ * for the app to reveal a fresh token. Permanently disabled: opening or reloading a PropProfessor
+ * tab with no user asking is itself automated contact, and that automation is what got the
+ * PropProfessor account banned (2026-09). This never touches `chrome.tabs` any more and always
+ * reports no token, regardless of what a caller does with the result.
  */
 async function captureFreshToken(): Promise<string | null> {
-  let tabId: number | null = null;
-  let opened = false;
-
-  try {
-    const existing = await chrome.tabs.query({ url: "https://www.propprofessor.com/*" });
-    const usable = existing.find((t) => t.id !== undefined && t.status !== "unloaded");
-    if (usable?.id !== undefined) {
-      tabId = usable.id;
-      // Already-loaded tabs have long since sent their Authorization header, so nudge the app into
-      // making a fresh request rather than waiting for a user interaction that may never come.
-      await chrome.tabs.reload(tabId).catch(() => undefined);
-    } else {
-      const tab = await chrome.tabs.create({ url: SCREEN_PAGE, active: false });
-      if (tab.id === undefined) return null;
-      tabId = tab.id;
-      opened = true;
-    }
-
-    const deadline = Date.now() + CAPTURE_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 1000));
-      const stored = await readToken();
-      // Only accept a token seen since this attempt began; an older one is what failed already.
-      if (stored && Date.now() - stored.capturedAt < CAPTURE_TIMEOUT_MS) return stored.token;
-    }
-    return null;
-  } catch {
-    return null;
-  } finally {
-    if (tabId !== null && opened) await chrome.tabs.remove(tabId).catch(() => undefined);
-  }
+  return null;
 }
 
 /**

@@ -1,235 +1,27 @@
-import {
-  findMatchingRow,
-  normalizeScreenMarket,
-  planScreenRead,
-  type ClosingReadOutcome,
-  type ClosingSourceInfo,
-  type ClosingWorkItem,
-  type ParsedRow,
-  type ScreenReadPlan,
-} from "@clv/shared";
-import { getPpToken, markTokenRejected } from "./pp-token";
-
 /**
- * Reads PropProfessor's odds screen from the server, for the Odds modal.
+ * The server-side read of PropProfessor's odds screen -- permanently disabled.
  *
- * ## Why this exists alongside the extension's reader
+ * This used to POST directly to `backend.propprofessor.com` on the Odds modal's fast path. That
+ * automation is what got the PropProfessor account banned (2026-09), so `readScreenNow` now throws
+ * before it ever builds a request, let alone sends one. The function stays rather than being
+ * deleted so the shape of what happened here is not lost, and so a future decision to read
+ * PropProfessor again (if ever made, deliberately, by a human) has one obvious place to undo this.
  *
- * `extension/src/background/closing-reader.ts` does the same read in the browser, and it stays the
- * authority for *scheduled* closing reads -- those run on a 60-second alarm where a minute of
- * latency costs nothing and the browser is the only thing guaranteed to hold a live session.
- *
- * The Odds modal is the opposite case: a person is sitting there watching a spinner. Routed through
- * the extension it cost a full `chrome.alarms` period (1 minute is the floor Chrome enforces; the
- * alarm also runs the whole closing queue first) plus the modal's own 3-second poll before anything
- * appeared. The read itself is one HTTPS POST that returns in a few hundred milliseconds. Doing it
- * here removes the queue, the alarm, and the polling from the path entirely.
- *
- * The extension path is kept as the fallback, not deleted: it is the only thing that can *mint* a
- * token, so the first read after a restart -- and any read after the token expires -- still goes
- * round that way, and refreshes this cache as a side effect.
- *
- * ## What is NOT read here
- *
- * PropProfessor only. OddsJam is never contacted from the server for the same reason it is never
- * contacted from the extension: that subscription is paid a year up front and a ban is
- * unrecoverable, while the PropProfessor account is replaceable. `planScreenRead` hard-codes the
- * PropProfessor endpoint and consults nothing from the bet except its market, so there is no input
- * that can steer this module at another host -- and `oddsjam-automation-guard.test.ts` asserts it.
+ * `odds-preview.ts` no longer calls this at all -- the Odds modal now answers exclusively from The
+ * Odds API (`odds-api-read.ts`) -- so this throwing is belt-and-suspenders, not the only thing
+ * standing between this app and PropProfessor's backend.
  */
 
-/** A screen read is one POST. Past this, something is wrong and the user should hear about it
- *  rather than watch a spinner: the extension fallback is a better answer than a longer wait. */
-const REQUEST_TIMEOUT_MS = 9_000;
-
-/**
- * How long one market's response is reused.
- *
- * Every pick on the same (league, market) shares a request -- opening the modal on four rushing-yards
- * picks in a row is one fetch, not four. Short enough that "current odds" stays honestly current:
- * sportsbook lines do not move meaningfully inside ten seconds, and the modal's Refresh button
- * bypasses this entirely so a deliberate re-check is never served from cache.
- */
-const CACHE_TTL_MS = 10_000;
-
-/** The window a cache-skipping Refresh still joins an in-flight request over, rather than firing a
- *  duplicate at PropProfessor for an answer already on its way. */
-const COALESCE_MS = 1_000;
-
-interface CacheEntry {
-  fetchedAt: number;
-  /** Shared so concurrent opens on the same market await one request instead of racing. */
-  inFlight: Promise<unknown>;
-}
-
-const globalForCache = globalThis as unknown as { clvaScreenCache?: Map<string, CacheEntry> };
-const cache = globalForCache.clvaScreenCache ?? new Map<string, CacheEntry>();
-globalForCache.clvaScreenCache = cache;
-
-/** Keyed on the request, not on what is later asked of the response: one market's payload carries
- *  every line, so two picks on different numbers still share the one fetch. */
-function cacheKey(plan: ScreenReadPlan): string {
-  return `${plan.body.league}::${plan.body.market}`;
-}
-
-export class NoTokenError extends Error {
-  constructor(message = "no PropProfessor session token on the server") {
-    super(message);
-    this.name = "NoTokenError";
-  }
-}
-
-/**
- * The token this server was holding was refused by the screen.
- *
- * A subclass rather than a flag so every existing `instanceof NoTokenError` path keeps treating it
- * as "this server cannot make the request alone", which is still true. What it adds is *why*, and
- * the why decides the cure: with no token the extension only has to relay the one it already has,
- * but with a refused one that is precisely the wrong move -- relaying the same dead credential is
- * what made the modal say "no PropProfessor session" over and over until the user went and
- * refreshed the site by hand. Only the extension can mint a replacement, so only the extension can
- * fix this, and it has to be told the difference to know that it should.
- */
-export class TokenRejectedError extends NoTokenError {
+export class PropProfessorDisabledError extends Error {
   constructor() {
-    super("PropProfessor refused the stored session token");
-    this.name = "TokenRejectedError";
+    super(
+      "PropProfessor reads are disabled: this account was banned for automated access and the " +
+        "server must never contact backend.propprofessor.com again."
+    );
+    this.name = "PropProfessorDisabledError";
   }
 }
 
-async function postScreen(plan: ScreenReadPlan, token: string): Promise<Response> {
-  // Node's fetch has no default timeout at all: without this an unresponsive host would hold the
-  // modal open indefinitely, which is the failure this whole module exists to avoid.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(plan.url, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify(plan.body),
-      signal: controller.signal,
-      cache: "no-store",
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * One market's raw screen response.
- *
- * A 401 is not retried here the way the extension retries it. The extension can answer a 401 by
- * opening a tab and capturing a new token; the server has no such move, so the honest thing is to
- * drop the dead token and let the caller fall back to the extension, which will both answer this
- * read and relay a fresh token for the next one.
- */
-async function fetchScreen(plan: ScreenReadPlan, allowCache: boolean): Promise<unknown> {
-  const key = cacheKey(plan);
-  // Refresh deliberately skips the cache, but still coalesces: a Refresh landing while an identical
-  // request is already in flight should join that one rather than start a second.
-  const maxAge = allowCache ? CACHE_TTL_MS : COALESCE_MS;
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < maxAge) return cached.inFlight;
-
-  const token = getPpToken();
-  if (!token) throw new NoTokenError();
-
-  const inFlight = (async () => {
-    const response = await postScreen(plan, token);
-    if (response.status === 401) {
-      markTokenRejected(token);
-      throw new TokenRejectedError();
-    }
-    if (!response.ok) throw new Error(`screen responded ${response.status}`);
-    return response.json();
-  })();
-
-  cache.set(key, { fetchedAt: Date.now(), inFlight });
-  // Each entry holds a whole market's response -- a hundred kilobytes or so -- and an entry past its
-  // TTL can never be served again, so it is only holding memory. Swept here rather than on a timer:
-  // there are a few dozen markets at most, and this is the only thing that adds to the map.
-  for (const [otherKey, entry] of cache) {
-    if (otherKey !== key && Date.now() - entry.fetchedAt > CACHE_TTL_MS) cache.delete(otherKey);
-  }
-  try {
-    return await inFlight;
-  } catch (error) {
-    // A failed response must not be cached: the next attempt (or the Refresh button) would keep
-    // replaying the same error for the whole TTL.
-    if (cache.get(key)?.inFlight === inFlight) cache.delete(key);
-    throw error;
-  }
-}
-
-function sourceFor(plan: ScreenReadPlan): ClosingSourceInfo {
-  return {
-    site: "PROPPROFESSOR_SCREEN",
-    url: plan.url,
-    league: plan.body.league,
-    market: plan.body.market,
-  };
-}
-
-function targetFor(item: ClosingWorkItem) {
-  return {
-    marketType: item.marketType,
-    player: item.player,
-    subjectTeam: item.subjectTeam,
-    matchup: item.matchup,
-    statMarket: item.statMarket,
-    side: item.side,
-    externalPropId: item.externalPropId,
-  };
-}
-
-/** Names of the rows we did see, so an absent selection says what *was* there. Mirrors the
- *  extension reader's own `sampleNamesFrom`, so both paths explain a miss the same way. */
-function sampleNamesFrom(rows: ParsedRow[], limit = 6): string[] {
-  const names = new Set<string>();
-  for (const row of rows) {
-    const name = row.player ?? row.subjectTeam;
-    if (name) names.add(name);
-    if (names.size >= limit) break;
-  }
-  return [...names];
-}
-
-/**
- * Reads one pick's current market, or throws `NoTokenError` when the server cannot do it alone.
- *
- * Returns the exact `ClosingReadOutcome` shape the extension reports, so everything downstream --
- * `recordPreviewResult`, `buildClosingVerdict`, the modal's own rendering -- cannot tell which path
- * produced it, and neither can diverge from the other.
- */
-export async function readScreenNow(
-  item: ClosingWorkItem,
-  options: { allowCache?: boolean } = {}
-): Promise<ClosingReadOutcome> {
-  const plan = planScreenRead(item);
-  if ("kind" in plan) {
-    return plan.kind === "noEquivalent"
-      ? { kind: "NO_CLOSING_MARKET", reason: plan.reason }
-      : { kind: "READ_FAILED", reason: `${plan.reason}. Add it to MARKET_ALIASES.` };
-  }
-
-  const raw = await fetchScreen(plan, options.allowCache !== false);
-  const source = sourceFor(plan);
-  // One pick per read here, so the line it was taken at is a thing that can be asked about: each
-  // book is additionally reported at *that* number, which is what someone looking at an Over 15.5
-  // needs while the sportsbooks sit on 14.5. The extension's reader deliberately does not, because
-  // it batches a whole market's picks -- taken at different lines -- into a single response.
-  const parsed = normalizeScreenMarket(raw, plan, { atLine: item.takenLine });
-
-  if (!parsed.ok) return { kind: "READ_FAILED", reason: parsed.reason ?? "unreadable response" };
-  if (parsed.rows.length === 0) return { kind: "MARKET_NOT_OFFERED", source, availableMarkets: [] };
-
-  const row = findMatchingRow(parsed.rows, targetFor(item));
-  return row
-    ? { kind: "MATCHED", row, source }
-    : {
-        kind: "SELECTION_ABSENT",
-        source,
-        candidateCount: parsed.rows.length,
-        sampleNames: sampleNamesFrom(parsed.rows),
-      };
+export async function readScreenNow(): Promise<never> {
+  throw new PropProfessorDisabledError();
 }

@@ -5,6 +5,14 @@ import { readClosingLines } from "./closing-reader";
 /**
  * Drives the closing-read queue: asks the server what is due, has the reader price it, reports back.
  *
+ * Disabled: `service-worker.ts` no longer creates the alarm that called `runClosingWork`, and
+ * `readClosingLines` (via `closing-reader.ts`) now always throws before making a request. Closing-
+ * line capture depended entirely on automated reads of PropProfessor's odds screen, and that
+ * automation is what got the PropProfessor account banned (2026-09) -- so this is paused rather
+ * than rewired onto another source, at least for now. This file is left in place, unreferenced, so
+ * a future decision to bring closing-line capture back (on a different source, deliberately) has
+ * the batching/leasing logic already worked out.
+ *
  * The server owns the schedule because it knows when each game starts; this worker owns the
  * reading. What it no longer owns is any notion of *which site* to read -- every close comes from
  * PropProfessor's odds screen regardless of where the pick was captured, so the old board map and

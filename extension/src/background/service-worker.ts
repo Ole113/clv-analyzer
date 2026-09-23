@@ -13,13 +13,10 @@ import type {
   KellySettingsMessage,
   KellySettingsResponse,
 } from "../content/shared/messages";
-import { runClosingWork } from "./closing-worker";
-import { runOddsPreviewWork } from "./odds-preview-worker";
-import { ensureServerToken, refreshServerToken, storeToken } from "./pp-token";
+import { storeToken } from "./pp-token";
 
 const QUEUE_KEY = "clv:queue";
 const ALARM = "clv:flush";
-const CLOSING_ALARM = "clv:closing";
 
 interface QueueItem {
   payload: SnapshotPayload;
@@ -176,13 +173,6 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
     return false;
   }
 
-  if (message?.type === "clv:warm") {
-    // The dashboard was just opened. Make sure the server can read the odds screen before anyone
-    // clicks anything, rather than discovering it cannot on the first click.
-    void ensureServerToken();
-    return false;
-  }
-
   if (message?.type === "clv:odds-lookup") {
     (async () => {
       try {
@@ -192,52 +182,20 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
           return;
         }
         const pick = (message as OddsLookupMessage).pick;
-        // The server does the read, but only this extension can supply the session it needs, so
-        // the token is pushed ahead of the request rather than after it fails. Awaited, unlike
-        // everywhere else it is called: here it is on the critical path of something a person is
-        // watching.
-        //
-        // Skipped entirely for the Odds API source, which authenticates with its own key and has
-        // no use for a PropProfessor session -- relaying one would be a pointless round trip on
-        // the critical path of a click, and on a browser with no PropProfessor tab open it would
-        // add a visible delay to a read that cannot fail for want of a token.
-        if (pick.source !== "ODDS_API") await ensureServerToken();
-
-        const read = async () => {
-          const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-lookup"), {
-            method: "POST",
-            headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
-            body: JSON.stringify(pick),
-          });
-          if (!response.ok) return { status: response.status, preview: undefined };
-          const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
-          return { status: response.status, preview: body.preview };
-        };
-
-        let result = await read();
-        // A refused token is the one failure worth retrying inside the click, because it is the one
-        // this extension can actually repair -- the server has no way to mint a replacement, and
-        // `ensureServerToken` above would have cheerfully relayed the same dead token back to it.
-        // One retry, never a loop: the same answer twice with a freshly minted token means
-        // something other than expiry is wrong, and the modal should say so rather than spin. This
-        // mirrors what `closing-reader.ts` already does with its own 401s.
-        if (result.preview?.tokenRejected && pick.source !== "ODDS_API") {
-          if (!(await refreshServerToken())) {
-            sendResponse({
-              ok: false,
-              error:
-                "Your PropProfessor session expired and a new one could not be fetched. Open " +
-                "propprofessor.com, make sure you are signed in, then try again.",
-            } satisfies OddsLookupResponse);
-            return;
-          }
-          result = await read();
-        }
-        if (result.status !== 200) {
-          sendResponse({ ok: false, error: `server ${result.status}` });
+        // The Odds API is the only source now (PropProfessor automation was disabled after that
+        // account was banned, 2026-09), and it authenticates with its own key -- there is no
+        // session to push ahead of the request the way there used to be.
+        const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-lookup"), {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+          body: JSON.stringify(pick),
+        });
+        if (!response.ok) {
+          sendResponse({ ok: false, error: `server ${response.status}` });
           return;
         }
-        sendResponse({ ok: true, preview: result.preview } satisfies OddsLookupResponse);
+        const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
+        sendResponse({ ok: true, preview: body.preview } satisfies OddsLookupResponse);
       } catch (error) {
         sendResponse({
           ok: false,
@@ -394,38 +352,25 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
 });
 
 chrome.alarms.create(ALARM, { periodInMinutes: 1 });
-// Closing reads happen here rather than on the server: only this browser is logged in and past
-// the sites' bot check. The server still decides which picks are due.
-chrome.alarms.create(CLOSING_ALARM, { periodInMinutes: 1 });
 
+// There used to be a second, `CLOSING_ALARM` alarm here that read PropProfessor's odds screen
+// every minute -- both the scheduled closing-read queue and the Odds modal's on-demand queue rode
+// on it. That automation is what got the PropProfessor account banned (2026-09), so it is gone:
+// closing-line capture is disabled for now rather than rewired, and the Odds modal answers from
+// The Odds API inside its own request instead of queuing. `closing-worker.ts`,
+// `odds-preview-worker.ts` and `pp-token.ts`'s token minting all still exist but nothing calls
+// them any more.
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) void flushQueue();
-  if (alarm.name === CLOSING_ALARM) {
-    // Cheap, and it is what keeps the Odds modal on its fast path: the server holds the screen
-    // token in memory only, so a restart leaves it unable to read until this pushes it back.
-    void ensureServerToken();
-    // The real closing reads run first, always: an on-demand odds-preview burst must never delay
-    // a read a pick only gets one scheduled shot at.
-    void runClosingWork()
-      .catch((error) => console.warn("[CLV Analyzer] closing work failed:", error))
-      .then(() => runOddsPreviewWork())
-      .catch((error) => console.warn("[CLV Analyzer] odds preview work failed:", error));
-  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void flushQueue();
-  // Up front rather than on demand: `chrome.storage.session` is cleared when Chrome closes, so at
-  // this moment nothing anywhere has a screen token, and without this the first Odds click of the
-  // day would be the thing that goes and fetches one.
-  void ensureServerToken();
   // Registered scripts normally survive a browser restart, so this is a repair rather than the
   // usual path -- but a registration lost to a crash or a profile copy would otherwise stay lost.
   void registerDashboardWarmer();
-  void runClosingWork().catch(() => undefined);
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  void ensureServerToken();
   void registerDashboardWarmer();
 });

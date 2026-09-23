@@ -1,9 +1,8 @@
-import { screenPageUrl, type ClosingReadOutcome, type ClosingWorkItem } from "@clv/shared";
+import type { ClosingReadOutcome, ClosingWorkItem } from "@clv/shared";
 import { prisma } from "./prisma";
 import type { MarketType, Side } from "./constants";
 import { buildClosingVerdict, type ClosingSourceSite, type ClosingVerdict } from "./closing";
 import { getAppSettings, sortByBookOrder } from "./app-settings";
-import { NoTokenError, TokenRejectedError, readScreenNow } from "./pp-screen-read";
 import {
   NoOddsApiKeyError,
   OddsApiKeyRejectedError,
@@ -14,28 +13,22 @@ import {
 } from "./odds-api-read";
 
 /**
- * On-demand "what does PropProfessor say right now" reads, triggered by the Odds modal on a bet
- * page rather than by the scheduled closing-read poller. Reuses the poller's own machinery end to
- * end -- the same screen request, the same matcher, the same `buildClosingVerdict` -- so a preview
- * looks and is computed exactly like a real closing snapshot; the only difference is that nothing
- * here is ever written to the bet's own `closeLines`/`avgClosingLine`. A preview is a look, not a
- * record.
+ * On-demand "what does the market say right now" reads, triggered by the Odds modal on a bet page
+ * rather than by the scheduled closing-read poller. Reuses the poller's own machinery end to end --
+ * the same matcher, the same `buildClosingVerdict` -- so a preview looks and is computed exactly
+ * like a real closing snapshot; the only difference is that nothing here is ever written to the
+ * bet's own `closeLines`/`avgClosingLine`. A preview is a look, not a record.
  *
- * There are two ways that read can happen, and `previewNow` below tries them in order:
- *
- *  1. **Straight from the server** (`pp-screen-read.ts`), using the bearer token the extension
- *     relays here. One HTTPS POST, answered inside the modal's own request -- no queue, no alarm,
- *     no polling.
- *  2. **Through the extension**, the original path, kept because it is the only one that can mint a
- *     token. It costs a `chrome.alarms` period (60s floor) and so is strictly a fallback: used on
- *     the first read after a restart, and after a token expires. It refreshes the server's token as
- *     a side effect, so the *next* read takes path 1.
+ * This used to try a direct server-side read of PropProfessor's odds screen first, falling back to
+ * the extension only when the server had no session token. That automation is what got the
+ * PropProfessor account banned (2026-09), so the only source now is The Odds API
+ * (`odds-api-read.ts`) -- a keyed, metered third-party API that needs no browser session at all.
  *
  * State lives in memory, not the database, on purpose: this app runs as one long-lived Node
  * process (the grading and closing pollers already depend on that -- see the `[grader] started`
  * log line at boot), and a preview request/result pair only ever needs to survive the few seconds
- * between the modal opening and the extension's next poll picking it up. A database row would
- * need its own cleanup story for something this disposable.
+ * between the modal opening and the request completing. A database row would need its own cleanup
+ * story for something this disposable.
  */
 
 export interface OddsPreview {
@@ -45,25 +38,13 @@ export interface OddsPreview {
   reason: string | null;
   verdict: ClosingVerdict | null;
   /**
-   * The read failed because PropProfessor refused the token this server was holding.
-   *
-   * Surfaced rather than folded into `reason` because it is the one failure the *caller* can do
-   * something about: the extension answers it by minting a fresh token and asking again, which is
-   * a thing only the extension can do. See `TokenRejectedError`.
-   */
-  tokenRejected?: boolean;
-  /**
    * The odds screen, filtered to exactly this market, game and player.
    *
-   * Null whenever the read did not match a row, since the identifiers this is built from are the
-   * screen's own and come back with the row -- there is nothing to point at until there is. The
-   * modals fall back to the bare screen, which is where the link always used to go.
+   * Always null now -- The Odds API has no page of its own to deep-link into. Kept on the type
+   * rather than removed because `screenUrl` still names the fallback link the modal shows instead.
    */
   screenUrl?: string | null;
-  /**
-   * Which source answered. Absent on the PropProfessor path so every existing caller and stored
-   * shape is untouched; set only by the Odds modal's second tab.
-   */
+  /** Which source answered. Always `"ODDS_API"`; kept on every result for forward compatibility. */
   source?: OddsSource;
   /**
    * What is left of this month's Odds API quota, off the response's own headers. Only ever set on
@@ -81,16 +62,17 @@ export interface OddsPreview {
 /**
  * Which source a lookup should ask.
  *
- * PropProfessor is the default everywhere and is what the modal loads on open. The Odds API is
- * opt-in per click because it is metered -- see `odds-api-read.ts` for the credit arithmetic.
+ * The Odds API is the only source: PropProfessor automation was permanently disabled after the
+ * account was banned for it (2026-09). This is a single-member union rather than a plain constant
+ * so every existing caller still names the source explicitly -- the type is what is left of the
+ * PropProfessor tab, kept narrow on purpose so a stray `"PROPPROFESSOR"` literal fails to compile
+ * instead of silently doing nothing.
  */
-export type OddsSource = "PROPPROFESSOR" | "ODDS_API";
+export type OddsSource = "ODDS_API";
 
 // On `globalThis`, the same way `prisma.ts` pins its client: Next.js compiles Server Actions and
 // Route Handlers as separate module graphs, so a plain module-level `const` here would give each
-// its own, unrelated `Map` instance -- an action's `enqueuePreview` and a route's
-// `takePendingPreviews` would each be talking to themselves. `globalThis` is the one thing both
-// graphs actually share within the process.
+// its own, unrelated `Map` instance.
 const globalForPreview = globalThis as unknown as {
   clvaPreviewPending?: Map<string, ClosingWorkItem>;
   clvaPreviewResults?: Map<string, OddsPreview>;
@@ -100,23 +82,16 @@ const results = globalForPreview.clvaPreviewResults ?? new Map<string, OddsPrevi
 globalForPreview.clvaPreviewPending = pending;
 globalForPreview.clvaPreviewResults = results;
 
-export function enqueuePreview(item: ClosingWorkItem): void {
-  pending.set(item.id, item);
-  // A fresh request supersedes whatever the last one found -- otherwise the modal would flash a
-  // stale result while the new read is still in flight.
-  results.delete(item.id);
-}
-
-/** Called by the extension-facing poll route. Clears the queue it returns -- see the module
- *  comment on `server/src/app/api/odds-preview-work/route.ts` for why a lease is overkill here. */
+/**
+ * Nothing enqueues a preview any more -- The Odds API never needs to hand a request off to the
+ * extension the way PropProfessor's screen used to. Kept, always answering "nothing queued", so
+ * `server/src/app/api/odds-preview-work/route.ts` keeps compiling unchanged rather than needing to
+ * be ripped out too.
+ */
 export function takePendingPreviews(): ClosingWorkItem[] {
   const items = [...pending.values()];
   pending.clear();
   return items;
-}
-
-export function isPreviewPending(betId: string): boolean {
-  return pending.has(betId);
 }
 
 export function getPreviewResult(betId: string): OddsPreview | null {
@@ -152,9 +127,9 @@ function rememberResult(betId: string, preview: OddsPreview): void {
  */
 function reasonFor(
   outcome: Exclude<ClosingReadOutcome, { kind: "MATCHED" }>,
-  source: OddsSource = "PROPPROFESSOR"
+  source: OddsSource = "ODDS_API"
 ): string {
-  const name = source === "ODDS_API" ? "The Odds API" : "PropProfessor";
+  const name = "The Odds API";
   switch (outcome.kind) {
     case "SELECTION_ABSENT":
       return `Not currently among the ${outcome.candidateCount} selections ${name} lists for this market.`;
@@ -167,32 +142,16 @@ function reasonFor(
 }
 
 /**
- * The "open this on PropProfessor" link for a matched read.
- *
- * Built from the matched row rather than from the pick, because the screen filters on its own
- * spellings and ours are routinely different -- the row is where its `gameId` and its `participant`
- * come back to us. `row.player` is that participant on a player prop and null on a game market,
- * which is exactly the distinction the link wants anyway.
- */
-function screenUrlFor(outcome: Extract<ClosingReadOutcome, { kind: "MATCHED" }>): string {
-  return screenPageUrl({
-    league: outcome.source?.league ?? null,
-    market: outcome.source?.market ?? null,
-    gameId: outcome.row.externalGameId,
-    participant: outcome.row.player,
-  });
-}
-
-/**
  * Turns a read outcome into a preview, computed the same way a real close is.
  *
- * `source` defaults to PropProfessor so the extension-facing callback route -- which only ever
- * reports PropProfessor reads -- needs no change and cannot accidentally mislabel one.
+ * `source` defaults to `"ODDS_API"`, the only source there is now, so the extension-facing
+ * callback route -- which still exists but is never actually fed anything, since nothing enqueues
+ * a PropProfessor preview any more -- needs no change.
  */
 export async function recordPreviewResult(
   betId: string,
   outcome: ClosingReadOutcome,
-  source: OddsSource = "PROPPROFESSOR"
+  source: OddsSource = "ODDS_API"
 ): Promise<void> {
   const fetchedAt = new Date().toISOString();
 
@@ -217,7 +176,7 @@ export async function recordPreviewResult(
     bet.takenLine,
     outcome.row,
     settings.useWeightedAverage ? settings.bookWeights : null,
-    source === "ODDS_API" ? "ODDS_API" : "PP_SCREEN",
+    "ODDS_API",
     { openFairProb: bet.openFairProb, useLiquidityWeighting: settings.useLiquidityWeighting }
   );
   // Same book order the "When you took it" / "At market close" tables use -- see Books in Settings.
@@ -229,65 +188,32 @@ export async function recordPreviewResult(
     reason: null,
     verdict,
     // The Odds API has no page of its own to deep-link into.
-    screenUrl: source === "ODDS_API" ? null : screenUrlFor(outcome),
+    screenUrl: null,
     source,
   });
 }
 
-/** What a modal request produced: an answer now, or a request left with the extension to answer. */
-export type PreviewAttempt =
-  | { mode: "result"; preview: OddsPreview }
-  | { mode: "queued" };
+/** What a modal request produced. Always an answer now: The Odds API is a keyed request/response
+ *  API with nothing to queue against an extension alarm for. */
+export type PreviewAttempt = { mode: "result"; preview: OddsPreview };
 
 /**
- * Answers the Odds modal, preferring the server's own read.
+ * Answers the Odds modal from The Odds API.
  *
- * The fallback is chosen on one condition only -- no usable token here -- rather than on any read
- * failure. A market that genuinely has no selections, or a pick PropProfessor is not listing, is a
- * real answer and is shown as one; sending it round the extension as well would spend a minute to
- * arrive at the same sentence. Only "this server cannot make the request at all" is worth
- * escalating, because only that is something the extension can fix.
- *
- * A transport failure (`READ_FAILED`) is shown, not queued, for the same reason: the extension would
- * be hitting the same host over the same network seconds later.
+ * Used to prefer a direct server-side read of PropProfessor's odds screen, with this as the
+ * fallback. That automation is what got the PropProfessor account banned (2026-09), so this is now
+ * the only path: every outcome, including "no key configured", is a final answer shown in the
+ * modal rather than a request handed off to wait on an extension alarm.
  */
 export async function previewNow(
   item: ClosingWorkItem,
-  options: { allowCache?: boolean; source?: OddsSource } = {}
+  // `allowCache`/`source` are accepted so every existing caller compiles unchanged; there is only
+  // one source now and The Odds API reader has its own fixed cache policy (see `odds-api-read.ts`).
+  _options: { allowCache?: boolean; source?: OddsSource } = {}
 ): Promise<PreviewAttempt> {
-  if (options.source === "ODDS_API") return previewViaOddsApi(item);
-
-  let outcome: ClosingReadOutcome;
-  try {
-    outcome = await readScreenNow(item, options);
-  } catch (error) {
-    if (error instanceof NoTokenError) {
-      enqueuePreview(item);
-      return { mode: "queued" };
-    }
-    outcome = {
-      kind: "READ_FAILED",
-      reason: error instanceof Error ? error.message : "the odds screen could not be read",
-    };
-  }
-
-  await recordPreviewResult(item.id, outcome);
-  const preview = getPreviewResult(item.id);
-  // `recordPreviewResult` records nothing when the bet was deleted mid-read; there is no longer a
-  // page to show a result on, so treat it as one.
-  return preview
-    ? { mode: "result", preview }
-    : { mode: "result", preview: { fetchedAt: new Date().toISOString(), ok: false, reason: "This pick no longer exists.", verdict: null } };
+  return previewViaOddsApi(item);
 }
 
-/**
- * The same preview, from The Odds API.
- *
- * Never queues. The extension fallback exists solely because only a browser can mint a
- * PropProfessor session; a keyed API has nothing for it to contribute, so every outcome here --
- * including "no key configured" -- is a final answer shown in the tab rather than a request handed
- * off to wait on an alarm.
- */
 async function previewViaOddsApi(item: ClosingWorkItem): Promise<PreviewAttempt> {
   const fetchedAt = new Date().toISOString();
   try {
@@ -330,7 +256,7 @@ function oddsApiErrorMessage(error: unknown): string {
     return "The Odds API rejected your key. Check it under Settings -> Odds API.";
   }
   if (error instanceof OddsApiQuotaExhaustedError) {
-    return "This month's Odds API quota is used up. It resets on your plan's renewal date; the PropProfessor tab still works.";
+    return "This month's Odds API quota is used up. It resets on your plan's renewal date.";
   }
   return error instanceof Error ? error.message : "The Odds API could not be read";
 }
@@ -351,58 +277,10 @@ function oddsApiErrorMessage(error: unknown): string {
  */
 export async function lookupOddsNow(
   item: ClosingWorkItem,
-  options: { allowCache?: boolean; source?: OddsSource } = {}
+  // `source` is accepted so every existing caller compiles unchanged; there is only one source now.
+  _options: { allowCache?: boolean; source?: OddsSource } = {}
 ): Promise<OddsPreview> {
-  return options.source === "ODDS_API"
-    ? lookupViaOddsApi(item)
-    : lookupViaPropProfessor(item, options);
-}
-
-/** The default source. Unchanged from before the second source existed. */
-async function lookupViaPropProfessor(
-  item: ClosingWorkItem,
-  options: { allowCache?: boolean }
-): Promise<OddsPreview> {
-  let outcome: ClosingReadOutcome;
-  try {
-    outcome = await readScreenNow(item, options);
-  } catch (error) {
-    const rejected = error instanceof TokenRejectedError;
-    return {
-      fetchedAt: new Date().toISOString(),
-      ok: false,
-      reason: rejected
-        ? "Your PropProfessor session expired. Open propprofessor.com, make sure you are signed in, then try again."
-        : error instanceof NoTokenError
-          ? "This server has no PropProfessor session yet. Open propprofessor.com in a tab and try again."
-          : error instanceof Error
-            ? error.message
-            : "the odds screen could not be read",
-      verdict: null,
-      tokenRejected: rejected,
-      source: "PROPPROFESSOR",
-    };
-  }
-
-  const fetchedAt = new Date().toISOString();
-  if (outcome.kind !== "MATCHED") {
-    return {
-      fetchedAt,
-      ok: false,
-      reason: reasonFor(outcome, "PROPPROFESSOR"),
-      verdict: null,
-      source: "PROPPROFESSOR",
-    };
-  }
-
-  return {
-    fetchedAt,
-    ok: true,
-    reason: null,
-    verdict: await verdictFor(item, outcome.row, "PP_SCREEN"),
-    screenUrl: screenUrlFor(outcome),
-    source: "PROPPROFESSOR",
-  };
+  return lookupViaOddsApi(item);
 }
 
 /**

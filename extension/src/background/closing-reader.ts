@@ -8,32 +8,19 @@ import {
   type ParsedRow,
   type ScreenReadPlan,
 } from "@clv/shared";
-import { getScreenToken } from "./pp-token";
 
 /**
- * Reads closing lines from PropProfessor's odds screen.
+ * Read closing lines from PropProfessor's odds screen -- permanently disabled.
  *
- * Replaces the old board reader, which re-opened the Fantasy Optimizer in a background tab and
- * scrolled it looking for the pick. That could only ever find props which still had edge, so a
- * pick that had genuinely moved -- the ones worth measuring -- came back "not found".
+ * This used to POST directly to `backend.propprofessor.com` on a 60-second alarm. That automation
+ * is what got the PropProfessor account banned (2026-09), so `fetchScreen` below throws before it
+ * ever builds a request, let alone sends one, regardless of what token is cached.
  *
- * Two things fall away with the screen being a plain JSON endpoint, and they are why this file is
- * so much shorter than what it replaces:
- *
- *  - **No page scraping**, and therefore none of the `executeScript` serialization constraints the
- *    DOM parsers live under. The response is parsed by an ordinary importable module.
- *  - **No scrolling.** Every selection for a market arrives in one response, so there is no
- *    virtualized grid to page through, and no reading a board one screenful at a time.
- *
- * What does *not* fall away is authentication. The endpoint requires `Authorization: Bearer <JWT>`,
- * and the token lives only in the app's own memory, so it is observed in page context and cached --
- * see `pp-token.ts`. A tab is opened only when no usable token is cached, roughly once per token
- * lifetime, never once per pick.
- *
- * OddsJam is not reachable from here and must stay that way. That subscription is paid a year up
- * front, so a ban is unrecoverable, whereas the PropProfessor account is replaceable. Picks
- * *captured* on OddsJam are read here like any other -- the capture site is provenance, not a
- * read target -- and a test asserts no module in this directory names oddsjam.com.
+ * The rest of this module -- the planning, batching and matching -- stays, rather than being
+ * deleted, so the shape of what happened here is not lost, and so a future decision to read
+ * PropProfessor again (if ever made, deliberately, by a human) has one obvious place to undo this.
+ * Nothing calls `readClosingLines` automatically any more: `service-worker.ts` no longer creates
+ * the closing alarm, so this is unreachable in normal operation.
  */
 
 /** One request answers every pick sharing a league and market. */
@@ -41,40 +28,11 @@ function groupKey(plan: ScreenReadPlan): string {
   return `${plan.body.league}::${plan.body.market}`;
 }
 
-async function postScreen(plan: ScreenReadPlan, token: string): Promise<Response> {
-  return fetch(plan.url, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(plan.body),
-  });
-}
-
-/**
- * One screen request, refreshing the bearer token once if it has expired.
- *
- * A 401 is the only staleness signal there is: the token is a JWT this extension deliberately does
- * not parse, so expiry is discovered rather than predicted. One retry, never a loop -- a second
- * 401 with a freshly captured token means something other than expiry is wrong (signed out, or the
- * subscription lapsed), and hammering it would not help.
- */
-async function fetchScreen(plan: ScreenReadPlan): Promise<unknown> {
-  let token = await getScreenToken();
-  if (!token) {
-    throw new Error(
-      "No PropProfessor session token available. Open propprofessor.com/screen in this browser " +
-        "and make sure you are signed in."
-    );
-  }
-
-  let response = await postScreen(plan, token);
-  if (response.status === 401) {
-    token = await getScreenToken(true);
-    if (!token) throw new Error("PropProfessor session token expired and could not be renewed");
-    response = await postScreen(plan, token);
-  }
-
-  if (!response.ok) throw new Error(`screen responded ${response.status}`);
-  return response.json();
+async function fetchScreen(_plan: ScreenReadPlan): Promise<unknown> {
+  throw new Error(
+    "PropProfessor reads are disabled: this account was banned for automated access and the " +
+      "extension must never contact backend.propprofessor.com again."
+  );
 }
 
 function sourceFor(plan: ScreenReadPlan): ClosingSourceInfo {

@@ -447,13 +447,14 @@ function table(lines: OddsLookupLine[], atLine: number | null): HTMLElement {
   return t;
 }
 
-/** The two source tabs, in the order they appear. PropProfessor is first and loads on open. */
-const SOURCE_TABS: { source: OddsSource; label: string }[] = [
-  { source: "PROPPROFESSOR", label: "PropProfessor" },
-  { source: "ODDS_API", label: "The Odds API" },
-];
+/**
+ * The only source. This modal used to have a second, eager-loading PropProfessor tab; that
+ * automation is what got the PropProfessor account banned (2026-09), so PropProfessor is never
+ * read here any more -- The Odds API is the only place this modal asks.
+ */
+const SOURCE: OddsSource = "ODDS_API";
 
-/** What one tab is currently showing. Cached per tab for the life of the modal -- see `load`. */
+/** What the modal is currently showing. */
 type TabState =
   | { kind: "idle" }
   | { kind: "loading" }
@@ -479,14 +480,6 @@ function quotaNote(preview: NonNullable<OddsLookupResponse["preview"]>): string 
  * Requests are tagged, so a Refresh fired while the first read is still in flight cannot be
  * overwritten by the older answer landing second -- the same guard the dashboard modal needs, for
  * the same reason.
- *
- * ## The two tabs
- *
- * Tab 1 is PropProfessor and loads on open, exactly as this modal always has. Tab 2 is The Odds
- * API and fires **only** when it is clicked, because each of its reads spends one metered credit
- * against a 500-a-month free quota. Once a tab has an answer it keeps it: switching back and forth
- * re-renders from `tabs`, and never re-fetches. Refresh acts on the active tab alone, for the same
- * reason -- refreshing the tab you are not looking at would spend a credit nobody asked for.
  */
 export function openOddsModal(pick: OddsLookupPick, label: string): void {
   const scrim = el("div", "clva-scrim");
@@ -514,25 +507,7 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   head.appendChild(actions);
   modal.appendChild(head);
 
-  // Each tab's own answer, kept for as long as the modal is open so switching back is free.
-  const tabs = new Map<OddsSource, TabState>(
-    SOURCE_TABS.map(({ source }) => [source, { kind: "idle" } as TabState])
-  );
-  let active: OddsSource = "PROPPROFESSOR";
-
-  const tabStrip = el("div", "clva-odds-tabs");
-  tabStrip.setAttribute("role", "tablist");
-  const tabButtons = new Map<OddsSource, HTMLButtonElement>();
-  for (const { source, label: tabLabel } of SOURCE_TABS) {
-    const button = el("button", "clva-odds-tab", tabLabel);
-    button.type = "button";
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-selected", String(source === active));
-    button.addEventListener("click", () => selectTab(source));
-    tabButtons.set(source, button);
-    tabStrip.appendChild(button);
-  }
-  modal.appendChild(tabStrip);
+  let state: TabState = { kind: "idle" };
 
   const content = el("div");
   modal.appendChild(content);
@@ -563,22 +538,12 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   scrim.addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("keydown", onKey, true);
 
-  /** Draws whichever tab is active from `tabs`, without asking the network anything. */
+  /** Draws the current state, without asking the network anything. */
   function render(): void {
-    for (const [source, button] of tabButtons) {
-      button.setAttribute("aria-selected", String(source === active));
-    }
-    const state = tabs.get(active) ?? { kind: "idle" };
     refresh.disabled = state.kind === "loading";
 
     if (state.kind === "idle" || state.kind === "loading") {
-      content.replaceChildren(
-        el(
-          "p",
-          "clva-odds-wait",
-          active === "ODDS_API" ? "Reading The Odds API…" : "Reading PropProfessor's odds screen…"
-        )
-      );
+      content.replaceChildren(el("p", "clva-odds-wait", "Reading The Odds API…"));
       return;
     }
     if (state.kind === "error") {
@@ -603,51 +568,27 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
       if (verdict.note) wrap.appendChild(el("p", "clva-odds-note", verdict.note));
     }
 
+    // No deep link: The Odds API is an API, not a site, so there is no market page to open. The
+    // PropProfessor odds screen is still linked as a manual fallback -- a human clicking it is
+    // fine, this modal just never reads it for them any more.
     const note = el("p", "clva-odds-note");
-    if (active === "ODDS_API") {
-      // No deep link: The Odds API is an API, not a site, so there is no market page to open.
-      note.append(
-        "Sportsbook lines from ",
-        link("The Odds API ↗", "https://the-odds-api.com"),
-        ", averaged the same way the PropProfessor tab is — so the two are directly comparable."
-      );
-    } else {
-      const screenUrl = preview.screenUrl ?? PP_ODDS_SCREEN_URL;
-      note.append(
-        "Sportsbook lines from ",
-        link(
-          screenUrl === PP_ODDS_SCREEN_URL
-            ? "PropProfessor's odds screen ↗"
-            : "this market on PropProfessor ↗",
-          screenUrl
-        ),
-        ", averaged the same way a closing read is."
-      );
-    }
+    note.append(
+      "Sportsbook lines from ",
+      link("The Odds API ↗", "https://the-odds-api.com"),
+      ". You can also check ",
+      link("PropProfessor's odds screen ↗", PP_ODDS_SCREEN_URL),
+      " by hand."
+    );
     wrap.appendChild(note);
 
-    const quota = active === "ODDS_API" ? quotaNote(preview) : null;
+    const quota = quotaNote(preview);
     if (quota) wrap.appendChild(el("p", "clva-odds-foot", quota));
     content.replaceChildren(wrap);
   }
 
-  /** Switches tabs, fetching only the first time a tab is shown. */
-  function selectTab(source: OddsSource): void {
-    if (active === source) return;
-    active = source;
-    const state = tabs.get(source);
-    // The whole point of the lazy second tab: an answer already in hand is shown, never re-bought.
-    if (state && state.kind !== "idle") {
-      render();
-      return;
-    }
-    load(false);
-  }
-
   function load(isRefresh: boolean): void {
-    const source = active;
     const mine = ++requestId;
-    tabs.set(source, { kind: "loading" });
+    state = { kind: "loading" };
     render();
 
     void (async () => {
@@ -655,7 +596,7 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
       try {
         response = await chrome.runtime.sendMessage({
           type: "clv:odds-lookup",
-          pick: { ...pick, refresh: isRefresh, source },
+          pick: { ...pick, refresh: isRefresh, source: SOURCE },
         } satisfies OddsLookupMessage);
       } catch (error) {
         response = {
@@ -665,16 +606,11 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
       }
       if (requestId !== mine) return;
 
-      tabs.set(
-        source,
+      state =
         !response?.ok || !response.preview
           ? { kind: "error", reason: response?.error ?? "Could not read the odds." }
-          : { kind: "result", preview: response.preview }
-      );
-      // Only redraw if this is still the tab being looked at: an answer that landed after the user
-      // switched away belongs in `tabs` (it is shown when they switch back) but must not replace
-      // whatever is on screen now.
-      if (active === source) render();
+          : { kind: "result", preview: response.preview };
+      render();
     })();
   }
 

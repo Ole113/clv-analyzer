@@ -81,16 +81,18 @@ export interface OddsLookupPick {
   /** Set by the modal's Refresh button so a deliberate re-check skips the server's response cache. */
   refresh?: boolean;
   /**
-   * Which source to ask. Omitted means PropProfessor, which is what the modal loads on open.
-   *
-   * `ODDS_API` costs the user one metered credit per call, so it is only ever sent when the
-   * second tab is deliberately clicked -- never on open, and never on a background refresh.
+   * Which source to ask. There is only one now -- The Odds API -- kept as a field so this shape
+   * still matches the server's `lookupOddsNow`.
    */
   source?: OddsSource;
 }
 
-/** The two sources the Odds modal can ask. See the server's `lookupOddsNow`. */
-export type OddsSource = "PROPPROFESSOR" | "ODDS_API";
+/**
+ * The only source the Odds modal can ask. Used to be `"PROPPROFESSOR" | "ODDS_API"`; the
+ * PropProfessor side was removed after that account was banned for automated access (2026-09).
+ * See the server's `lookupOddsNow`.
+ */
+export type OddsSource = "ODDS_API";
 
 /** What is left of this month's Odds API quota, off the API's own response headers. */
 export interface OddsQuota {
@@ -105,7 +107,7 @@ export interface OddsQuota {
  *
  * Answered by the server rather than here: the averaging, the sportsbook allowlist and the outlier
  * test all live in `buildClosingVerdict`, and a second copy in a content script would drift from it
- * without anyone noticing. The read target is always PropProfessor regardless of which board asked.
+ * without anyone noticing. The read target is always The Odds API regardless of which board asked.
  */
 export interface OddsLookupMessage {
   type: "clv:odds-lookup";
@@ -119,16 +121,12 @@ export interface OddsLookupResponse {
     fetchedAt: string;
     ok: boolean;
     reason: string | null;
-    /** The server's PropProfessor token was refused. Only this extension can mint a replacement,
-     *  so the background worker answers it by doing that and asking once more. */
-    tokenRejected?: boolean;
-    /** The odds screen filtered to this exact market, game and player. Null when the read matched
-     *  nothing, since the filters are built from the matched row's own identifiers. Always null on
-     *  the Odds API path, which has no page of its own to link into. */
+    /** The odds screen filtered to this exact market, game and player. Always null now: The Odds
+     *  API has no page of its own to link into. */
     screenUrl?: string | null;
-    /** Which source answered. Absent on older server builds, which only had the one. */
+    /** Which source answered. Always `"ODDS_API"`. */
     source?: OddsSource;
-    /** Odds API only: remaining credits, shown in that tab's footer. */
+    /** Remaining credits, shown in the modal's footer. */
     quota?: OddsQuota | null;
     /** Odds API only: the minute-long cache answered, so no credit was spent on this click. */
     servedFromCache?: boolean;

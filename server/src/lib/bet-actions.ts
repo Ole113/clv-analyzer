@@ -1,16 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { planScreenRead, type ClosingWorkItem } from "@clv/shared";
+import { type ClosingWorkItem } from "@clv/shared";
 import { prisma } from "./prisma";
 import type { ActionResult } from "@/components/action-button";
-import {
-  getPreviewResult,
-  isPreviewPending,
-  previewNow,
-  type OddsPreview,
-  type OddsSource,
-} from "./odds-preview";
+import { previewNow, type OddsPreview, type OddsSource } from "./odds-preview";
 import { planOddsApiRead } from "@clv/shared";
 
 /**
@@ -47,31 +41,22 @@ export async function deleteBetQuick(id: string): Promise<ActionResult> {
 }
 
 /**
- * Answers the Odds modal.
+ * Answers the Odds modal, from The Odds API.
  *
- * `planScreenRead` is checked here, synchronously, before anything is attempted: a market with no
- * PropProfessor equivalent at all (or one this app has no alias for yet) will never succeed no
- * matter how many times it is retried, so the modal should say so at once.
+ * `planOddsApiRead` is checked here, synchronously, before anything is attempted: a market with no
+ * Odds API equivalent at all will never succeed no matter how many times it is retried, so the
+ * modal should say so at once.
  *
- * Everything past that check is handled by `previewNow`, which in the normal case reads the odds
- * screen from this process and returns the answer inside this one call. `queued` is the exception:
- * it means the server has no PropProfessor token yet and the request has been handed to the
- * extension, which is the only thing that can mint one -- that read costs a `chrome.alarms` period,
- * and is the only case where the modal still polls.
- *
- * `source` picks which feed answers. The same up-front plannability check is applied either way,
- * against whichever source's own market table -- the two carry different markets, so a pick The
- * Odds API cannot express is a different (and equally immediate) answer from one PropProfessor
- * cannot. The Odds API path never returns `queued`: it has no extension fallback to queue to.
+ * Everything past that check is handled by `previewNow`, which reads The Odds API and returns the
+ * answer inside this one call -- always a `result`, never a queue: this used to also try a direct
+ * server-side read of PropProfessor's odds screen, falling back to the extension when the server
+ * had no session token, but that automation is what got the PropProfessor account banned
+ * (2026-09), so The Odds API is the only source left.
  */
 export async function requestOddsPreview(
   id: string,
   options: { refresh?: boolean; source?: OddsSource } = {}
-): Promise<
-  | { ok: true; mode: "result"; preview: OddsPreview }
-  | { ok: true; mode: "queued" }
-  | { ok: false; reason: string }
-> {
+): Promise<{ ok: true; mode: "result"; preview: OddsPreview } | { ok: false; reason: string }> {
   const bet = await prisma.bet.findUnique({ where: { id } });
   if (!bet) return { ok: false, reason: "This pick no longer exists." };
 
@@ -80,8 +65,7 @@ export async function requestOddsPreview(
     statMarket: bet.statMarket,
     marketType: bet.marketType as ClosingWorkItem["marketType"],
   };
-  const plan =
-    options.source === "ODDS_API" ? planOddsApiRead(target) : planScreenRead(target);
+  const plan = planOddsApiRead(target);
   if ("kind" in plan) return { ok: false, reason: plan.reason };
 
   const item: ClosingWorkItem = {
@@ -101,18 +85,11 @@ export async function requestOddsPreview(
     takenLine: bet.takenLine,
   };
 
-  // Refresh means "ask again", so it must never be served the answer a moment ago produced. On the
-  // Odds API path the reader narrows this to its own publish interval -- see `fetchOdds`.
+  // Refresh means "ask again", so it must never be served the answer a moment ago produced. The
+  // reader narrows this to its own publish interval -- see `fetchOdds`.
   const attempt = await previewNow(item, {
     allowCache: options.refresh !== true,
     source: options.source,
   });
-  return attempt.mode === "result"
-    ? { ok: true, mode: "result", preview: attempt.preview }
-    : { ok: true, mode: "queued" };
-}
-
-/** Polled by the Odds modal only while a request is sitting with the extension. */
-export async function pollOddsPreview(id: string): Promise<{ pending: boolean; preview: OddsPreview | null }> {
-  return { pending: isPreviewPending(id), preview: getPreviewResult(id) };
+  return { ok: true, mode: "result", preview: attempt.preview };
 }

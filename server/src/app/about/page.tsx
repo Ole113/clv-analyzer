@@ -10,6 +10,12 @@ const SECTIONS = [
   { id: "in-short", label: "In short" },
 ];
 
+// Updated 2026-09: the PropProfessor account was banned for the automated screen reads section 2
+// used to describe. That automation is now permanently disabled -- see the code comments in
+// `pp-screen-read.ts` and `closing-reader.ts` -- and closing-line capture is paused rather than
+// rewired onto another source. The Odds modal now reads only The Odds API, a keyed third-party
+// API that needs no PropProfessor session at all.
+
 export default function AboutPage() {
   return (
     <main>
@@ -47,49 +53,51 @@ export default function AboutPage() {
 
           <h3 id="closing-read">2. Reading the closing line</h3>
           <p>
-            Shortly before a game starts, the dashboard needs one more read of the market to see where
-            the line ended up. This is the one piece of automated traffic in the whole system, and it
-            only ever goes to <strong>PropProfessor</strong>:
+            Shortly before a game starts, the dashboard used to make one more read of the market to see
+            where the line ended up, the same way as capture: a background script, still running inside
+            a signed-in browser, made a plain request to the JSON endpoint PropProfessor&apos;s own
+            website already calls to draw its odds screen (<code>backend.propprofessor.com/screen</code>
+            ), authenticated with a session token observed off a request PropProfessor&apos;s own app
+            was already making.
           </p>
-          <ul>
-            <li>
-              A background script, still running inside the same signed-in browser, makes a plain
-              request to the JSON endpoint PropProfessor&apos;s own website already calls to draw its
-              odds screen (<code>backend.propprofessor.com/screen</code>). It is not a page scrape —
-              nothing is rendered, parsed out of HTML, or clicked through; it is the identical API
-              request a person&apos;s browser makes when they load that screen themselves.
-            </li>
-            <li>
-              It authenticates the same way a logged-in browser tab already does: with a session token
-              the extension observes off a request PropProfessor&apos;s own app was already making, not
-              one it manufactures. No credentials are stored outside that session, and the request rate
-              is tied to real games starting, not a tight polling loop.
-            </li>
-          </ul>
           <p>
-            <strong>OddsJam is never read this way.</strong> There is no background request to OddsJam
-            anywhere in this codebase — closing lines for OddsJam-captured picks are read from
-            PropProfessor&apos;s screen too, the same as everything else. This is enforced by an
-            automated test in the repository (<code>oddsjam-automation-guard.test.ts</code>) that fails
-            the build if any background code so much as names an OddsJam hostname, specifically so this
-            cannot regress in a future change without someone noticing.
+            <strong>That automation is now permanently disabled.</strong> It is what got the
+            PropProfessor account banned in September 2026, and nothing in this codebase makes that
+            request any more — not on a schedule, and not on demand. Closing-line capture is paused
+            rather than rewired onto another source; the code that used to do it is still in the
+            extension (<code>closing-reader.ts</code>, <code>closing-worker.ts</code>), unreferenced,
+            in case a deliberate, human decision to read PropProfessor again is ever made.
+          </p>
+          <p>
+            The Odds modal — &quot;current odds ↗&quot; on a pick, or the board button the extension
+            injects — now reads only <strong>The Odds API</strong>, a keyed, metered third-party API
+            unrelated to either PropProfessor or OddsJam. It needs no browser session and is contacted
+            only when a person opens or refreshes that modal, never on a timer.
+          </p>
+          <p>
+            <strong>OddsJam is never read automatically either.</strong> There is no background request
+            to OddsJam anywhere in this codebase. This is enforced by an automated test in the
+            repository (<code>oddsjam-automation-guard.test.ts</code>) that fails the build if any
+            background code so much as names an OddsJam hostname, specifically so this cannot regress in
+            a future change without someone noticing.
           </p>
 
           <h3 id="server">What the server itself does</h3>
           <p>
             The server (the part that stores picks and renders this dashboard) never contacts OddsJam
-            or PropProfessor at all. It only stores what the extension sends it and serves pages from
-            its own database. It is not a crawler, it has no login of its own, and it is not reachable
-            from the public internet — it runs on hardware its owner controls and is only ever reached
-            over that owner&apos;s private network.
+            or PropProfessor at all, and — since the ban — no longer contacts PropProfessor&apos;s odds
+            screen the way it briefly did either. It stores what the extension sends it, reads The Odds
+            API for the Odds modal, and serves pages from its own database. It is not a crawler, it has
+            no login of its own, and it is not reachable from the public internet — it runs on hardware
+            its owner controls and is only ever reached over that owner&apos;s private network.
           </p>
 
           <h3 id="in-short">In short</h3>
           <p>
-            Every read is either (a) a human looking at a page they are already signed into, or (b) the
-            exact API call that page&apos;s own frontend makes, sent at the pace real games kick off —
-            never a server-side crawler, never a shared account, and never OddsJam outside of a page a
-            person opened themselves.
+            Every read left in this system is either (a) a human looking at a page they are already
+            signed into, or (b) a keyed request to The Odds API, sent only when someone opens the Odds
+            modal — never a server-side crawler, never a shared account, and never PropProfessor or
+            OddsJam outside of a page a person opened themselves.
           </p>
         </div>
       </div>
