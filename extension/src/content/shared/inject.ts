@@ -58,12 +58,13 @@ export interface SiteAdapter {
     settings(): KellySettings;
   };
   /**
-   * Whether each row also gets the "open on OddsJam" button, stacked above the odds button (or
-   * alone, on a board that has neither of the other two -- PropProfessor's Fantasy board gets only
-   * this one).
+   * Whether each row also gets the "open on OddsJam" button, stacked above the odds button.
    *
-   * Unlike `oddsButton` and `kelly`, this is available to any board regardless of its column's own
-   * room, because it renders exactly one 16px icon and nothing else -- no dialog, no extra width.
+   * Set on the OddsJam board and nowhere else, and that is a rule rather than a default: clicking
+   * it navigates the tab it opens through OddsJam's own pages, so the page it is clicked *from*
+   * shows up as the referrer of that navigation. Sending OddsJam a trail that starts on a
+   * competitor's site is something to avoid for free, so the button stays on OddsJam's own board.
+   * `oddsjam-automation-guard.test.ts` asserts no other adapter turns it on.
    */
   oddsJamLink?: boolean;
   /**
@@ -455,8 +456,13 @@ function showKelly(adapter: SiteAdapter, key: string | null): void {
  * `await` on the path from this click to `window.open`, so the browser still sees it as a direct
  * response to the user's gesture rather than a popup a script opened on its own.
  *
- * A row that fails to parse still gets *something*: `resolveOddsJamUrl` only needs the sport to
- * name a sport-level fallback, so this opens nothing only when even that is missing.
+ * A cold cache is no longer a degraded click: what `resolveLink` hands back for a game or market it
+ * has never seen is the page that holds the missing piece, carrying the request that the content
+ * script in the opened tab reads and finishes (`oddsjam-site/resolve.ts`). The user lands on the
+ * exact market either way; the cache only decides whether that takes one navigation or three.
+ *
+ * A row that fails to parse still gets *something*: the plan only needs the sport to name a
+ * sport-level entry point, so this opens nothing only when even that is missing.
  */
 function showOddsJamLink(adapter: SiteAdapter, key: string | null): void {
   const parsed = adapter.parse();
@@ -510,11 +516,11 @@ function injectRows(adapter: SiteAdapter): void {
     // Stacked into one wrapper so the column's width is unchanged -- see `.clva-stack`. The
     // checkbox keeps its own marker attribute, so the re-render check above still finds it through
     // the wrapper. Top to bottom: Kelly, then the OddsJam link, then the current-odds button, then
-    // the checkbox -- "above the current odds button" is where the OddsJam link was asked to sit,
-    // and PropProfessor's Fantasy board (which has neither of the other two) still gets a stack of
-    // one rather than no stack at all, since the guard above already let it through on
-    // `oddsJamLink` alone. Kelly's gate is read fresh on every pass, since the allowlist it reads
-    // can be edited on the dashboard while a board is open.
+    // the checkbox -- "above the current odds button" is where the OddsJam link was asked to sit.
+    // The `oddsJamLink`-alone case in the guard above is kept even though no board uses it today,
+    // since a board with that button and nothing else must still get a stack rather than a bare
+    // checkbox. Kelly's gate is read fresh on every pass, since the allowlist it reads can be
+    // edited on the dashboard while a board is open.
     const stack = document.createElement("div");
     stack.className = "clva-stack";
     if (adapter.kelly?.enabled()) {
@@ -604,12 +610,15 @@ export function startCapture(adapter: SiteAdapter): void {
     if (area === "sync" && changes.checkboxColor) applyAccent(changes.checkboxColor.newValue);
   });
 
-  // Unconditional rather than gated on `adapter.oddsJamLink`: it is one `chrome.storage.local`
-  // read, and both boards that exist today turn the button on. Kept warm on the same slow cadence
-  // `kellySettings` uses, for the same reason -- `showOddsJamLink` has to answer synchronously
-  // inside a click, so the cache it reads is refreshed ahead of time rather than on demand.
-  void refreshOddsJamIndex();
-  setInterval(() => void refreshOddsJamIndex(), 60_000);
+  // Gated on the button actually being mounted: only the OddsJam board reads this cache now, and a
+  // board without the button has no use for a `chrome.storage.local` poll. Kept warm on the same
+  // slow cadence `kellySettings` uses, for the same reason -- `showOddsJamLink` has to answer
+  // synchronously inside a click, so the cache it reads is refreshed ahead of time rather than on
+  // demand.
+  if (adapter.oddsJamLink) {
+    void refreshOddsJamIndex();
+    setInterval(() => void refreshOddsJamIndex(), 60_000);
+  }
 
   const filter = adapter.marketFilter ? startMarketFilter(adapter.marketFilter) : null;
 

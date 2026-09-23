@@ -1,29 +1,45 @@
 /**
  * Deep-linking into OddsJam's own site -- the full odds comparison, not the Fantasy board this
- * extension already captures from -- without ever contacting OddsJam automatically.
+ * extension already captures from.
  *
- * ## Why this can only ever be a passive cache
+ * ## What the button has to do, and the one thing it still must not
  *
- * OddsJam's account is paid a year up front and a ban is unrecoverable, unlike PropProfessor's
- * (replaceable), which is why `oddsjam-automation-guard.test.ts` forbids any code that runs on a
- * timer from naming `oddsjam.com` at all. A market's exact URL is `/game/<opaque-slug>?market=<id>`,
- * and there is no way to construct `<opaque-slug>` from a team's name -- it is an id OddsJam assigns
- * per fixture. The old approach to this (see the project's own history) fetched OddsJam's odds
- * listing from the background worker to find it, which is exactly the traffic that rule exists to
- * stop.
+ * A market's exact URL is `/game/<opaque-slug>?market=<id>`, and neither half can be constructed
+ * from a row: the slug is an id OddsJam assigns per fixture, and the market id is OddsJam's own
+ * dropdown value. Both have to be *read* from OddsJam. This used to mean the button only worked for
+ * games the user had already browsed to -- a cache filled passively, and a click on anything else
+ * degraded to the sport's odds list.
  *
- * What this module works from instead is pages the user opens themselves. `oddsjam.com/game/<slug>`
- * embeds the fixture's identity and, as a bonus, that sport's entire market vocabulary (`id` and
- * `label` for every market OddsJam prices) in a `__NEXT_DATA__` blob the browser already downloaded
- * as part of loading the page -- nothing here re-requests it. `oddsjam.com/<sport>/odds` lists a
- * whole slate of upcoming games as plain links once the page has rendered. A content script matched
- * on those two page shapes (`extension/src/content/oddsjam-site/capture.ts`) reads what is already
- * there and records it; this module is the pure, storage-agnostic half of that -- matching a row
- * against what has been captured, and building the URL once it has enough to.
+ * That restriction is lifted. OddsJam support was asked, in writing, whether a Chrome extension may
+ * use scripting to open OddsJam odds pages -- naming this exact URL shape -- and answered "this will
+ * not be an issue" (2026-09-21). So a click that cannot be answered from the cache now opens the
+ * page that holds the missing piece and lets the tab finish the job itself: the sport's listing
+ * resolves the slug (pressing "Load more games" as far as `ODDSJAM_MAX_LOAD_MORE` when the slate is
+ * paginated), and the game page's own `__NEXT_DATA__` resolves the market id.
  *
- * A team pair this has never seen resolves to nothing better than the sport's own odds list, and a
- * market this has never seen resolves to the bare game page rather than a guessed `?market=`. Both
- * degrade to the honest answer rather than a wrong one -- the same discipline
+ * What is permitted is scripted navigation *of the tab the user's own click opened*. What is still
+ * forbidden, and is what `oddsjam-automation-guard.test.ts` exists to keep forbidden, is anything
+ * that reaches OddsJam without a user asking: a background fetch, a tab opened on a timer, polling.
+ * The old approach to this feature fetched OddsJam's odds listing from the background worker, which
+ * is squarely on the wrong side of that line no matter what the permission says -- the subscription
+ * is paid a year up front and a ban is unrecoverable.
+ *
+ * ## The two halves
+ *
+ * This module is the pure, storage-agnostic half: matching a row against what has been captured
+ * (`resolveOddsJamLink`), deciding what the opened tab still owes (`planOddsJamLink`), and deciding
+ * each step that tab should take once it is there (`planOddsJamListingStep`, `planOddsJamGameStep`).
+ * The DOM half lives in `extension/src/content/oddsjam-site/` -- `capture.ts` reading what a page
+ * already put in front of it, `resolve.ts` carrying out the steps planned here.
+ *
+ * The cache is still what makes the common case instant, and it is still filled passively: every
+ * page either half visits records its game and, from a game page, that sport's entire market
+ * vocabulary. One resolve for a sport is all it takes before every later click for that sport lands
+ * on the exact URL directly.
+ *
+ * A market that genuinely is not in OddsJam's vocabulary still resolves to the bare game page rather
+ * than a guessed `?market=`, and a fixture that is not on the slate at all still leaves the user on
+ * the listing. Both degrade to the honest answer rather than a wrong one -- the same discipline
  * `resolveClosingMarket` was hardened to keep for PropProfessor, after "Total Turnovers" was once
  * silently answered as "Total Points" by a table that filled in a default instead of admitting a
  * gap.
@@ -222,7 +238,7 @@ export interface OddsJamLinkTarget {
  * degradation, since it costs only the market filter, not the link, and is exactly as fixable as any
  * other gap in that table (see its own module comment).
  */
-function oddsJamMarketId(
+export function oddsJamMarketId(
   sport: string | null,
   statMarket: string,
   marketType: MarketType,
@@ -233,24 +249,48 @@ function oddsJamMarketId(
   return findMarketId(vocabulary, oddsJamCandidateLabel(resolved.market));
 }
 
+
 /**
- * The URL the "OddsJam odds" button opens for one row, or null when the sport itself is not one
- * OddsJam's site is known to cover.
+ * How much of a link a click was able to answer from the cache alone.
  *
- * Three honest answers, in order of how much is known:
- *
- *  1. Game and market both resolved -> the exact `/game/<slug>?market=<id>` a person clicking
- *     through by hand would land on.
- *  2. Game resolved, market not -> the bare game page. Still the right game; the market filter is
- *     just something this extension has not captured a name for yet.
- *  3. Game not resolved -> the sport's own odds list, so browsing it (which is itself how a game
- *     gets captured) is one click away rather than a manual URL.
+ * The distinction is the whole point of the on-page resolver below: "exact" is finished and needs
+ * no further work, while "game" and "sport" name precisely which half is still missing and so what
+ * the opened tab should go and read for itself.
  */
-export function resolveOddsJamUrl(
+export type OddsJamLinkPrecision = "exact" | "game" | "sport";
+
+export interface OddsJamLink {
+  url: string;
+  precision: OddsJamLinkPrecision;
+}
+
+/** `/game/<slug>`, with the market filter when one is known. */
+export function oddsJamGameUrl(slug: string, marketId: string | null): string {
+  const base = `https://oddsjam.com/game/${slug}`;
+  return marketId ? `${base}?market=${encodeURIComponent(marketId)}` : base;
+}
+
+export function oddsJamSportUrl(sportSlug: string): string {
+  return `https://oddsjam.com/${sportSlug}/odds`;
+}
+
+/**
+ * What the cache alone can answer for one row, in order of how much is known:
+ *
+ *  1. Game and market both cached -> the exact `/game/<slug>?market=<id>` a person clicking through
+ *     by hand would land on.
+ *  2. Game cached, market not -> the bare game page, whose own `__NEXT_DATA__` carries the market
+ *     vocabulary needed to finish the job.
+ *  3. Neither -> the sport's own odds list, which is where the game's slug can be found.
+ *
+ * Only case 1 is a finished answer. `planOddsJamLink` is what turns 2 and 3 into one, by handing
+ * the opened tab the request that says what it still has to resolve.
+ */
+export function resolveOddsJamLink(
   target: OddsJamLinkTarget,
   games: OddsJamGameEntry[],
   marketsBySport: Record<string, OddsJamMarketEntry[]>
-): string | null {
+): OddsJamLink | null {
   const sportSlug = oddsJamSportSlug(target.sport);
   if (!sportSlug) return null;
 
@@ -260,13 +300,164 @@ export function resolveOddsJamUrl(
     opponent: target.opponent,
     gameStartTimeIso: target.gameStartTimeIso,
   });
-  if (!game) return `https://oddsjam.com/${sportSlug}/odds`;
+  if (!game) return { url: oddsJamSportUrl(sportSlug), precision: "sport" };
 
   const marketId = target.statMarket
     ? oddsJamMarketId(target.sport, target.statMarket, target.marketType, marketsBySport[sportSlug] ?? [])
     : null;
 
-  return marketId
-    ? `https://oddsjam.com/game/${game.slug}?market=${encodeURIComponent(marketId)}`
-    : `https://oddsjam.com/game/${game.slug}`;
+  return { url: oddsJamGameUrl(game.slug, marketId), precision: marketId ? "exact" : "game" };
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Finishing the job in the opened tab
+ * ---------------------------------------------------------------------------------------------- */
+
+/**
+ * The fragment key carrying an unfinished request into the tab the click opened.
+ *
+ * A fragment rather than a query string or a `chrome.storage` handoff for three reasons: it is never
+ * sent to OddsJam's server (so this adds nothing to the request the navigation was already going to
+ * make), it survives being the thing `window.open` was handed inside the user's own gesture with no
+ * async step in between, and it needs no tab-id bookkeeping -- the request travels with the tab
+ * because it *is* part of the tab's URL.
+ */
+export const ODDSJAM_REQUEST_KEY = "clv-oj";
+
+/** `encodeURIComponent` of the JSON, not base64: it survives a copied-and-pasted URL, stays legible
+ *  to anyone who looks at the address bar and wonders what the extension is doing, and needs no
+ *  polyfill in a content script. */
+export function encodeOddsJamRequest(target: OddsJamLinkTarget): string {
+  return `#${ODDSJAM_REQUEST_KEY}=${encodeURIComponent(JSON.stringify(target))}`;
+}
+
+/** The request a page was opened with, or null when there is none or it does not parse. Everything
+ *  the resolver does is gated on this being non-null, which is what keeps an ordinary visit to
+ *  oddsjam.com entirely passive. */
+export function decodeOddsJamRequest(hash: string): OddsJamLinkTarget | null {
+  const prefix = `#${ODDSJAM_REQUEST_KEY}=`;
+  if (!hash.startsWith(prefix)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeURIComponent(hash.slice(prefix.length)));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const t = parsed as Record<string, unknown>;
+  const text = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+  // `marketType` is the one field with a closed vocabulary, and it only ever reaches
+  // `resolveClosingMarket`, which already rejects what it does not know -- so it is carried through
+  // as-is rather than validated against a list this module would then have to keep in step.
+  if (typeof t.marketType !== "string") return null;
+  return {
+    sport: text(t.sport),
+    statMarket: text(t.statMarket),
+    marketType: t.marketType as MarketType,
+    team: text(t.team),
+    opponent: text(t.opponent),
+    gameStartTimeIso: text(t.gameStartTimeIso),
+  };
+}
+
+/**
+ * The URL the button opens, complete with whatever the opened tab still has to work out for itself.
+ *
+ * An exact hit goes straight there with no fragment at all -- nothing left to do, and no reason to
+ * leave the extension's marker in the user's address bar. Anything less carries the request, so the
+ * page it lands on can finish the resolution the cache could not.
+ */
+export function planOddsJamLink(
+  target: OddsJamLinkTarget,
+  games: OddsJamGameEntry[],
+  marketsBySport: Record<string, OddsJamMarketEntry[]>
+): string | null {
+  const link = resolveOddsJamLink(target, games, marketsBySport);
+  if (!link) return null;
+  return link.precision === "exact" ? link.url : link.url + encodeOddsJamRequest(target);
+}
+
+/** One step the resolver should take on the page it is currently sitting on. */
+export type OddsJamResolveStep =
+  | { kind: "navigate"; url: string }
+  /** Press the listing's "Load more games" button and look again -- the slate is paginated and the
+   *  game wanted is past the fold. */
+  | { kind: "load-more" }
+  /** Nothing left to do, whether because the job is finished or because this page cannot finish it.
+   *  Either way the resolver stops and clears the request. */
+  | { kind: "done" };
+
+/**
+ * How many times the listing's "Load more games" button may be pressed before giving up.
+ *
+ * Each press appends one more page of the slate. Twelve is far past any real slate -- a busy college
+ * football Saturday runs to a few pages -- and exists only so a listing that keeps offering the
+ * button forever cannot turn one click into an unbounded loop of presses.
+ */
+export const ODDSJAM_MAX_LOAD_MORE = 12;
+
+/** A game link as the listing page renders it, before anything is known about kickoff. */
+export interface OddsJamListingLink {
+  slug: string;
+  awayTeam: string;
+  homeTeam: string;
+}
+
+/**
+ * What to do on `oddsjam.com/<sport>/odds` while resolving a request.
+ *
+ * The slate renders progressively and is paginated, so "not found" is genuinely ambiguous between
+ * "not on this slate" and "not loaded yet" -- which is why a miss asks for one more page rather
+ * than concluding anything, and only stops once the button is gone or the cap is hit. Stopping
+ * leaves the user on the listing, which is a page they can use, rather than on a guessed URL.
+ */
+export function planOddsJamListingStep(
+  request: OddsJamLinkTarget,
+  sportSlug: string,
+  links: OddsJamListingLink[],
+  state: { hasLoadMore: boolean; loadMoreCount: number }
+): OddsJamResolveStep {
+  const now = Date.now();
+  const match = findGameEntry(
+    links.map((l) => ({ ...l, sportSlug, kickoffIso: null, capturedAt: now })),
+    {
+      sportSlug,
+      team: request.team,
+      opponent: request.opponent,
+      gameStartTimeIso: request.gameStartTimeIso,
+    }
+  );
+  if (match) {
+    // Carries the request forward: the game page is where the market vocabulary lives, so the
+    // second half of the resolution happens there.
+    return { kind: "navigate", url: oddsJamGameUrl(match.slug, null) + encodeOddsJamRequest(request) };
+  }
+  if (state.hasLoadMore && state.loadMoreCount < ODDSJAM_MAX_LOAD_MORE) return { kind: "load-more" };
+  return { kind: "done" };
+}
+
+/**
+ * What to do on `oddsjam.com/game/<slug>` while resolving a request.
+ *
+ * This is only ever reached with the market still unresolved, and the page's own `__NEXT_DATA__`
+ * has just supplied the sport's whole vocabulary -- so either the market is in it, and the filter
+ * goes on the URL, or it genuinely is not, and the bare game page is the honest answer. A URL that
+ * already carries a `?market=` is finished by definition and never re-navigated, which is also what
+ * stops the navigation below from looping back into itself.
+ *
+ * The extra load this costs happens once per sport: the vocabulary it reads on the way through is
+ * cached, so the next click for that sport resolves the market before the tab is even opened.
+ */
+export function planOddsJamGameStep(
+  request: OddsJamLinkTarget,
+  slug: string,
+  currentMarketParam: string | null,
+  vocabulary: OddsJamMarketEntry[]
+): OddsJamResolveStep {
+  if (currentMarketParam) return { kind: "done" };
+  const marketId = request.statMarket
+    ? oddsJamMarketId(request.sport, request.statMarket, request.marketType, vocabulary)
+    : null;
+  if (!marketId) return { kind: "done" };
+  return { kind: "navigate", url: oddsJamGameUrl(slug, marketId) };
 }

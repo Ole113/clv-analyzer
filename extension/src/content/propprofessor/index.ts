@@ -241,10 +241,11 @@ const adapter: SiteAdapter = {
     return boardChips().length > 0;
   },
 
-  // The one icon this board's 24px overlay lane gets -- neither the current-odds button nor Kelly
-  // live here (see `SiteAdapter.oddsButton`'s own comment on that lane's width), but a single
-  // 16px icon costs nothing further and this board is one of the two this feature is for.
-  oddsJamLink: true,
+  // Deliberately NO `oddsJamLink`. The button used to be here, and is not any more: it now drives
+  // the tab it opens (see `oddsjam-site/resolve.ts`), and the referrer for that navigation should
+  // be OddsJam's own Fantasy board rather than a competitor's page. Opening OddsJam's odds screen
+  // from propprofessor.com is a thing OddsJam can see in its own logs, and there is no reason to
+  // show them that. The button lives on the OddsJam board alone; the guard test keeps it there.
 
   fantasyBook() {
     // The selected chip carries no aria-selected or data-state -- only Tailwind class variants.

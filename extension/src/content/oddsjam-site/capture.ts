@@ -2,15 +2,13 @@ import { oddsJamSportSlug, type OddsJamMarketEntry } from "@clv/shared";
 import { recordGame, recordMarkets } from "./store";
 
 /**
- * Passively fills the OddsJam deep-link cache from pages the user opens themselves.
+ * Passively fills the OddsJam deep-link cache from every oddsjam.com page this extension is on.
  *
- * This is the entire reason the feature can exist at all without contacting OddsJam automatically
- * -- see the module comment on `@clv/shared/oddsjam-site.ts` for the constraint and why the old
- * approach (a background fetch of the odds listing) violated it. Everything here reads data the
- * browser already downloaded as part of an ordinary page load the user asked for; nothing here
- * issues a request, opens a tab, or runs on anything but this page's own DOM mutations. (Guarded by
- * a read-only test alongside `oddsjam-automation-guard.test.ts` -- see that file's own comment on
- * why these files are named there rather than added to its "no oddsjam hostname" check.)
+ * This is what makes the common case instant: a game or a market already captured needs no resolve
+ * at all, and the button opens the exact URL straight from the board. Everything here reads data
+ * the browser already downloaded as part of loading the page; nothing here issues a request, opens
+ * a tab, or navigates -- taking the tab somewhere is `resolve.ts`'s job alone, and the guard test
+ * keeps that split honest by forbidding navigation in this file specifically.
  *
  * Two page shapes, read differently:
  *
@@ -145,7 +143,8 @@ function schedule(): void {
   }, 250);
 }
 
-function start(): void {
+/** Started by `index.ts`, which also starts the resolver -- see its own comment for the ordering. */
+export function startCaptureFromPage(): void {
   inject();
   new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
   // The listing page's own game list can take several real seconds to populate after the shell
@@ -153,5 +152,3 @@ function start(): void {
   // whatever it misses, same as every other injection script here.
   setInterval(schedule, 4000);
 }
-
-start();

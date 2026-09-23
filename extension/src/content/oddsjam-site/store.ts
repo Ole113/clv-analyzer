@@ -1,6 +1,6 @@
 import {
+  planOddsJamLink,
   pruneGameEntries,
-  resolveOddsJamUrl,
   type OddsJamGameEntry,
   type OddsJamLinkTarget,
   type OddsJamMarketEntry,
@@ -54,14 +54,21 @@ export async function refreshOddsJamIndex(): Promise<void> {
 }
 
 /**
- * The link for one row, resolved entirely from the in-memory mirror -- deliberately synchronous.
+ * The URL to open for one row, resolved entirely from the in-memory mirror -- deliberately
+ * synchronous.
  *
  * `window.open` has to run inside the same call stack as the click that asked for it, or Chrome's
  * popup blocker can treat it as an unsolicited one; a storage round trip in between would risk
  * exactly that. `refreshOddsJamIndex` is what keeps the mirror this reads worth trusting.
+ *
+ * What comes back is never a dead end any more: a cache hit is the exact market URL, and a miss is
+ * the page that holds what is missing, with the request attached for `resolve.ts` to finish in the
+ * opened tab (see `planOddsJamLink`). The mirror being cold therefore costs a second or two of
+ * resolving, not a failed click -- which is why this no longer needs the cache to be warm to be
+ * useful, only to be fast.
  */
 export function resolveLink(target: OddsJamLinkTarget): string | null {
-  return resolveOddsJamUrl(target, gamesMirror, marketsMirror);
+  return planOddsJamLink(target, gamesMirror, marketsMirror);
 }
 
 /** Upserts one captured game by its slug -- a page revisited later (kickoff time confirmed, a typo

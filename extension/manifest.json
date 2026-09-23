@@ -69,7 +69,7 @@
         "https://oddsjam.com/*/odds*"
       ],
       "js": [
-        "content/oddsjam-site-capture.js"
+        "content/oddsjam-site.js"
       ],
       "run_at": "document_idle"
     },

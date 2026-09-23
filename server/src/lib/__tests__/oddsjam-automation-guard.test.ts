@@ -9,6 +9,13 @@ import {
   ODDS_API_COST_PER_READ,
   ODDS_API_MAX_BOOKMAKERS,
   PROPPROFESSOR_SCREEN_ENDPOINT,
+  decodeOddsJamRequest,
+  encodeOddsJamRequest,
+  planOddsJamGameStep,
+  planOddsJamLink,
+  planOddsJamListingStep,
+  ODDSJAM_MAX_LOAD_MORE,
+  type OddsJamLinkTarget,
 } from "@clv/shared";
 
 /**
@@ -16,10 +23,11 @@ import {
  * automated traffic to OddsJam.
  *
  * The OddsJam subscription is paid a year up front, so a ban is unrecoverable; the PropProfessor
- * account is replaceable. Capture-time code that reads the DOM of an OddsJam page the *user* opened
- * is fine and deliberately untouched by these tests -- it issues no requests. What is forbidden is
- * the background worker initiating contact on a timer, which is exactly what it used to do:
- * `runClosingWork` opened `fantasy.oddsjam.com/fantasy-odds/<book>` in a background tab every 60s.
+ * account is replaceable. Code that reads -- or, with OddsJam's written permission, navigates -- an
+ * OddsJam tab the *user's own click* opened is fine, and is covered by its own describe block below
+ * rather than by these tests. What is forbidden is the background worker initiating contact with no
+ * user asking, which is exactly what it used to do: `runClosingWork` opened
+ * `fantasy.oddsjam.com/fantasy-odds/<book>` in a background tab every 60s.
  *
  * The server is covered as well as the extension, and that is newer than the rest of this file: the
  * Odds modal's fast path (`pp-screen-read.ts`) reads the odds screen from the Node process instead
@@ -173,27 +181,178 @@ describe("The Odds API is a read of its own, not a route back to a board", () =>
   });
 });
 
-describe("OddsJam-site deep links stay read-only", () => {
+describe("OddsJam-site scripting stays user-initiated", () => {
   // `extension/src/content/oddsjam-site/*.ts` intentionally name oddsjam.com -- unlike everything
-  // else this file checks, that is the entire point: a cache of game slugs and market ids built by
-  // passively reading pages the user opens themselves (see the module comment on
-  // `@clv/shared/oddsjam-site.ts` for why that is the only way this feature can exist at all). They
-  // are deliberately NOT added to AUTOMATED_DIRS above, which would fail them for reading data a
-  // page load the user asked for already put in front of them.
+  // else this file checks, that is the entire point. They are deliberately NOT in AUTOMATED_DIRS
+  // above, which would fail them for reading data a page load the user asked for already put in
+  // front of them.
   //
-  // What they must never do is originate a request or a navigation of their own -- that is the one
-  // line this rule actually cares about, and this is the complementary check for it.
+  // These files now navigate as well as read: OddsJam support was asked in writing whether a Chrome
+  // extension may use scripting to open OddsJam odds pages, naming the exact `/game/<slug>?market=`
+  // shape, and answered "this will not be an issue" (2026-09-21). So `resolve.ts` may drive the tab
+  // the user's own click opened -- listing page to game page to game page with the market filter --
+  // and may press the listing's "Load more games" button to find a game further down the slate.
+  //
+  // What that permission does NOT cover, and what the rest of this file is about, is reaching
+  // OddsJam with no user asking. The checks below are what keep the new capability inside that
+  // line: no request is ever originated, no tab is ever opened, nothing navigates except in
+  // response to a decoded request, and the capture half stays purely passive.
   const dir = join(REPO, "extension/src/content/oddsjam-site");
-  const FORBIDDEN = [/\bfetch\s*\(/, /XMLHttpRequest/, /chrome\.tabs\.create/, /chrome\.tabs\.update/];
+  const read = (file: string) => codeOnly(readFileSync(join(dir, file), "utf8"));
+  const files = () => readdirSync(dir).filter((f) => f.endsWith(".ts"));
 
-  it("issues no request and opens no tab of its own", () => {
+  /** Originating contact of its own, as opposed to navigating the tab it is already in. This is the
+   *  distinction the permission turns on, so it is asserted against every file including the one
+   *  allowed to navigate. */
+  const ORIGINATES_CONTACT = [
+    /\bfetch\s*\(/,
+    /XMLHttpRequest/,
+    /EventSource/,
+    /\bnew WebSocket\b/,
+    /chrome\.tabs\.create/,
+    /chrome\.tabs\.update/,
+    /window\.open/,
+  ];
+
+  /** Taking the tab somewhere. Permitted, but only in `resolve.ts`. */
+  const NAVIGATES = [/location\.assign/, /location\.replace/, /location\.href\s*=/, /\.click\s*\(/];
+
+  it("issues no request and opens no tab, in any of its files", () => {
     const offenders: string[] = [];
-    for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
-      const source = codeOnly(readFileSync(join(dir, file), "utf8"));
-      for (const pattern of FORBIDDEN) {
+    for (const file of files()) {
+      const source = read(file);
+      for (const pattern of ORIGINATES_CONTACT) {
         if (pattern.test(source)) offenders.push(`${file}: ${pattern}`);
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("confines navigation to resolve.ts, leaving capture passive", () => {
+    // The split is the reason a user who merely browses oddsjam.com can never be navigated by this
+    // extension: capture runs on every matching page, and it cannot move the tab even by accident.
+    const offenders: string[] = [];
+    for (const file of files().filter((f) => f !== "resolve.ts")) {
+      const source = read(file);
+      for (const pattern of NAVIGATES) {
+        if (pattern.test(source)) offenders.push(`${file}: ${pattern}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("gates resolve.ts on a request decoded from the URL before anything else", () => {
+    // Its entry point must bail on a page opened without a request -- an ordinary visit to
+    // oddsjam.com. Asserted structurally because the alternative (importing a content script into
+    // a Node test) would mean stubbing the whole DOM to prove one early return.
+    const source = read("resolve.ts");
+    const entry = source.slice(source.indexOf("export function startResolve"));
+    expect(entry).toMatch(/decodeOddsJamRequest\(location\.hash\)[\s\S]{0,80}if \(!request\) return;/);
+  });
+});
+
+describe("the deep-link button is mounted on OddsJam's own board only", () => {
+  // The button navigates the tab it opens through OddsJam's pages, so whichever board it is clicked
+  // from becomes the referrer OddsJam sees for that navigation. It was briefly on PropProfessor's
+  // Fantasy board too; it is not any more, and re-adding it there would hand OddsJam a trail
+  // starting on a competitor's site for no benefit at all.
+  const adapter = (path: string) => codeOnly(readFileSync(join(REPO, path), "utf8"));
+
+  it("is on the OddsJam adapter", () => {
+    expect(adapter("extension/src/content/oddsjam/index.ts")).toMatch(/oddsJamLink:\s*true/);
+  });
+
+  it("is on no other adapter", () => {
+    const others = [
+      "extension/src/content/propprofessor/index.ts",
+      "extension/src/content/propprofessor/positive-ev.ts",
+    ];
+    const offenders = others.filter((path) => /oddsJamLink:\s*true/.test(adapter(path)));
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe("the OddsJam resolve pipeline terminates", () => {
+  const target: OddsJamLinkTarget = {
+    sport: "NFL",
+    statMarket: "Receiving Yards",
+    marketType: "PLAYER_PROP",
+    team: "New York Giants",
+    opponent: "Los Angeles Rams",
+    gameStartTimeIso: null,
+  };
+  const links = [
+    { slug: "giants-vs-rams-odds--78014-37430-26-38", awayTeam: "Giants", homeTeam: "Rams" },
+  ];
+
+  it("walks a cold cache from the sport listing to the exact market URL", () => {
+    // The whole point of the feature: nothing captured, and the click still ends on the market.
+    const opened = planOddsJamLink(target, [], {});
+    expect(opened).toBe(
+      "https://oddsjam.com/nfl/odds" + encodeOddsJamRequest(target)
+    );
+
+    const request = decodeOddsJamRequest(new URL(opened!).hash);
+    expect(request).toEqual(target);
+
+    const fromListing = planOddsJamListingStep(request!, "nfl", links, {
+      hasLoadMore: true,
+      loadMoreCount: 0,
+    });
+    expect(fromListing).toEqual({
+      kind: "navigate",
+      url: `https://oddsjam.com/game/${links[0].slug}` + encodeOddsJamRequest(target),
+    });
+
+    const vocabulary = [{ id: "player_reception_yds", label: "Player Receiving Yards" }];
+    const fromGame = planOddsJamGameStep(request!, links[0].slug, null, vocabulary);
+    expect(fromGame).toEqual({
+      kind: "navigate",
+      url: "https://oddsjam.com/game/" + links[0].slug + "?market=player_reception_yds",
+    });
+  });
+
+  it("stops on the URL it just navigated to rather than looping", () => {
+    // `planOddsJamGameStep`'s own output arrives back as its next input when the page reloads. If a
+    // present `?market=` were not a full stop, that would be an infinite navigation loop on the
+    // user's tab -- the single worst failure this feature could have.
+    expect(
+      planOddsJamGameStep(target, "slug", "player_reception_yds", [
+        { id: "player_reception_yds", label: "Player Receiving Yards" },
+      ])
+    ).toEqual({ kind: "done" });
+  });
+
+  it("asks for one more page of the slate, and only up to the cap", () => {
+    const miss = { ...target, team: "Chicago Bears", opponent: "Green Bay Packers" };
+    expect(
+      planOddsJamListingStep(miss, "nfl", links, { hasLoadMore: true, loadMoreCount: 0 })
+    ).toEqual({ kind: "load-more" });
+    expect(
+      planOddsJamListingStep(miss, "nfl", links, {
+        hasLoadMore: true,
+        loadMoreCount: ODDSJAM_MAX_LOAD_MORE,
+      })
+    ).toEqual({ kind: "done" });
+    expect(
+      planOddsJamListingStep(miss, "nfl", links, { hasLoadMore: false, loadMoreCount: 0 })
+    ).toEqual({ kind: "done" });
+  });
+
+  it("stops rather than guessing when the market is not in OddsJam's vocabulary", () => {
+    // Same discipline as everywhere else here: the bare game page is right, a fabricated
+    // `?market=` id would be silently wrong.
+    expect(planOddsJamGameStep(target, "slug", null, [{ id: "moneyline", label: "Moneyline" }])).toEqual(
+      { kind: "done" }
+    );
+  });
+
+  it("refuses a fragment that is not one of ours", () => {
+    // Anything on oddsjam.com can put a fragment in the address bar; only a well-formed request
+    // may start the resolver.
+    expect(decodeOddsJamRequest("")).toBeNull();
+    expect(decodeOddsJamRequest("#section-2")).toBeNull();
+    expect(decodeOddsJamRequest("#clv-oj=not%20json")).toBeNull();
+    expect(decodeOddsJamRequest("#clv-oj=" + encodeURIComponent('{"sport":"NFL"}'))).toBeNull();
   });
 });

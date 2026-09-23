@@ -27,9 +27,9 @@ const options = {
     "content/pp-grid-bridge": "src/content/propprofessor/grid-bridge.ts",
     // The +EV page is not a capture board -- it mounts the Kelly button and nothing else.
     "content/pp-positive-ev": "src/content/propprofessor/positive-ev.ts",
-    // Passively fills the OddsJam deep-link cache from oddsjam.com pages the user opens themselves.
-    // See its own module comment for why this can never be more than a passive read.
-    "content/oddsjam-site-capture": "src/content/oddsjam-site/capture.ts",
+    // oddsjam.com itself: passively fills the deep-link cache from every page it is on, and
+    // finishes a deep link the board could not answer when the tab was opened carrying one.
+    "content/oddsjam-site": "src/content/oddsjam-site/index.ts",
     // Registered at runtime rather than in the manifest -- the dashboard's origin is whatever the
     // user configured -- so it has no `content_scripts` entry to match it against.
     "content/dashboard-warm": "src/content/dashboard/warm.ts",

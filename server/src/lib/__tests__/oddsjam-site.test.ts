@@ -5,7 +5,7 @@ import {
   oddsJamCandidateLabel,
   oddsJamSportSlug,
   pruneGameEntries,
-  resolveOddsJamUrl,
+  resolveOddsJamLink,
   type OddsJamGameEntry,
   type OddsJamMarketEntry,
 } from "@clv/shared";
@@ -195,7 +195,7 @@ describe("findGameEntry", () => {
   });
 });
 
-describe("resolveOddsJamUrl", () => {
+describe("resolveOddsJamLink", () => {
   const entry = game();
   const nflVocabulary: OddsJamMarketEntry[] = [
     { id: "player_rushing_attempts", label: "Player Rushing Attempts" },
@@ -204,7 +204,7 @@ describe("resolveOddsJamUrl", () => {
   ];
 
   it("builds the exact game+market URL when both are known", () => {
-    const url = resolveOddsJamUrl(
+    const link = resolveOddsJamLink(
       {
         sport: "NFL",
         statMarket: "Rushing Attempts",
@@ -216,13 +216,14 @@ describe("resolveOddsJamUrl", () => {
       [entry],
       { nfl: nflVocabulary }
     );
-    expect(url).toBe(
-      "https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38?market=player_rushing_attempts"
-    );
+    expect(link).toEqual({
+      url: "https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38?market=player_rushing_attempts",
+      precision: "exact",
+    });
   });
 
   it("reuses PropProfessor's period handling to find a period-qualified market", () => {
-    const url = resolveOddsJamUrl(
+    const link = resolveOddsJamLink(
       {
         sport: "NFL",
         statMarket: "1st Quarter Passing Yards",
@@ -234,13 +235,14 @@ describe("resolveOddsJamUrl", () => {
       [entry],
       { nfl: nflVocabulary }
     );
-    expect(url).toBe(
-      "https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38?market=1st_quarter_player_passing_yards"
-    );
+    expect(link).toEqual({
+      url: "https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38?market=1st_quarter_player_passing_yards",
+      precision: "exact",
+    });
   });
 
   it("reuses the game-total default the same way resolveClosingMarket does", () => {
-    const url = resolveOddsJamUrl(
+    const link = resolveOddsJamLink(
       {
         sport: "NFL",
         statMarket: "Game Total",
@@ -252,13 +254,14 @@ describe("resolveOddsJamUrl", () => {
       [entry],
       { nfl: nflVocabulary }
     );
-    expect(url).toBe(
-      "https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38?market=total_points"
-    );
+    expect(link).toEqual({
+      url: "https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38?market=total_points",
+      precision: "exact",
+    });
   });
 
-  it("falls back to the bare game page when the market has not been captured", () => {
-    const url = resolveOddsJamUrl(
+  it("reports the game alone when the market has not been captured", () => {
+    const link = resolveOddsJamLink(
       {
         sport: "NFL",
         statMarket: "Receiving Yards",
@@ -270,11 +273,14 @@ describe("resolveOddsJamUrl", () => {
       [entry],
       { nfl: nflVocabulary }
     );
-    expect(url).toBe("https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38");
+    expect(link).toEqual({
+      url: "https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38",
+      precision: "game",
+    });
   });
 
-  it("falls back to the sport's odds list when the game has not been captured", () => {
-    const url = resolveOddsJamUrl(
+  it("reports the sport alone when the game has not been captured", () => {
+    const link = resolveOddsJamLink(
       {
         sport: "NFL",
         statMarket: "Rushing Attempts",
@@ -286,12 +292,12 @@ describe("resolveOddsJamUrl", () => {
       [entry],
       { nfl: nflVocabulary }
     );
-    expect(url).toBe("https://oddsjam.com/nfl/odds");
+    expect(link).toEqual({ url: "https://oddsjam.com/nfl/odds", precision: "sport" });
   });
 
   it("returns null for a sport OddsJam's site is not known to cover", () => {
     expect(
-      resolveOddsJamUrl(
+      resolveOddsJamLink(
         {
           sport: "CSGO",
           statMarket: "Maps Won",
@@ -306,8 +312,8 @@ describe("resolveOddsJamUrl", () => {
     ).toBeNull();
   });
 
-  it("never fabricates a market id for a DFS-only market -- falls back to the game page", () => {
-    const url = resolveOddsJamUrl(
+  it("never fabricates a market id for a DFS-only market -- reports the game alone", () => {
+    const link = resolveOddsJamLink(
       {
         sport: "NFL",
         statMarket: "Fantasy Score (PrizePicks)",
@@ -319,6 +325,9 @@ describe("resolveOddsJamUrl", () => {
       [entry],
       { nfl: nflVocabulary }
     );
-    expect(url).toBe("https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38");
+    expect(link).toEqual({
+      url: "https://oddsjam.com/game/giants-vs-rams-odds--78014-37430-26-38",
+      precision: "game",
+    });
   });
 });
