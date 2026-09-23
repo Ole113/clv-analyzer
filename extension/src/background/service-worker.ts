@@ -286,7 +286,8 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
       settleOddsTerminal(requestId, {
         ok: false,
         error:
-          "Odds Terminal did not answer. Make sure the tab that opened is signed in, then hit Refresh.",
+          "Odds Terminal did not answer. Check that the tab opened (a blocked pop-up would stop it) " +
+          "and that you are signed in there, then hit Refresh.",
       });
     }, ODDS_TERMINAL_TIMEOUT_MS);
     pendingOddsTerminal.set(requestId, { pick, path, respond: sendResponse, timer });

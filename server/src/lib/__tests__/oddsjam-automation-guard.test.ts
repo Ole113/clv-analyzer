@@ -375,6 +375,22 @@ describe("Odds Terminal is read only from inside the tab the user opened", () =>
     );
   });
 
+  it("does not treat window.open's return value as a success signal", () => {
+    // `window.open(url, "_blank", "noopener")` returns null ALWAYS -- `noopener` severs the opener
+    // relationship, so the spec has no handle to give back. Branching on it as though null meant
+    // "blocked" made every lookup report a blocked pop-up and, because the branch returned early,
+    // stopped the worker from ever being told the request id existed. The feature was broken on
+    // every click. Asserted structurally because a Node test cannot exercise `window.open`, and
+    // the type checker is perfectly happy with the bug.
+    const modal = codeOnly(
+      readFileSync(join(REPO, "extension/src/content/shared/odds-modal.ts"), "utf8")
+    );
+    expect(modal).toMatch(/window\.open\(/);
+    // No assignment of the call's result, and no truthiness branch on one.
+    expect(modal).not.toMatch(/(const|let|var)\s+\w+\s*=\s*window\.open\(/);
+    expect(modal).not.toMatch(/if\s*\(\s*!\s*window\.open\(/);
+  });
+
   it("has no timer, observer or load-time read anywhere in the directory", () => {
     // The property that separates this from the automation that got PropProfessor banned: there is
     // no clock in it. A read happens because a person clicked, or it does not happen.

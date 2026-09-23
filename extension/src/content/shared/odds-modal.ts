@@ -719,14 +719,19 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   function startOddsTerminalLookup(): Promise<OddsLookupResponse | undefined> {
     const lookupId = newOddsTerminalRequestId();
     // Synchronously, inside the click. Nothing may be awaited above this line -- see `load`.
-    const opened = window.open(oddsTerminalRequestUrl(lookupId), "_blank", "noopener");
-    if (!opened) {
-      return Promise.resolve({
-        ok: false,
-        error:
-          "The browser blocked the Odds Terminal tab. Allow pop-ups for this board, then hit Refresh.",
-      });
-    }
+    //
+    // The return value is deliberately ignored, and that is not laziness. `window.open` returns
+    // **null whenever `noopener` is set**, by specification: the opener relationship is severed, so
+    // there is no handle to hand back. Treating that null as "the pop-up was blocked" -- which this
+    // did at first -- meant every single lookup reported a blocked pop-up while the tab it had just
+    // opened sat there perfectly fine, and, far worse, returned early so the worker was never told
+    // the request id existed. The relay would then ask about an id nobody was waiting on and be
+    // turned away. The feature did not work even once.
+    //
+    // `noopener` stays. This opens a third-party, account-gated site, and handing that page a
+    // `window.opener` reference back to the board is not worth trading for a diagnostic. A pop-up
+    // that really is blocked is caught by the worker's timeout, which names it as a likely cause.
+    window.open(oddsTerminalRequestUrl(lookupId), "_blank", "noopener");
     return chrome.runtime.sendMessage({
       type: "clv:odds-terminal-lookup",
       requestId: lookupId,
