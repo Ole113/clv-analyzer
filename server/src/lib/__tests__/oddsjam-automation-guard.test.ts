@@ -356,7 +356,9 @@ describe("Odds Terminal is read only from inside the tab the user opened", () =>
     // including the ones this project is most careful about.
     const source = read("relay.ts");
     const calls = source.match(/\bfetch\s*\(([^,)]*)/g) ?? [];
-    expect(calls.length).toBeGreaterThan(0);
+    // Three now, not one: the snapshot (to name the fixture), the odds stream, and the signed-out
+    // diagnostic. Every one of them must still take a bare path.
+    expect(calls.length).toBeGreaterThanOrEqual(2);
     for (const call of calls) {
       expect(call).not.toMatch(/https?:|ODDS_TERMINAL_ORIGIN|\borigin\b/);
     }

@@ -133,13 +133,34 @@ export interface OddsTerminalPathResponse {
   reason?: string;
 }
 
-/** The relay's answer: either the snapshot it read, or why it could not. */
+/**
+ * The relay handing back the snapshot, to be told which fixture to stream.
+ *
+ * The middle hop of three. `/api/snapshot` serves main markets only, so it is fetched purely to
+ * identify the fixture; the server resolves it and answers with the stream path to read next.
+ */
+export interface OddsTerminalSnapshotMessage {
+  type: "clv:odds-terminal-snapshot";
+  requestId: string;
+  snapshot: unknown;
+}
+
+export interface OddsTerminalSnapshotResponse {
+  ok: boolean;
+  /** Relative, always: `/api/stream?...`. Never carries an origin. */
+  streamPath?: string;
+  /** Echoed back on the final hop so the parse can filter to this fixture. */
+  fixture?: unknown;
+  reason?: string;
+}
+
+/** The relay's answer: either the stream entries it read, or why it could not. */
 export interface OddsTerminalResultMessage {
   type: "clv:odds-terminal-result";
   requestId: string;
   ok: boolean;
-  /** The raw `/api/snapshot` body, passed through untouched for the server to parse. */
-  snapshot?: unknown;
+  /** The `data[]` entries collected off the SSE stream, plus the fixture they belong to. */
+  stream?: { entries: unknown[]; fixture: unknown };
   reason?: string;
 }
 

@@ -11,7 +11,13 @@ import {
   readOddsApiNow,
   type OddsApiQuota,
 } from "./odds-api-read";
-import { planRelayRead, readRelayedSnapshot, type RelayedSnapshot } from "./odds-terminal-verdict";
+import {
+  planRelayRead,
+  readRelayedStream,
+  resolveRelayedFixture,
+  type RelayedSnapshot,
+  type RelayedStream,
+} from "./odds-terminal-verdict";
 
 /**
  * On-demand "what does the market say right now" reads, triggered by the Odds modal on a bet page
@@ -400,7 +406,7 @@ async function verdictFor(
  */
 export async function lookupFromRelay(
   item: ClosingWorkItem,
-  snapshot: RelayedSnapshot
+  relayed: RelayedStream
 ): Promise<OddsPreview> {
   const fetchedAt = new Date().toISOString();
   const plan = await planRelayRead(item);
@@ -416,7 +422,7 @@ export async function lookupFromRelay(
     };
   }
 
-  const outcome = readRelayedSnapshot(item, plan, snapshot);
+  const outcome = readRelayedStream(item, plan, relayed);
   if (outcome.kind !== "MATCHED") {
     return {
       fetchedAt,

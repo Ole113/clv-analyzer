@@ -1,8 +1,13 @@
 import { z } from "zod";
-import { oddsTerminalSnapshotPath, type ClosingWorkItem } from "@clv/shared";
+import {
+  oddsTerminalSnapshotPath,
+  type ClosingWorkItem,
+  type OddsTerminalFixture,
+  type OddsTerminalStreamEntry,
+} from "@clv/shared";
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { lookupFromRelay } from "@/lib/odds-preview";
-import { planRelayRead } from "@/lib/odds-terminal-verdict";
+import { planRelayRead, resolveRelayedFixture } from "@/lib/odds-terminal-verdict";
 
 export const dynamic = "force-dynamic";
 
@@ -30,12 +35,18 @@ export const dynamic = "force-dynamic";
  * input is a payload. `oddsjam-automation-guard.test.ts` asserts the host appears nowhere in
  * server or background code.
  *
- * ## Two requests, not one
+ * ## Three phases, because the feed needs two requests
  *
- * A GET-shaped `?plan=1` POST answers "what should I ask for", because the book ordering the query
- * depends on is a user setting living in the database, and the content script has no business
- * knowing this project's market vocabulary. The relay then fetches, and POSTs the body back here
- * for the verdict. Splitting it keeps every piece of vocabulary server-side.
+ * `/api/snapshot` serves main markets only; player props come from `/api/stream`, which requires a
+ * `fixture_id` and offers no way to discover one. So a lookup is:
+ *
+ *   1. `{plan:true}`      -> the snapshot path to fetch (book ordering is a DB setting, and the
+ *                            content script has no business knowing this project's vocabulary).
+ *   2. `{snapshot}`       -> the fixture resolved from it, plus the stream path to read next.
+ *   3. `{stream}`         -> the verdict.
+ *
+ * Every path handed back is relative by construction, so the relay can only ever fetch against the
+ * origin the user's own click put it on.
  */
 
 const identitySchema = {
@@ -59,12 +70,18 @@ const planRequestSchema = z.object({ ...identitySchema, plan: z.literal(true) })
 /**
  * "Here is what Odds Terminal said."
  *
- * `snapshot` is `z.unknown()` rather than a modelled shape on purpose: it is a third party's
- * response body, it will change without notice, and `normalizeOddsTerminalSnapshot` is already
- * written to treat every field as untrusted and to return a reason rather than throw. Validating
- * it twice, in two places that could disagree, would buy nothing.
+ * Bodies are `z.unknown()` rather than modelled shapes on purpose: they are a third party's
+ * responses, they will change without notice, and the parsers are already written to treat every
+ * field as untrusted and to return a reason rather than throw. Validating twice, in two places
+ * that could disagree, would buy nothing.
  */
-const verdictRequestSchema = z.object({ ...identitySchema, snapshot: z.unknown() });
+const snapshotRequestSchema = z.object({ ...identitySchema, snapshot: z.unknown() });
+
+/** "Here is what the stream said." */
+const streamRequestSchema = z.object({
+  ...identitySchema,
+  stream: z.object({ entries: z.array(z.unknown()).optional(), fixture: z.unknown() }),
+});
 
 function workItem(identity: Omit<z.infer<typeof planRequestSchema>, "plan">): ClosingWorkItem {
   // The fields a snapshot read does not consult are filled with the empty values `ClosingWorkItem`
@@ -105,7 +122,31 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, plan: planned, path: oddsTerminalSnapshotPath(planned) });
   }
 
-  const parsed = verdictRequestSchema.safeParse(body);
+  const asSnapshot = snapshotRequestSchema.safeParse(body);
+  if (asSnapshot.success) {
+    const { snapshot, ...identity } = asSnapshot.data;
+    const item = workItem(identity);
+    const planned = await planRelayRead(item);
+    if ("kind" in planned) {
+      return Response.json({ ok: false, reason: planned.reason, kind: planned.kind });
+    }
+    const resolved = resolveRelayedFixture(item, planned, { body: snapshot });
+    if ("kind" in resolved) {
+      // A read outcome rather than a fixture: the game is not on this slate, or the snapshot was
+      // unreadable. Final, and shown as such.
+      return Response.json({
+        ok: false,
+        reason: "reason" in resolved ? resolved.reason : "Odds Terminal could not be read.",
+      });
+    }
+    return Response.json({
+      ok: true,
+      streamPath: resolved.streamPath,
+      fixture: resolved.fixture,
+    });
+  }
+
+  const parsed = streamRequestSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json(
       { error: "invalid payload", issues: parsed.error.issues.slice(0, 8) },
@@ -113,7 +154,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const { snapshot, ...identity } = parsed.data;
-  const preview = await lookupFromRelay(workItem(identity), { body: snapshot });
+  const { stream, ...identity } = parsed.data;
+  const preview = await lookupFromRelay(workItem(identity), {
+    entries: (stream.entries ?? []) as OddsTerminalStreamEntry[],
+    fixture: stream.fixture as OddsTerminalFixture,
+  });
   return Response.json({ ok: true, preview });
 }

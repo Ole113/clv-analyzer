@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  findMatchingRow,
   findOddsTerminalFixture,
-  normalizeOddsTerminalSnapshot,
   oddsTerminalBooks,
   oddsTerminalSnapshotPath,
   planOddsTerminalRead,
@@ -15,14 +13,18 @@ import {
   type MarketType,
   type OddsTerminalFixture,
   type OddsTerminalReadPlan,
-  type ParseResult,
 } from "@clv/shared";
 import { DEFAULT_BOOK_ORDER } from "../app-settings";
-import { buildClosingVerdict } from "../closing";
-import { readRelayedSnapshot } from "../odds-terminal-verdict";
+import { resolveRelayedFixture } from "../odds-terminal-verdict";
 
 /**
- * The Odds Terminal interpretation path, end to end.
+ * Odds Terminal's snapshot: read planning, and the one job the snapshot still has.
+ *
+ * It is no longer an odds source. `/api/snapshot` serves main markets only (verified live across
+ * all sixteen sports), so the odds come from `/api/stream` -- covered by
+ * `odds-terminal-stream.test.ts`. What remains here is what the snapshot is still fetched for:
+ * resolving *which fixture* a pick is about, since the stream demands a `fixture_id` and will not
+ * hand one out.
  *
  * The fixture is shaped as the live `/api/snapshot` response was observed to be, and carries the
  * structural traps that actually break a parser of this kind:
@@ -70,49 +72,31 @@ function resolve(plan: OddsTerminalReadPlan, matchup: string): OddsTerminalFixtu
   return found;
 }
 
-function parse(
-  plan: OddsTerminalReadPlan,
-  matchup = "New York Giants vs Los Angeles Rams",
-  options?: { atLine?: number | null }
-): ParseResult {
-  const result = normalizeOddsTerminalSnapshot(fixture(), plan, resolve(plan, matchup), options);
-  expect(result.ok).toBe(true);
-  return result;
-}
-
 describe("read planning", () => {
   it("maps our league codes onto the sport and league the feed uses", () => {
     expect(planFor("NFL", "Receiving Yards")).toMatchObject({
       sport: "football",
       league: "nfl",
-      marketId: "player_receiving_yards",
     });
+    // A prop carries no feed-side market id at all -- see the next case.
     expect(planFor("MLB", "Total Bases")).toMatchObject({
       sport: "baseball",
-      marketId: "player_total_bases",
+      league: "mlb",
+      marketId: null,
     });
   });
 
-  it("keeps the two baseball strikeout markets apart", () => {
-    // The single most dangerous collision in the market tables: the same English word is a pitcher
-    // market and a batter market, and answering the wrong one would look entirely plausible.
-    expect(resolveOddsTerminalMarket("MLB", "PLAYER_PROP", "Pitcher Strikeouts")).toEqual({
-      marketId: "player_pitcher_strikeouts",
-    });
-    expect(resolveOddsTerminalMarket("MLB", "PLAYER_PROP", "Batter Strikeouts")).toEqual({
-      marketId: "player_batter_strikeouts",
-    });
-  });
-
-  it("separates a market this source lacks from one we simply have not mapped", () => {
-    // The distinction the three-outcome type exists for: one is a blameless dead end, the other is
-    // a gap in our own table that someone should close. Collapsing them hides the second forever.
-    expect(resolveOddsTerminalMarket("Tennis", "PLAYER_PROP", "Aces")).toMatchObject({
-      kind: "noEquivalent",
-    });
-    expect(resolveOddsTerminalMarket("NFL", "PLAYER_PROP", "Punts Inside The 20")).toMatchObject({
-      kind: "unmapped",
-    });
+  it("needs no market id for a player prop", () => {
+    // The point of deleting the prop table. A prop plans successfully whatever it is called,
+    // because the market is matched by NAME against what the stream returns -- so this source now
+    // works for any prop the site carries, not just the ones somebody remembered to type in.
+    for (const market of ["Hits + Runs + RBIs", "Punts Inside The 20", "Anything At All"]) {
+      const plan = planOddsTerminalRead({ sport: "MLB", statMarket: market, marketType: "PLAYER_PROP" });
+      expect("kind" in plan, `${market} should plan`).toBe(false);
+      if ("kind" in plan) continue;
+      expect(plan.marketId).toBeNull();
+      expect(plan.requestedStatMarket).toBe(market);
+    }
   });
 
   it("refuses the sports whose leagues our vocabulary has collapsed", () => {
@@ -243,189 +227,5 @@ describe("fixture resolution", () => {
     expect(
       findOddsTerminalFixture(fixtures(), plan, { matchup: null, subjectTeam: null })
     ).toBeNull();
-  });
-});
-
-describe("snapshot parsing", () => {
-  const plan = planFor("NFL", "Receiving Yards");
-
-  it("keeps another fixture's players out of the rows", () => {
-    // The flat array holds Tyreek Hill under a different fixture id. A parser that forgot to filter
-    // would offer him as a selection in the Giants/Rams game, and the modal would happily show it.
-    const players = new Set(parse(plan).rows.map((r) => r.player));
-    expect(players).toContain("malik nabers");
-    expect(players).toContain("puka nacua");
-    expect(players).not.toContain("tyreek hill");
-  });
-
-  it("emits an OVER and an UNDER row per player", () => {
-    const nabers = parse(plan).rows.filter((r) => r.player === "malik nabers");
-    expect(nabers.map((r) => r.side).sort()).toEqual(["OVER", "UNDER"]);
-  });
-
-  it("collapses a book's alt line onto its real one", () => {
-    // DraftKings quotes 62.5 and 70.5. Its main line is the consensus number the rest of the field
-    // is on, not whichever of its own selections happens to price closest to even money.
-    const row = parse(plan).rows.find((r) => r.player === "malik nabers" && r.side === "OVER")!;
-    const dk = row.bookLines.find((b) => b.bookKey === "draftkings")!;
-    expect(dk.line).toBe(62.5);
-    expect(dk.price).toBe(-118);
-    expect(dk.rawText).toContain("also quoted 70.5");
-  });
-
-  it("drops an exchange quote that was never a real market", () => {
-    // Novig's only selection is -900/+600 at 45.5 -- a resting order, not a line anyone is offering.
-    const row = parse(plan).rows.find((r) => r.player === "malik nabers" && r.side === "OVER")!;
-    expect(row.bookLines.map((b) => b.bookKey)).not.toContain("novig");
-  });
-
-  it("keeps a multi-word book name and an apostrophe intact", () => {
-    // Both broke the first draft of the pair key, which split on spaces: "Hard Rock" became "Hard",
-    // and every player's quotes were attributed to the wrong book.
-    expect(normalizeOddsTerminalBookKey("Hard Rock")).toBe("hardrock");
-    const row = parse(plan).rows.find((r) => r.player === "wandale robinson" && r.side === "OVER");
-    expect(row).toBeDefined();
-    expect(row!.bookLines.find((b) => b.bookKey === "pinnacle")?.price).toBe(-110);
-  });
-
-  it("answers what each book pays at the line actually taken", () => {
-    const row = parse(plan, "New York Giants vs Los Angeles Rams", { atLine: 70.5 }).rows.find(
-      (r) => r.player === "malik nabers" && r.side === "OVER"
-    )!;
-    const dk = row.bookLines.find((b) => b.bookKey === "draftkings")!;
-    // Its own main line is untouched; the at-line price is carried beside it, never instead of it.
-    expect(dk.line).toBe(62.5);
-    expect(dk.priceAtLine).toBe(135);
-    expect(row.bookLines.find((b) => b.bookKey === "pinnacle")?.priceAtLine).toBeNull();
-  });
-
-  it("treats a moneyline's price as its line", () => {
-    const mlPlan = planFor("NFL", "Moneyline", "MONEYLINE");
-    const rows = parse(mlPlan).rows;
-    const giants = rows.find((r) => r.subjectTeam === "New York Giants")!;
-    expect(giants.bookLines.find((b) => b.bookKey === "pinnacle")?.line).toBe(145);
-    expect(giants.side).toBeNull();
-  });
-
-  it("returns a reason rather than throwing on a malformed snapshot", () => {
-    for (const bad of [null, 42, {}, { odds: "nope" }]) {
-      const result = normalizeOddsTerminalSnapshot(bad, plan, fixtures()[0]);
-      expect(result.ok).toBe(false);
-      expect(result.reason).toBeTruthy();
-    }
-  });
-});
-
-describe("the verdict is built the same way every other source's is", () => {
-  const plan = planFor("NFL", "Receiving Yards");
-
-  it("shows a DFS column but never averages it", () => {
-    // The comparison this modal exists to make: a DFS line beside the sportsbook consensus. It has
-    // to be visible and it must not move the average.
-    const row = parse(plan).rows.find((r) => r.player === "malik nabers" && r.side === "OVER")!;
-    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 62.5, row, null, "ODDS_TERMINAL", {
-      lookup: true,
-    });
-    const pp = verdict.closeLines.find((l) => l.bookKey === "prizepicks");
-    expect(pp).toBeDefined();
-    expect(pp!.includedInAverage).toBe(false);
-    expect(verdict.closeLines.find((l) => l.bookKey === "pinnacle")!.includedInAverage).toBe(true);
-  });
-
-  it("averages the real books onto the consensus line", () => {
-    const row = parse(plan).rows.find((r) => r.player === "malik nabers" && r.side === "OVER")!;
-    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 62.5, row, null, "ODDS_TERMINAL", {
-      lookup: true,
-    });
-    expect(verdict.avgClosingLine).toBe(62.5);
-    expect(verdict.closingBookCount).toBeGreaterThanOrEqual(3);
-  });
-
-  it("filters ODDS_TERMINAL exactly as it filters the other feed sources", () => {
-    // If this ever diverges, a difference between the modal's two tabs stops being a difference
-    // between sportsbooks and becomes a difference between our own settings -- which is precisely
-    // the failure the shared filtering exists to prevent.
-    const row = parse(plan).rows.find((r) => r.player === "malik nabers" && r.side === "OVER")!;
-    const asTerminal = buildClosingVerdict("PLAYER_PROP", "OVER", 62.5, row, null, "ODDS_TERMINAL", {
-      lookup: true,
-    });
-    const asApi = buildClosingVerdict("PLAYER_PROP", "OVER", 62.5, row, null, "ODDS_API", {
-      lookup: true,
-    });
-    expect(asTerminal.closeLines.map((l) => [l.bookKey, l.includedInAverage])).toEqual(
-      asApi.closeLines.map((l) => [l.bookKey, l.includedInAverage])
-    );
-    expect(asTerminal.avgClosingLine).toBe(asApi.avgClosingLine);
-    expect(asTerminal.avgClosingPrice).toBe(asApi.avgClosingPrice);
-  });
-});
-
-describe("the relayed-snapshot reader", () => {
-  const plan = planFor("NFL", "Receiving Yards");
-  const item = {
-    id: "lookup",
-    site: "PROPPROFESSOR" as const,
-    fantasyBook: "",
-    pageUrl: null,
-    gameStartTime: null,
-    sport: "NFL",
-    statMarket: "Receiving Yards",
-    marketType: "PLAYER_PROP" as const,
-    player: "Malik Nabers",
-    subjectTeam: null,
-    matchup: "New York Giants vs Los Angeles Rams",
-    side: "OVER" as const,
-    takenLine: 62.5,
-    externalPropId: null,
-  };
-
-  it("matches the pick's own row out of a snapshot it was handed", () => {
-    const outcome = readRelayedSnapshot(item, plan, { body: fixture() });
-    expect(outcome.kind).toBe("MATCHED");
-    if (outcome.kind !== "MATCHED") return;
-    expect(outcome.row.player).toBe("malik nabers");
-    expect(outcome.row.side).toBe("OVER");
-    // The recorded source must not be fetchable. Nothing in this project may hold an Odds Terminal
-    // URL that something could later decide to request.
-    expect(outcome.source.site).toBe("ODDS_TERMINAL");
-    expect(outcome.source.url).not.toMatch(/https?:|oddsterminal/i);
-  });
-
-  it("says the selection is absent rather than matching the wrong player", () => {
-    const outcome = readRelayedSnapshot({ ...item, player: "Someone Else" }, plan, {
-      body: fixture(),
-    });
-    expect(outcome.kind).toBe("SELECTION_ABSENT");
-  });
-
-  it("explains a snapshot that does not carry the pick's game", () => {
-    const outcome = readRelayedSnapshot({ ...item, matchup: "Jets vs Patriots" }, plan, {
-      body: fixture(),
-    });
-    expect(outcome.kind).toBe("READ_FAILED");
-    if (outcome.kind !== "READ_FAILED") return;
-    expect(outcome.reason).toContain("Jets vs Patriots");
-  });
-
-  it("fails with a reason rather than throwing on rubbish", () => {
-    for (const body of [null, "nope", {}, { fixtures: 3 }]) {
-      expect(readRelayedSnapshot(item, plan, { body }).kind).toBe("READ_FAILED");
-    }
-  });
-
-  it("finds a row the shared matcher agrees with", () => {
-    // The matcher is the same one every source goes through; a row this parser produces must be
-    // findable by it on the pick's own identity alone.
-    const parsed = parse(plan);
-    const row = findMatchingRow(parsed.rows, {
-      marketType: "PLAYER_PROP",
-      statMarket: "Receiving Yards",
-      player: "Malik Nabers",
-      subjectTeam: null,
-      matchup: "New York Giants vs Los Angeles Rams",
-      side: "OVER",
-      externalPropId: null,
-    });
-    expect(row?.player).toBe("malik nabers");
   });
 });

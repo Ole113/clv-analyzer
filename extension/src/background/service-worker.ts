@@ -15,6 +15,8 @@ import type {
   OddsTerminalPathMessage,
   OddsTerminalPathResponse,
   OddsTerminalResultMessage,
+  OddsTerminalSnapshotMessage,
+  OddsTerminalSnapshotResponse,
   KellySettingsMessage,
   KellySettingsResponse,
 } from "../content/shared/messages";
@@ -241,11 +243,37 @@ async function oddsTerminalPath(pick: OddsLookupPick): Promise<OddsTerminalPathR
   }
 }
 
-/** Turns a relayed snapshot into the verdict the modal renders. The server does the computing; it
+/** Asks the server which fixture the snapshot names, and what to stream next. */
+async function oddsTerminalFixture(
+  pick: OddsLookupPick,
+  snapshot: unknown
+): Promise<OddsTerminalSnapshotResponse> {
+  const settings = await configured();
+  if (!settings) return { ok: false, reason: "not configured -- open the extension options" };
+  try {
+    const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-verdict"), {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
+      body: JSON.stringify({ ...pick, snapshot }),
+    });
+    if (!response.ok) return { ok: false, reason: `server ${response.status}` };
+    const body = (await response.json()) as OddsTerminalSnapshotResponse;
+    return body?.ok && body.streamPath
+      ? { ok: true, streamPath: body.streamPath, fixture: body.fixture }
+      : { ok: false, reason: body?.reason ?? "Odds Terminal is not listing this game." };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : "could not reach the backend",
+    };
+  }
+}
+
+/** Turns the relayed stream into the verdict the modal renders. The server does the computing; it
  *  never does the fetching. */
 async function oddsTerminalVerdict(
   pick: OddsLookupPick,
-  snapshot: unknown
+  stream: unknown
 ): Promise<OddsLookupResponse> {
   const settings = await configured();
   if (!settings) return { ok: false, error: "not configured -- open the extension options" };
@@ -253,7 +281,7 @@ async function oddsTerminalVerdict(
     const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-verdict"), {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
-      body: JSON.stringify({ ...pick, snapshot }),
+      body: JSON.stringify({ ...pick, stream }),
     });
     if (!response.ok) return { ok: false, error: `server ${response.status}` };
     const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
@@ -313,6 +341,18 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
     return true;
   }
 
+  if (message?.type === "clv:odds-terminal-snapshot") {
+    const { requestId, snapshot } = message as OddsTerminalSnapshotMessage;
+    const entry = pendingOddsTerminal.get(requestId);
+    // Same gate as the path hop: an id nobody is waiting on gets nothing.
+    if (!entry) {
+      sendResponse({ ok: false, reason: "This lookup is no longer waiting for an answer." } satisfies OddsTerminalSnapshotResponse);
+      return false;
+    }
+    void oddsTerminalFixture(entry.pick, snapshot).then(sendResponse);
+    return true;
+  }
+
   if (message?.type === "clv:odds-terminal-result") {
     const result = message as OddsTerminalResultMessage;
     const entry = pendingOddsTerminal.get(result.requestId);
@@ -321,7 +361,7 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
       settleOddsTerminal(result.requestId, { ok: false, error: result.reason ?? "Odds Terminal could not be read." });
       return false;
     }
-    void oddsTerminalVerdict(entry.pick, result.snapshot).then((response) => {
+    void oddsTerminalVerdict(entry.pick, result.stream).then((response) => {
       settleOddsTerminal(result.requestId, response);
     });
     return false;

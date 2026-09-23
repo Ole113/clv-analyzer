@@ -10,5 +10,6 @@ export * from "./sources/main-line";
 export * from "./sources/propprofessor-screen";
 export * from "./sources/odds-api-event";
 export * from "./sources/odds-terminal-event";
+export * from "./sources/odds-terminal-stream";
 export { parseOddsJamTable } from "./parsers/oddsjam";
 export { parsePropProfessorTable } from "./parsers/propprofessor";

@@ -1,13 +1,15 @@
 import {
   findMatchingRow,
   findOddsTerminalFixture,
-  normalizeOddsTerminalSnapshot,
+  normalizeOddsTerminalStream,
+  oddsTerminalStreamPath,
   planOddsTerminalRead,
   type ClosingReadOutcome,
   type ClosingSourceInfo,
   type ClosingWorkItem,
   type OddsTerminalFixture,
   type OddsTerminalReadPlan,
+  type OddsTerminalStreamEntry,
   type ParsedRow,
 } from "@clv/shared";
 import { getAppSettings } from "./app-settings";
@@ -38,10 +40,21 @@ import { getAppSettings } from "./app-settings";
  * already happened). Naming it `-read` would invite exactly the code this comment forbids.
  */
 
-/** Everything the relay collected, as it came off the wire. */
+/**
+ * What the relay collected, as it came off the wire.
+ *
+ * Two hops, because the feed needs two: the snapshot names the fixture, the stream prices it.
+ */
 export interface RelayedSnapshot {
   /** The parsed JSON body of `/api/snapshot`. Untouched, and treated as untrusted input. */
   body: unknown;
+}
+
+export interface RelayedStream {
+  /** The `data[]` entries collected off `/api/stream`. Untrusted. */
+  entries: OddsTerminalStreamEntry[];
+  /** The fixture the relay was told to stream, echoed back so the parse can filter on it. */
+  fixture: OddsTerminalFixture;
 }
 
 function sourceFor(plan: OddsTerminalReadPlan, fixtureId: string | null): ClosingSourceInfo {
@@ -51,7 +64,9 @@ function sourceFor(plan: OddsTerminalReadPlan, fixtureId: string | null): Closin
     // is the only kind this source is allowed to persist.
     url: `${plan.sport}/${fixtureId ?? "unknown"}`,
     league: plan.league,
-    market: plan.marketId,
+    // A prop has no feed-side id (it is matched by name), so the pick's own market name is what
+    // gets recorded. `ClosingSourceInfo.market` is provenance, not a key to fetch with.
+    market: plan.marketId ?? plan.requestedStatMarket,
   };
 }
 
@@ -80,23 +95,29 @@ export async function planRelayRead(
   return planOddsTerminalRead(item, { bookOrder: settings.bookOrder });
 }
 
+/** What the relay should do next, once the fixture is known. */
+export interface ResolvedFixture {
+  fixture: OddsTerminalFixture;
+  /** Relative, always. The relay appends nothing of its own. */
+  streamPath: string;
+}
+
 /**
- * The outcome for one pick, from a snapshot the relay already fetched.
+ * Finds the pick's fixture in a snapshot the relay already fetched.
  *
- * Returns the same `ClosingReadOutcome` every other source produces, so everything downstream --
- * `buildClosingVerdict`, the modal's rendering -- cannot tell which source produced it, and no two
- * tabs can drift apart.
+ * This is all the snapshot is for now. The stream will not hand out a `fixture_id`, and it will
+ * not answer without one, so the fixture has to be identified here first -- from team names, with
+ * the same fail-closed discipline as everywhere else: ambiguity is a refusal, never a guess.
  */
-export function readRelayedSnapshot(
+export function resolveRelayedFixture(
   item: ClosingWorkItem,
   plan: OddsTerminalReadPlan,
   snapshot: RelayedSnapshot
-): ClosingReadOutcome {
+): ResolvedFixture | ClosingReadOutcome {
   const body = snapshot.body;
   if (!body || typeof body !== "object") {
     return { kind: "READ_FAILED", reason: "Odds Terminal returned something that was not a snapshot." };
   }
-
   const fixtures = (body as { fixtures?: unknown }).fixtures;
   if (!Array.isArray(fixtures)) {
     return { kind: "READ_FAILED", reason: "The Odds Terminal snapshot carried no fixtures." };
@@ -107,10 +128,6 @@ export function readRelayedSnapshot(
     subjectTeam: item.subjectTeam,
   });
   if (!fixture) {
-    // The failure mode with no analogue on the PropProfessor path, which is handed its own game
-    // ids. Said plainly rather than as "market not offered", because the market is very likely
-    // fine and the thing that failed was naming the fixture -- or, just as often, the snapshot
-    // simply does not carry that game because it is not in the live slate.
     return {
       kind: "READ_FAILED",
       reason: item.matchup
@@ -118,14 +135,34 @@ export function readRelayedSnapshot(
         : "This pick records no matchup, and Odds Terminal needs one to identify the game.",
     };
   }
+  const id = typeof fixture.id === "string" ? fixture.id : null;
+  if (!id) return { kind: "READ_FAILED", reason: "That Odds Terminal fixture carries no id." };
+  return { fixture, streamPath: oddsTerminalStreamPath(plan, id) };
+}
 
-  const source = sourceFor(plan, typeof fixture.id === "string" ? fixture.id : null);
-  // One pick per read, so the line it was taken at is a thing that can be asked about -- the same
-  // `atLine` treatment every other on-demand read gets.
-  const parsed = normalizeOddsTerminalSnapshot(body, plan, fixture, { atLine: item.takenLine });
+/**
+ * The outcome for one pick, from the stream entries the relay collected.
+ *
+ * Returns the same `ClosingReadOutcome` every other source produces, so everything downstream --
+ * `buildClosingVerdict`, the modal's rendering -- cannot tell which source produced it.
+ */
+export function readRelayedStream(
+  item: ClosingWorkItem,
+  plan: OddsTerminalReadPlan,
+  relayed: RelayedStream
+): ClosingReadOutcome {
+  const source = sourceFor(
+    plan,
+    typeof relayed.fixture.id === "string" ? relayed.fixture.id : null
+  );
+  const parsed = normalizeOddsTerminalStream(relayed.entries, plan, relayed.fixture, {
+    atLine: item.takenLine,
+  });
 
   if (!parsed.ok) {
-    return { kind: "READ_FAILED", reason: parsed.reason ?? "unreadable snapshot" };
+    // The parser's reason names the markets the stream DID carry, which is nearly always the
+    // actionable detail -- a market spelled differently rather than one that is missing.
+    return { kind: "READ_FAILED", reason: parsed.reason ?? "unreadable stream" };
   }
   if (parsed.rows.length === 0) {
     return { kind: "MARKET_NOT_OFFERED", source, availableMarkets: [] };

@@ -88,7 +88,7 @@ function mappedMarketIds(): Set<string> {
     for (const market of markets) {
       for (const type of ["PLAYER_PROP", "MONEYLINE", "SPREAD", "GAME_TOTAL"] as MarketType[]) {
         const plan = planOddsTerminalRead({ sport, statMarket: market, marketType: type });
-        if (!("kind" in plan)) ids.add(plan.marketId);
+        if (!("kind" in plan) && plan.marketId) ids.add(plan.marketId);
       }
     }
   }
