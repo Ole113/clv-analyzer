@@ -1,64 +1,52 @@
 /**
- * Odds Terminal's `/api/stream`, which is where the player props actually live.
+ * Turning one Odds Terminal fixture's odds into the rows every other source in this project
+ * produces.
  *
- * ## Why this exists separately from `odds-terminal-event.ts`
+ * ## Where these entries come from
  *
- * The first build of this source was written against `/api/snapshot`, on the assumption that it
- * carried every market. It does not: verified live across all sixteen sports, that endpoint serves
- * *main markets only* -- moneyline, a spread and a total -- and silently ignores a `market`
- * parameter. Player props come from a **Server-Sent Events stream**, a different endpoint with a
- * different shape and different semantics, so it gets its own module rather than a flag.
+ * `/api/snapshot?...&fixture_id=<id>&mode=all` -- one plain JSON request, which returns every
+ * market that fixture has: game lines, team totals, period markets and **every player prop**,
+ * roughly 2,300 entries across 112 markets for an NFL game with five books attached.
  *
- * The two are used together, in that order:
+ * This module used to parse Server-Sent Events instead, on the belief that props were only
+ * available on `/api/stream`. They are not, and that stream answers a fixture query with 200 and
+ * then silence, so every prop lookup timed out. There is no stream in this source any more, and no
+ * `EventSource`, no reconnect policy and no read window to tune -- a request either answers or it
+ * does not. See `odds-terminal-event.ts` for the two requests a lookup makes.
  *
- *   1. `/api/snapshot` resolves which fixture the pick is about (it lists fixtures; the stream
- *      requires a `fixture_id` and will not hand one out).
- *   2. `/api/stream?...&fixture_id=<id>&mode=all` delivers that fixture's markets as SSE events.
+ * ## Markets are matched by NAME, never by id
  *
- * ## Markets are matched by NAME, not by id
+ * This is the load-bearing decision, and it is what makes "every player prop" achievable rather
+ * than a table someone has to keep feeding. The feed's `market_id` is a slug of its own display
+ * name, punctuation and all -- `"Player Hits + Runs + RBIs"` is `player_hits_+_runs_+_rbis`, with
+ * literal `+` characters in an identifier. Hand-written ids for those are wrong more often than
+ * right, and a wrong id renders as an empty modal with nothing to explain it.
  *
- * This is the load-bearing decision here, and it is what makes "every player prop" achievable
- * rather than a table someone has to keep feeding.
- *
- * The feed's `market_id` is a slug of its own display name, punctuation and all:
- * `"Player Hits + Runs + RBIs"` becomes `player_hits_+_runs_+_rbis`, with literal `+` characters
- * in an identifier. Guessing those ids is exactly the trap the first build fell into -- every one
- * of the ~50 hand-written ids was wrong, and each wrong id is an empty tab with nothing to explain
- * it.
- *
- * But `mode=all` returns *every* market for the fixture, so nothing has to be guessed up front:
- * the stream is filtered client-side by running the feed's own `market` display name and the
- * pick's `statMarket` through `marketFilterKey`, the normalizer this project already uses for
- * exactly this job. It collapses `+` to " plus " and strips a leading "Player ", so
- * `"Hits + Runs + RBIs"` from a board and `"Player Hits + Runs + RBIs"` from the feed both reduce
- * to `hits plus runs plus rbis` and match with no table at all. Checked against the live sample:
- * seven of the eight market spellings in this user's own database match directly.
- *
- * `MARKET_ALIASES` below is only for the genuine board-side synonyms that normalization cannot
- * reach, and it is deliberately tiny.
+ * So nothing is named in advance. The fixture read returns everything, and the filtering happens
+ * here, against the set of acceptable names `oddsTerminalMarketKeys` derived from the pick (board
+ * spelling, this project's canonical name, and the period-prefixed form this feed uses).
  */
 
 import type { MarketType, ParseResult, ParsedRow, PickSide } from "../types";
 import { bookLogoUrl } from "../books";
-import { marketFilterKey } from "../markets";
 import { normalizeName } from "../matching";
 import { devigTwoWay } from "../devig";
 import { pickMainLines, type BookQuote } from "./main-line";
 import {
   normalizeOddsTerminalBookKey,
   oddsTerminalFixtureTeams,
-  oddsTerminalStreamBooks,
+  oddsTerminalMarketKey,
   type OddsTerminalFixture,
   type OddsTerminalReadPlan,
 } from "./odds-terminal-event";
 
-/** One `data[]` entry of an `event: odds` message. Every field is treated as untrusted. */
-export interface OddsTerminalStreamEntry {
+/** One `odds[]` entry. Every field is treated as untrusted. */
+export interface OddsTerminalOddsEntry {
   fixture_id?: unknown;
   market?: unknown;
   market_id?: unknown;
   sportsbook?: unknown;
-  sportsbook_id?: unknown;
+  name?: unknown;
   selection?: unknown;
   normalized_selection?: unknown;
   /** "over" | "under" | null. Stated outright, so no side has to be parsed out of a label. */
@@ -81,101 +69,60 @@ const str = (v: unknown): string | null =>
 const num = (v: unknown): number | null =>
   typeof v === "number" && Number.isFinite(v) ? v : null;
 
-/**
- * Board spellings that `marketFilterKey` alone cannot reconcile with the feed's own name.
- *
- * Kept deliberately small. Anything that can be handled by normalization must be, because a table
- * of market names is the thing that rots -- every entry here is a standing maintenance cost and a
- * place for the two vocabularies to drift apart silently.
- */
-const MARKET_ALIASES: Record<string, string> = {
-  // A DFS board writes total bases as bare "Bases".
-  bases: "total bases",
-  // Boards abbreviate; the feed spells it out.
-  "3 pointers made": "three pointers made",
-  "threes made": "three pointers made",
-  "made threes": "three pointers made",
-  "blks plus stls": "blocks plus steals",
-  "pts plus reb plus ast": "points plus rebounds plus assists",
-  sog: "shots on goal",
-};
-
-/** The comparable form of a market name, from either side of the wire. */
-function marketKey(name: string | null | undefined): string {
-  const key = marketFilterKey(name);
-  return MARKET_ALIASES[key] ?? key;
-}
-
-/** Whether one stream entry is about the market the pick is about. */
+/** Whether one entry is about the market the pick is about. */
 export function isOddsTerminalMarketMatch(
   entryMarket: string | null | undefined,
-  pickStatMarket: string | null | undefined
+  marketKeys: string[]
 ): boolean {
-  const a = marketKey(entryMarket);
-  const b = marketKey(pickStatMarket);
-  return a !== "" && a === b;
+  const key = oddsTerminalMarketKey(entryMarket);
+  return key !== "" && marketKeys.includes(key);
+}
+
+/** The odds a snapshot body carried, or an empty list. */
+export function oddsTerminalOddsOf(body: unknown): OddsTerminalOddsEntry[] {
+  if (!body || typeof body !== "object") return [];
+  const odds = (body as { odds?: unknown }).odds;
+  return Array.isArray(odds) ? (odds as OddsTerminalOddsEntry[]) : [];
 }
 
 /**
- * The SSE path for one fixture.
+ * The entries worth keeping out of a fixture read, and the market names it did carry.
  *
- * Relative, never absolute -- the same rule the snapshot path follows, and for the same reason:
- * a module that cannot name a host cannot be turned into outbound traffic by anything that
- * imports it. See `oddsTerminalSnapshotPath`.
- *
- * `mode=all` is what makes the market table unnecessary: it returns every market for the fixture,
- * so the filtering happens here rather than being guessed into the query.
+ * Called where the bytes land, before anything is passed on. A fixture read is 2-3 MB and all but
+ * a few dozen entries of it are about markets nobody asked for; forwarding the whole thing to the
+ * server would mean pushing megabytes through `chrome.runtime` and an HTTP POST for a table of
+ * nine rows. `marketsSeen` is kept because the actionable failure is almost always "that market is
+ * spelled differently here", and naming what *was* on offer is what makes it fixable.
  */
-export function oddsTerminalStreamPath(
+export function filterOddsTerminalOdds(
+  entries: OddsTerminalOddsEntry[],
   plan: OddsTerminalReadPlan,
-  fixtureId: string,
-  // Display names here, not the ids the snapshot takes -- see `oddsTerminalStreamBooks`.
-  books: string[] = oddsTerminalStreamBooks(plan.bookOrder)
-): string {
-  const params = new URLSearchParams();
-  params.set("sport", plan.sport);
-  params.set("league", plan.league);
-  params.set("mode", "all");
-  params.set("page", "1");
-  params.set("fixture_id", fixtureId);
-  for (const book of books) params.append("sportsbook", book);
-  return `/api/stream?${params.toString()}`;
+  fixtureId: string | null
+): { entries: OddsTerminalOddsEntry[]; marketsSeen: string[] } {
+  const kept: OddsTerminalOddsEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    if (fixtureId !== null && str(entry.fixture_id) !== fixtureId) continue;
+    const market = str(entry.market);
+    if (market) seen.add(market);
+    if (isOddsTerminalMarketMatch(market, plan.marketKeys)) kept.push(entry);
+  }
+  return { entries: kept, marketsSeen: [...seen] };
 }
 
-/**
- * Parses the raw SSE text into the entries it carried.
- *
- * Written against the wire format rather than using `EventSource`, because the relay needs to read
- * a bounded window of a stream that never ends on its own and then stop -- see `relay.ts`. The
- * format is simple and stable: blank-line-separated blocks of `field: value` lines, where the
- * `data:` line of an `event: odds` block is a JSON object whose `data` array holds the entries.
- *
- * Tolerant by design. A partial block at the end of a buffer (the stream was cut mid-message,
- * which is the normal way this read ends) is skipped rather than throwing.
- */
-export function parseOddsTerminalStream(raw: string): OddsTerminalStreamEntry[] {
-  const out: OddsTerminalStreamEntry[] = [];
-  for (const block of raw.split(/\n\n+/)) {
-    if (!block.includes("data:")) continue;
-    // A block's `data:` may be split across several lines; SSE says to join them with newlines.
-    const payload = block
-      .split("\n")
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trim())
-      .join("");
-    if (!payload) continue;
-    try {
-      const parsed = JSON.parse(payload) as { type?: unknown; data?: unknown };
-      if (Array.isArray(parsed?.data)) out.push(...(parsed.data as OddsTerminalStreamEntry[]));
-    } catch {
-      // A truncated final block. Expected when the read is stopped mid-stream.
-    }
+/** How many distinct books have something to say about the pick's market. */
+export function oddsTerminalBookCoverage(entries: OddsTerminalOddsEntry[]): number {
+  const books = new Set<string>();
+  for (const entry of entries) {
+    const book = str(entry?.sportsbook);
+    if (book) books.add(book);
   }
-  return out;
+  return books.size;
 }
 
 /** The money actually resting behind a quote, where the book publishes it. */
-function liquidityOf(entry: OddsTerminalStreamEntry): number | null {
+function liquidityOf(entry: OddsTerminalOddsEntry): number | null {
   const limits = entry.limits;
   if (limits && typeof limits === "object") {
     const max = num((limits as { max?: unknown }).max);
@@ -191,27 +138,27 @@ function liquidityOf(entry: OddsTerminalStreamEntry): number | null {
 }
 
 /**
- * Turns a fixture's stream entries into rows the matcher and verdict builder understand.
+ * Turns a fixture's odds entries into rows the matcher and verdict builder understand.
  *
  * Emits one row per (selection, side), exactly as every other source in this project does, so
  * nothing downstream can tell which source produced a row.
  *
- * Two things this gets from the stream that `/api/snapshot` could not give:
+ * Two things this gets that a scraped board cannot give:
  *
  *  - **The side is stated.** `selection_line` is literally "over"/"under", so no side has to be
- *    recovered from a label like "Victor Bericoto Over 2.5". The snapshot parser had to guess.
+ *    recovered from a label like "Travis Kelce Over 4.5".
  *  - **Real depth.** Exchange entries carry `limits.max` and a full `order_book`, so the modal's
  *    liquidity column has actual numbers behind it rather than nulls.
  */
-export function normalizeOddsTerminalStream(
-  entries: OddsTerminalStreamEntry[],
+export function normalizeOddsTerminalOdds(
+  entries: OddsTerminalOddsEntry[],
   plan: OddsTerminalReadPlan,
   fixture: OddsTerminalFixture,
-  options: { atLine?: number | null } = {}
+  options: { atLine?: number | null; marketsSeen?: string[] } = {}
 ): ParseResult {
   try {
     if (!Array.isArray(entries)) {
-      return { ok: false, reason: "the stream carried no entries", headers: [], rows: [] };
+      return { ok: false, reason: "the read carried no entries", headers: [], rows: [] };
     }
     const fixtureId = str(fixture.id);
     const { home, away } = oddsTerminalFixtureTeams(fixture);
@@ -220,7 +167,7 @@ export function normalizeOddsTerminalStream(
       plan.marketType === "MONEYLINE" || typeof options.atLine !== "number" ? null : options.atLine;
 
     const wanted = plan.requestedStatMarket;
-    const marketsSeen = new Set<string>();
+    const marketsSeen = new Set<string>(options.marketsSeen ?? []);
 
     // One book's two sides at one line, paired before either is usable: a de-vig needs both and
     // the main-line choice is made from both. Keyed on book + selection + line, with the parts
@@ -229,8 +176,8 @@ export function normalizeOddsTerminalStream(
     interface Pair {
       sportsbook: string;
       selection: string;
-      one: OddsTerminalStreamEntry | null;
-      two: OddsTerminalStreamEntry | null;
+      one: OddsTerminalOddsEntry | null;
+      two: OddsTerminalOddsEntry | null;
     }
     const pairs = new Map<string, Pair>();
 
@@ -240,13 +187,17 @@ export function normalizeOddsTerminalStream(
 
       const market = str(entry.market);
       if (market) marketsSeen.add(market);
-      if (!isOddsTerminalMarketMatch(market, wanted)) continue;
+      if (!isOddsTerminalMarketMatch(market, plan.marketKeys)) continue;
 
       const sportsbook = str(entry.sportsbook);
       if (!sportsbook) continue;
 
-      const selectionRaw = str(entry.selection) ?? str(entry.normalized_selection);
-      if (!selectionRaw) continue;
+      // A game total carries an empty `selection` -- the market names itself and there is no
+      // player or team to name. Only the markets whose side IS a team need one, which is why this
+      // is not a blanket "skip entries with no selection": that is exactly what dropped every
+      // total on the floor, leaving a totals lookup looking like a market the feed does not carry.
+      const selectionRaw = str(entry.selection) ?? str(entry.normalized_selection) ?? "";
+      if (!selectionRaw && isGameMarket) continue;
 
       let side: 1 | 2 | null = null;
       let selection = "";
@@ -265,7 +216,21 @@ export function normalizeOddsTerminalStream(
       if (side === null) continue;
 
       const points = num(entry.points) ?? num(entry.selection_points);
-      const pairKey = `${sportsbook}::${selection}::${points ?? "null"}`;
+      // What makes two entries the two halves of one market, which is not the same question for
+      // every market type:
+      //
+      //  - a prop or a total is two sides of ONE number, so the number is part of the key;
+      //  - a spread is two sides of one number with **opposite signs** -- Chiefs -10.5 and Dolphins
+      //    +10.5 -- so it keys on the magnitude. Keying it like a total put each team's own line in
+      //    a pair of its own, and the row then averaged -10.5 and +10.5 together into a spread of
+      //    about six points for both teams;
+      //  - a moneyline has no number at all.
+      const pairKey =
+        plan.marketType === "MONEYLINE"
+          ? sportsbook
+          : plan.marketType === "SPREAD"
+            ? `${sportsbook}::${points === null ? "null" : Math.abs(points)}`
+            : `${sportsbook}::${selection}::${points ?? "null"}`;
       const pair = pairs.get(pairKey) ?? { sportsbook, selection, one: null, two: null };
       if (side === 1) pair.one = entry;
       else pair.two = entry;
@@ -283,6 +248,11 @@ export function normalizeOddsTerminalStream(
       const bucket = bySelection.get(selection) ?? { one: [], two: [] };
       const bookKey = normalizeOddsTerminalBookKey(sportsbook);
 
+      // The feed's own word on which line is this book's main number, taken from either side: a
+      // book sometimes flags only the side it considers the primary one, and the OVER row and the
+      // UNDER row have to agree about which line they are describing.
+      const isMain = one?.is_main === true || two?.is_main === true;
+
       bucket.one.push({
         bookKey,
         label: sportsbook,
@@ -290,6 +260,7 @@ export function normalizeOddsTerminalStream(
         price: priceOne,
         otherSidePrice: priceTwo,
         liquidity: one ? liquidityOf(one) : null,
+        isMain,
       });
       bucket.two.push({
         bookKey,
@@ -298,6 +269,7 @@ export function normalizeOddsTerminalStream(
         price: priceTwo,
         otherSidePrice: priceOne,
         liquidity: two ? liquidityOf(two) : null,
+        isMain,
       });
       bySelection.set(selection, bucket);
     }
@@ -322,13 +294,15 @@ export function normalizeOddsTerminalStream(
     }
 
     if (rows.length === 0 && marketsSeen.size > 0) {
-      // Names the markets that *were* on the stream, because the actionable failure here is almost
+      // Names the markets that *were* on offer, because the actionable failure here is almost
       // always a market spelled differently rather than a market that is missing.
+      const props = [...marketsSeen].filter((m) => /^player\b/i.test(m));
+      const shown = (props.length > 0 ? props : [...marketsSeen]).slice(0, 8);
       return {
         ok: false,
         reason:
           `Odds Terminal is not quoting "${wanted}" on this game. It is showing: ` +
-          `${[...marketsSeen].slice(0, 8).join(", ")}${marketsSeen.size > 8 ? ", ..." : ""}`,
+          `${shown.join(", ")}${marketsSeen.size > shown.length ? ", ..." : ""}`,
         headers: [],
         rows: [],
       };
@@ -338,12 +312,12 @@ export function normalizeOddsTerminalStream(
       ok: true,
       headers: [plan.sport, plan.league, wanted],
       rows,
-      reason: rows.length === 0 ? "the stream carried no priced selections" : undefined,
+      reason: rows.length === 0 ? "the read carried no priced selections" : undefined,
     };
   } catch (error) {
     return {
       ok: false,
-      reason: error instanceof Error ? error.message : "could not read the stream",
+      reason: error instanceof Error ? error.message : "could not read the odds",
       headers: [],
       rows: [],
     };
@@ -379,7 +353,7 @@ function buildRow(input: {
         label: b.label,
         line: b.line,
         price: b.price,
-        // Real numbers here, unlike every other source in this project: the stream publishes each
+        // Real numbers here, unlike every other source in this project: the feed publishes each
         // quote's own depth.
         liquidity: b.liquidity,
         fairProbability: devigTwoWay(b.price, b.otherSidePrice),
@@ -408,7 +382,11 @@ function buildRow(input: {
     rowIndex: input.rowIndex,
     marketType: plan.marketType,
     player: isGameMarket ? null : (selection || null),
-    selectionName: isGameMarket ? sideName : selection || sideName,
+    // A game total has no player and no team, so it names itself by its side -- "Over"/"Under" --
+    // rather than borrowing the home team's name, which is what `sideName` holds.
+    selectionName: isGameMarket
+      ? sideName
+      : selection || (pickSide === "OVER" ? "Over" : "Under"),
     subjectTeam: isGameMarket ? sideName : null,
     isLive: fixture.is_live === true,
     team: home,
@@ -427,7 +405,7 @@ function buildRow(input: {
     externalGameId: str(fixture.id),
     bookLines,
     rawText: JSON.stringify({
-      source: "odds-terminal-stream",
+      source: "odds-terminal",
       sport: plan.sport,
       league: plan.league,
       market: plan.requestedStatMarket,

@@ -17,8 +17,16 @@
  *
  * ## The rule
  *
- * A book's main line is, first, whichever line the *majority of books* are quoting -- the real
- * consensus number -- if this book quotes that line at all. "Least lopsided" is only the
+ * A book's main line is, first, **whichever line the source itself flags as that book's main
+ * line**, when the source says (Odds Terminal states `is_main` on every quote). Nothing we can
+ * reconstruct beats the feed's own answer, and one source made that painfully clear: it returns
+ * every book's entire alt ladder, so "the line most books quote" is a tie across nine lines and
+ * the winner was whichever one happened to be first in iteration order -- a +710 longshot as often
+ * as the real number.
+ *
+ * Failing that, it is whichever line the *majority of books* are quoting -- the real consensus
+ * number -- if this book quotes that line at all; ties on that count go to the least lopsided line,
+ * never to insertion order. "Least lopsided" is only the
  * tie-breaker for books that don't: a book hanging Over 9.5 at -400 is not quoting 9.5 as its
  * number, it is selling a near-certainty, so among a book's *other* selections the more balanced
  * one is the better guess at its real line. Picking least-lopsided globally, before checking for a
@@ -52,6 +60,14 @@ export interface BookQuote {
   otherSidePrice: number | null;
   /** Money resting behind the quote, where the source reports depth. */
   liquidity: number | null;
+  /**
+   * The source's own word that this is the book's main line, where the source says so.
+   *
+   * Optional because only one source states it. When any quote in a set carries it, the flagged
+   * quotes are the only candidates considered -- see the header. Left undefined by a source that
+   * does not say, which changes nothing for that source.
+   */
+  isMain?: boolean;
 }
 
 export interface BookMainLine {
@@ -100,8 +116,13 @@ export function pickMainLines(
 
   const candidatesByBook = new Map<string, Candidate[]>();
   // How many distinct books quote each line at all, to find the real consensus number rather than
-  // just whichever selection happens to price closest to even money.
+  // just whichever selection happens to price closest to even money. `lopsidedness` is summed
+  // alongside so that a tie on book count -- which is every line at once on a source that ships
+  // the whole alt ladder -- is broken by which line actually prices like a market.
   const bookCountByLine = new Map<number, Set<string>>();
+  const lopsidednessByLine = new Map<number, number>();
+  // Whether the source told us which line is main. When it did, nothing else is a candidate.
+  const sourceFlagsMain = quotes.some((q) => q.isMain === true);
 
   for (const quote of quotes) {
     if (quote.price === null && quote.otherSidePrice === null) continue;
@@ -126,27 +147,40 @@ export function pickMainLines(
     list.push({ ...quote, nearMarket, lopsidedness });
     candidatesByBook.set(quote.bookKey, list);
 
-    if (quote.line !== null) {
+    if (quote.line !== null && (!sourceFlagsMain || quote.isMain === true)) {
       if (!bookCountByLine.has(quote.line)) bookCountByLine.set(quote.line, new Set());
       bookCountByLine.get(quote.line)!.add(quote.bookKey);
+      lopsidednessByLine.set(quote.line, (lopsidednessByLine.get(quote.line) ?? 0) + lopsidedness);
     }
   }
 
   let consensusLine: number | null = null;
   let consensusCount = -1;
+  let consensusLopsidedness = Number.POSITIVE_INFINITY;
   for (const [line, books] of bookCountByLine) {
-    if (books.size > consensusCount) {
+    const mean = (lopsidednessByLine.get(line) ?? 0) / books.size;
+    const better =
+      books.size > consensusCount ||
+      (books.size === consensusCount && mean < consensusLopsidedness);
+    if (better) {
       consensusCount = books.size;
+      consensusLopsidedness = mean;
       consensusLine = line;
     }
   }
 
   const out = new Map<string, BookMainLine>();
   for (const [bookKey, candidates] of candidatesByBook) {
+    // A book that the source flagged is chosen from its flagged quotes alone. A book with no
+    // flagged quote at all still gets the reconstruction, rather than being dropped.
+    const flagged = candidates.filter((c) => c.isMain === true);
+    const pool = flagged.length > 0 ? flagged : candidates;
     const atConsensus =
-      consensusLine !== null ? candidates.find((c) => c.line === consensusLine) : undefined;
+      consensusLine !== null ? pool.find((c) => c.line === consensusLine) : undefined;
     const chosen =
-      atConsensus ?? candidates.reduce((best, c) => (c.lopsidedness < best.lopsidedness ? c : best));
+      atConsensus ?? pool.reduce((best, c) => (c.lopsidedness < best.lopsidedness ? c : best));
+    // `atLine` is answered off every selection the book quotes, flagged or not: the whole point of
+    // that question is what a book pays at a line that is not its own main number.
     const asked = atLine === null ? undefined : candidates.find((c) => c.line === atLine);
     out.set(bookKey, {
       label: chosen.label,

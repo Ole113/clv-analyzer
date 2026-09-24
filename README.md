@@ -3,18 +3,24 @@
 Takes a snapshot of a line when it is played and calculates the CLV automatically when the market
 ends. Displays CLV statistics.
 
-Tick a checkbox on the **OddsJam** or **PropProfessor** Fantasy Optimizer and the whole row is
-snapshotted — every sportsbook line and price showing at that moment. Shortly *before* kickoff the
-extension reads the same market off **PropProfessor's odds screen**, rebuilds each sportsbook's
-main line, averages them, and records whether the pick beat closing line value.
+Tick a checkbox on the **OddsJam** Fantasy Optimizer and the whole row is snapshotted — every
+sportsbook line and price showing at that moment. The **odds button** beside it answers "what is
+this market priced at right now" from a real sportsbook market, rebuilding each book's main line
+and averaging them the same way a closing read does.
+
+> **Nothing in this project reads PropProfessor.** That account was banned for automated access in
+> September 2026; every module that could make such a request — the token bridge, the closing
+> reader and worker, the server-side screen reader, the board content scripts — has been deleted,
+> and a test fails the build if the hostname reappears in code. Scheduled closing-line capture is
+> **paused** as a result; the numbers the odds button shows are live reads, not stored closes.
 
 ## How it fits together
 
 | Piece | What it does |
 | --- | --- |
-| `extension/` | Manifest V3 Chrome extension. Injects the CLV checkbox column, POSTs snapshots, and reads closing lines. |
-| `server/` | Next.js app: ingest API, the schedule of what is due, and the dashboard. |
-| `shared/` | Row parsers, prop matching, the market alias table, and the odds-screen reader. |
+| `extension/` | Manifest V3 Chrome extension. Injects the CLV checkbox column, POSTs snapshots, and reads Odds Terminal on your own signed-in session when you click the odds button. |
+| `server/` | Next.js app: ingest API, the schedule of what is due, the verdict arithmetic, and the dashboard. |
+| `shared/` | Row parsers, prop matching, the market vocabulary, and the read planners (which name no host, by test). |
 
 ### The two datasets
 
@@ -43,37 +49,34 @@ of matching is shared and identical.
 Picks are captured on any machine (work laptop, home desktop) and all land in one SQLite database
 on a server reached over Tailscale.
 
-### Why the closing read happens in your browser
+### Why a market read happens in your browser
 
-The capture boards sit behind Cloudflare's bot check plus a paid login, so an automated browser
-cannot load them. Your own Chrome is already signed in and past that check.
+The capture board sits behind Cloudflare's bot check plus a paid login, so an automated browser
+cannot load it. Your own Chrome is already signed in and past that check. The same is true of
+**Odds Terminal**, which is where the odds button now reads from.
 
-The closing read needs no *scraping* — it is a plain `fetch` to a JSON endpoint — but it does need
-the site's own bearer token. `POST backend.propprofessor.com/screen` requires
-`Authorization: Bearer <JWT>`, and that token is not in a readable cookie and not in the NextAuth
-session payload; the app holds it in memory. So:
+What changed in September 2026, and why it matters more than the plumbing: the previous version of
+this read used a **captured bearer token** to let the *server* make requests to PropProfessor on a
+timer, whether or not anyone was looking. That is what got the account banned. The arrangement now
+is deliberately the opposite, and the properties are structural rather than a matter of care:
 
-* A tiny page-context content script (`world: "MAIN"`) **observes** the Authorization header on
-  requests the site's own app already makes, and forwards it to the background worker.
-* The worker caches it in `chrome.storage.session` — memory only, never written to disk — and
-  attaches it to its own screen requests.
-* On a 401 it refreshes once by loading the screen in a background tab, then retries. That happens
-  about once per token lifetime, not once per pick, and only ever on propprofessor.com.
+* **The extension does the fetching, in its background worker.** Chrome attaches the session cookie
+  because the extension declares a host permission for that site; the code never sees, stores or
+  forwards a credential of any kind. There is no token bridge and nothing in `chrome.storage`.
+* **A read happens because you clicked.** There is no alarm, no interval and no queue on that path.
+  `odds-terminal-read.ts` is the only file in the repository that knows the hostname, and the guard
+  test fails if it grows a timer.
+* **The server never contacts the site.** It plans the read (which books, which market names —
+  both come from your own settings and this project's vocabulary) and computes the verdict from the
+  entries the extension hands back. It cannot originate contact, because it is never told where.
+* **No tab is opened.** An earlier attempt did open one, on every click; that is gone.
 
-The bridge only ever reads a header off a request that was happening anyway. It mints nothing,
-sends nothing, and stores nothing itself. If PropProfessor drops the requirement or exposes the
-token somewhere readable, `token-bridge.ts` and its manifest entry can be deleted outright.
+### When the closing read happens *(paused)*
 
-The split is:
-
-* **The server owns the schedule.** It knows when each game starts and keeps that in SQLite, so a
-  restart loses nothing. Picks handed out are *leased* for five minutes so the same pick is not
-  read twice by overlapping polls.
-* **The extension does the reading.** Once a minute it asks the server "anything due?", fetches
-  one screen response per (league, market) — so a single read prices every pick on that market —
-  and reports back.
-
-### When the closing read happens
+Closing-line capture is not running: it read PropProfessor, and that is gone. The schedule below is
+what the server still computes and what the feature will use if it is ever pointed at another
+source, so it is documented rather than deleted. Picks captured now keep their open snapshot and
+simply have no close recorded.
 
 A **window before kickoff**, not a single shot after it:
 
@@ -107,59 +110,47 @@ If nothing is running at kickoff the pick simply stays queued and is read whenev
 comes online — and that read is **flagged as late** (`STALE_CAPTURE_MINUTES`, default 20) rather
 than being passed off as a genuine closing line.
 
-### The Odds modal reads from the server, not the queue
-
-The scheduled closing read above is the extension's job, on a 60-second alarm, and a minute of
-latency costs nothing there. The **"odds ↗" modal is different**: someone is watching a spinner.
-Routed through the same queue it cost a full `chrome.alarms` period (one minute is Chrome's floor)
-before anything appeared.
-
-So the token is relayed. The extension already holds PropProfessor's bearer token; it now POSTs it
-to `/api/pp-token`, and the server makes the same one-request read itself
-(`server/src/lib/pp-screen-read.ts`) inside the modal's own round trip — typically a few hundred
-milliseconds, with one response shared by every pick on the same (league, market) for ten seconds.
-
-The extension path is kept as the fallback, because it is the only thing that can *mint* a token.
-But it is no longer waited for in the normal case, because the token is now obtained **ahead of
-need** rather than on the first click that wants it. `ensureServerToken()` runs:
-
-* on browser startup — `chrome.storage.session` is cleared when Chrome closes, so at that moment
-  nothing anywhere holds a token;
-* on every closing alarm, which covers the server being restarted (it keeps the token in memory by
-  design, so a restart forgets it);
-* **the moment the dashboard is opened.** A one-line content script is registered at runtime
-  against whatever origin the backend URL points at — it cannot be a manifest entry, since that URL
-  is a setting — and it does nothing but say "I am here" to the worker.
-
-Minting means loading the odds screen in a background tab and waiting for PropProfessor's own app to
-make a request, so a failed attempt (signed out, subscription lapsed) backs off for ten minutes
-rather than reopening a tab every sixty seconds.
-
-The modal's "waiting on your browser extension" state therefore still exists, but reaching it now
-means PropProfessor itself cannot be signed into — not merely that nothing has warmed up yet.
-
-The token is held in memory on the server, never written to the database, never logged, and never
-returned in a response — the same treatment the extension gives it in `chrome.storage.session`.
-Both are lost on restart by design, and `syncTokenToServer` pushes it back on the next alarm.
-
-### The same modal on the boards themselves
+### The Odds modal, and the two sources behind it
 
 The dashboard is the wrong place to ask "what is this market really priced at": by the time a pick
-is on `/bets` it has already been taken. So the odds button is injected on the board too — a small
-control stacked **above** the CLV checkbox on each OddsJam row, opening the same modal in the page.
+is on `/bets` it has already been taken. So the same modal is injected on the board — a small
+button stacked **above** the CLV checkbox on each OddsJam row — and it opens with two tabs.
 
-It is answered by `POST /api/odds-lookup`, not by the content script. The averaging, the sportsbook
-allowlist and the outlier test all live in `buildClosingVerdict`, and a second implementation in the
-extension would drift from it silently — leaving the board modal and the dashboard modal quoting
+**Odds Terminal** (the default tab) is read by the extension's background worker, on the Odds
+Terminal session your own browser already holds. A lookup is two plain JSON requests:
+
+1. **the slate** — `/api/snapshot?sport=…&league=…&start_date_after=…&start_date_before=…`, which
+   is how the pick's game is found. Three details there are load-bearing, each learned the hard way:
+   the endpoint answers for the **next 36 hours** unless those two date parameters widen it (so a
+   Sunday NFL game is invisible on a Wednesday); the slate is **paginated at 100** (a seven-day
+   college football slate is 121 games); and when the board recorded a kickoff time the window
+   narrows to the hours around it instead.
+2. **that fixture's odds** — the same endpoint *with* `fixture_id`, which is the difference between
+   "three main markets" and **every market the game has**, player props included: 112 markets and
+   3,600-odd quotes on one NFL game with five books attached.
+
+Markets are matched by **name**, never by id: the feed slugs its own display names, punctuation and
+all (`player_hits_+_runs_+_rbis`), so any table of ids is wrong more often than right. A pick's
+board spelling, this project's canonical name for it and the period-prefixed form the feed uses are
+all accepted — see `oddsTerminalMarketKeys`.
+
+Five books per request is the endpoint's hard ceiling, so the books are ranked by your own book
+order and asked for in chunks of five; if fewer than three of them quote the market, the next five
+are asked and the answers merged. That is not theoretical: on one NFL game DraftKings quoted 20
+player markets and FanDuel 13, while Pinnacle, BetOnline and Circa — all ranked higher in this
+install — quoted none at all.
+
+**The Odds API** is the second tab, lazily loaded: a keyed, metered third-party API the server calls
+directly, unrelated to any board. One credit per read, with the remaining quota shown in the footer.
+
+Both tabs are answered by `buildClosingVerdict` on the server, never by the content script. The
+averaging, the sportsbook allowlist and the outlier test live there, and a second implementation in
+the extension would drift from it silently — leaving the board modal and the dashboard modal quoting
 different closing numbers for the same market with no way to tell which was right.
 
-The read target is always PropProfessor, whichever board asked. An OddsJam row looking up its own
+Whichever board asked, the read never goes back to that board. An OddsJam row looking up its own
 market sends OddsJam nothing; the capture site is provenance and has no influence on where the read
-goes, which is the same rule the closing read follows and is asserted by the same test.
-
-Currently OddsJam only. PropProfessor's checkbox lives in a 24px overlay lane whose width is already
-the subject of open layout complaints (`docs/Bugs.md`), and adding a second control there is worth
-doing deliberately rather than as a side effect — hence the `oddsButton` flag on the site adapter.
+goes, which is asserted by `oddsjam-automation-guard.test.ts`.
 
 ### Line is not the whole story: the average price
 
@@ -188,8 +179,8 @@ contribute a price for the side actually taken).
 
 `EV% = fair win probability x decimal payout - 1`.
 
-The fair probability is the site's own no-vig column — OddsJam's "% CHANCE TO HIT",
-PropProfessor's "Value" — because it is already de-vigged **and quoted at the exact line taken**.
+The fair probability is the board's own no-vig column — OddsJam's "% CHANCE TO HIT" — because it
+is already de-vigged **and quoted at the exact line taken**.
 It cannot be derived from the raw book cells: the boards show one price per book at that book's
 own line, so there is no opposing side to de-vig against and no way to re-price a 62.5 pick from
 a book hanging 90.5. The payout comes from the DFS column when the board shows one, else
@@ -372,8 +363,10 @@ internet and no ports need forwarding.
 
 ### 5. Load the extension (on each computer)
 
-Stay signed into OddsJam and PropProfessor in this browser — the extension reads the boards using
-your existing session.
+Stay signed into OddsJam in this browser — the extension reads the board using your existing
+session — and into **Odds Terminal**, which is what the odds button reads. Nothing signs in for
+you, and nothing stores a password or a token: Chrome attaches those sessions itself because the
+extension declares a host permission for each site.
 
 1. `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `extension/dist`.
 2. Open the extension's **Options** and set:
@@ -382,11 +375,13 @@ your existing session.
    * **Device label** — e.g. `work-laptop`, recorded with each pick
 3. Hit **Test connection**. Saving prompts Chrome for permission to talk to that host.
 
-Then open either Fantasy Optimizer and tick the purple **CLV** checkbox on any row.
+Then open the OddsJam Fantasy Optimizer and tick the purple **CLV** checkbox on any row. It is a
+real extra column, deliberately separate from OddsJam's own "TRACK" checkbox (which opens their
+bet-slip builder — this extension never touches it).
 
-* On OddsJam it is a real extra column, deliberately separate from OddsJam's own "TRACK" checkbox
-  (which opens their bet-slip builder — this extension never touches it).
-* On PropProfessor the grid is AG Grid, so the checkbox rides inside the existing actions cell.
+The small chart icon above each checkbox opens the odds modal. The first click on a market takes a
+second or two (two requests to Odds Terminal, one to your server); if it reports that you are
+signed out, open <https://oddsterminal.org> in that browser, sign in, and hit Refresh in the modal.
 
 The checkbox turns **green** when the server has the pick, **amber** if it was queued because the
 server was unreachable (it retries automatically), and **red** on a real error — hover for why.
@@ -432,10 +427,14 @@ picks burning fetch attempts forever.
 The alias table is the one permanent maintenance cost of this design, and it is deliberately loud:
 an unmapped market becomes `FETCH_FAILED` with a message naming it, never a quiet `UNAVAILABLE`.
 
-Markets live in `shared/src/markets.ts`. The names PropProfessor accepts are in
-`shared/src/__fixtures__/pp-screen-vocabulary.json` (extracted from its page bundle — there is no
-endpoint that lists them). Use the `value`, not the `label`: they differ occasionally, e.g.
-"Player Pass + Rush + Rec Touchdowns" is sent as "Player Passing + Rushing + Receiving Touchdowns".
+Markets live in `shared/src/markets.ts`. That table is this project's canonical vocabulary: a
+board's spelling on the left, the full "Player X" name on the right. Odds Terminal happens to spell
+its markets the same way, so adding a line there is usually all a new market needs —
+`oddsTerminalMarketKeys` resolves a pick through it and matches the feed by name.
+
+`odds-terminal-source.test.ts` carries the list of markets this install has actually captured,
+checked against names read off live fixture responses; add a row there when a new spelling reaches
+the database, and a market that stops resolving fails the build instead of showing an empty modal.
 
 ## Testing
 
@@ -445,28 +444,26 @@ npx tsx src/scripts/seed-demo.ts         # populate the dashboard with demo pick
 npx tsx src/scripts/seed-demo.ts --clear # remove them
 ```
 
-To exercise the full pipeline without waiting for a real kickoff, capture any pick and press
-**Queue closing read now** on its detail page. The next time the extension polls (within a
-minute) it will read the screen and fill in the verdict.
-
-The closing path has fixture tests that need no browser at all — `pp-screen-source.test.ts` runs
-saved screen responses through normalization, matching and the verdict builder, including two of
-the real picks in the database.
+The odds path has fixture tests that need no browser at all: `odds-terminal-odds.test.ts` runs a
+real captured fixture response (`shared/src/__fixtures__/odds-terminal-nfl-fixture.json` — five
+books, a full alt ladder, an exchange with real depth) through normalization, matching and the
+verdict builder, and `odds-terminal-source.test.ts` pins the request shape the live endpoint
+actually requires.
 
 ## Maintenance notes
 
 The capture boards are third-party UIs that will change. The parsers are structural (they key off
 header text, `img alt` book names, and AG Grid's `col-id`/`row-id`) rather than styling classes, so
-they tolerate cosmetic churn — but a real redesign will need
-`shared/src/parsers/{oddsjam,propprofessor}.ts` revisited. Both were verified against the live
-boards in September 2026.
+they tolerate cosmetic churn — but a real redesign will need `shared/src/parsers/oddsjam.ts`
+revisited. It was verified against the live board in September 2026.
 
-The closing path depends on an undocumented endpoint (`POST backend.propprofessor.com/screen`) whose
-shape could change without notice. The fixtures under `shared/src/__fixtures__/` pin the shape that
-was observed, so a break shows up as a failing test rather than as silently wrong CLV. Two real
-traps are encoded there and should not be "simplified" away: a selection key of `"null"` can still
-carry a real line (recorded only in the selection text), and `line1`/`line2` are equal on props but
-deliberately opposite on spreads.
+The odds path depends on an undocumented endpoint (`GET oddsterminal.org/api/snapshot`) whose shape
+could change without notice. The fixture under `shared/src/__fixtures__/` pins the shape that was
+observed, so a break shows up as a failing test rather than as silently wrong numbers. Three traps
+are encoded there and should not be "simplified" away: a game total arrives with an **empty
+`selection`** (it names no player and no team), a spread's two sides carry **opposite-signed
+points** and must be paired on magnitude, and `is_main` is the feed's own word on which of a book's
+nine alt lines is the market.
 
 ### Comparing old and new verdicts
 

@@ -1,0 +1,951 @@
+{
+ "_source": "GET /api/snapshot?sport=football&league=nfl&mode=all&page=1&fixture_id=20260927D946A16B with five sportsbook params, read live on 2026-09-24 from a signed-in browser. Field-subset of the real response: only the fields the parser reads are kept, and only three game markets (main lines) plus one player prop for two players, out of the 112 markets and 3,665 entries the live call returned.",
+ "fixture": {
+  "id": "20260927D946A16B",
+  "league": {
+   "id": "nfl",
+   "name": "NFL"
+  },
+  "start_date": "2026-09-27T17:00:00Z",
+  "is_live": false,
+  "home_team_display": "Miami Dolphins",
+  "away_team_display": "Kansas City Chiefs"
+ },
+ "odds": [
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 3.5,
+   "price": -257,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 6.5,
+   "price": 710,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 7.5,
+   "price": 1300,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 5.5,
+   "price": 170,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 4.5,
+   "price": 174,
+   "is_main": false,
+   "limits": {
+    "max": 565.75
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "under",
+   "points": 3.5,
+   "price": -121,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 8.5,
+   "price": 1150,
+   "is_main": false,
+   "limits": {
+    "max": 88
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 9.5,
+   "price": 2200,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 1.5,
+   "price": -3500,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 4.5,
+   "price": -114,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 7.5,
+   "price": 690,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 7.5,
+   "price": 525,
+   "is_main": false,
+   "limits": {
+    "max": 192
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 3.5,
+   "price": -251,
+   "is_main": false,
+   "limits": {
+    "max": 1001
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 3.5,
+   "price": -254,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 4.5,
+   "price": -113,
+   "is_main": true,
+   "limits": {
+    "max": 397.5
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 2.5,
+   "price": -700,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 2.5,
+   "price": -285,
+   "is_main": false,
+   "limits": {
+    "max": 999
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 2.5,
+   "price": -238,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 8.5,
+   "price": 1280,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "under",
+   "points": 4.5,
+   "price": -122,
+   "is_main": true,
+   "limits": {
+    "max": 137.5
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 5.5,
+   "price": 174,
+   "is_main": false,
+   "limits": {
+    "max": 565.75
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 4.5,
+   "price": 191,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "under",
+   "points": 2.5,
+   "price": 150,
+   "is_main": false,
+   "limits": {
+    "max": 200
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 4.5,
+   "price": -114,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 8.5,
+   "price": 916,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 9.5,
+   "price": 1396,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "under",
+   "points": 4.5,
+   "price": -114,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 6.5,
+   "price": 306,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 8.5,
+   "price": 1399,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 9.5,
+   "price": 1150,
+   "is_main": false,
+   "limits": {
+    "max": 88
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 7.5,
+   "price": 919,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "under",
+   "points": 4.5,
+   "price": -112,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 2.5,
+   "price": -301,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 4.5,
+   "price": 167,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 7.5,
+   "price": 576,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 6.5,
+   "price": 348,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 6.5,
+   "price": 579,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 3.5,
+   "price": -122,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 5.5,
+   "price": 178,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 7.5,
+   "price": 809,
+   "is_main": false,
+   "limits": {
+    "max": 121
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 1.5,
+   "price": -953,
+   "is_main": false,
+   "limits": {
+    "max": 995.5
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 5.5,
+   "price": 375,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 6.5,
+   "price": 545,
+   "is_main": false,
+   "limits": {
+    "max": 186
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 3.5,
+   "price": -117,
+   "is_main": true,
+   "limits": {
+    "max": 270
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 5.5,
+   "price": 317,
+   "is_main": false,
+   "limits": {
+    "max": 312
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 1.5,
+   "price": -1001,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 1.5,
+   "price": -710,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 3.5,
+   "price": -105,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 8.5,
+   "price": 809,
+   "is_main": false,
+   "limits": {
+    "max": 121
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 2.5,
+   "price": -674,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "De'Von Achane",
+   "selection_line": "under",
+   "points": 3.5,
+   "price": -100,
+   "is_main": true,
+   "limits": {
+    "max": 474.15
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "under",
+   "points": 3.5,
+   "price": -106,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "DraftKings",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 8.5,
+   "price": 2100,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "FanDuel",
+   "selection": "De'Von Achane",
+   "selection_line": "over",
+   "points": 5.5,
+   "price": 309,
+   "is_main": false
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 2.5,
+   "price": -669,
+   "is_main": false,
+   "limits": {
+    "max": 1000.5
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Player Receptions",
+   "sportsbook": "Novig",
+   "selection": "Travis Kelce",
+   "selection_line": "over",
+   "points": 6.5,
+   "price": 308,
+   "is_main": false,
+   "limits": {
+    "max": 318.5
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "bet365",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": null,
+   "price": -750,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "FanDuel",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": null,
+   "price": 520,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "BetMGM",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": null,
+   "price": 500,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "Novig",
+   "selection": "",
+   "selection_line": "under",
+   "points": 46.5,
+   "price": -108,
+   "is_main": true,
+   "limits": {
+    "max": 364
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "FanDuel",
+   "selection": "",
+   "selection_line": "under",
+   "points": 45.5,
+   "price": -105,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "BetMGM",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": -11,
+   "price": -110,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "DraftKings",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": null,
+   "price": -650,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "DraftKings",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": -10.5,
+   "price": -115,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "BetMGM",
+   "selection": "",
+   "selection_line": "over",
+   "points": 46,
+   "price": -108,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "BetMGM",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": null,
+   "price": -650,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "FanDuel",
+   "selection": "",
+   "selection_line": "over",
+   "points": 45.5,
+   "price": -115,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "Novig",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": null,
+   "price": 590,
+   "is_main": true,
+   "limits": {
+    "max": 261.33
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "BetMGM",
+   "selection": "",
+   "selection_line": "under",
+   "points": 46,
+   "price": -110,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "Novig",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": -10.5,
+   "price": -108,
+   "is_main": true,
+   "limits": {
+    "max": 6226.54
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "FanDuel",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": null,
+   "price": -720,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "FanDuel",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": 10.5,
+   "price": -105,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "bet365",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": -11.5,
+   "price": -110,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "Novig",
+   "selection": "",
+   "selection_line": "over",
+   "points": 46.5,
+   "price": 104,
+   "is_main": true,
+   "limits": {
+    "max": 352.8
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "bet365",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": null,
+   "price": 525,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "bet365",
+   "selection": "",
+   "selection_line": "under",
+   "points": 46.5,
+   "price": -115,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "Novig",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": 10.5,
+   "price": 106,
+   "is_main": true,
+   "limits": {
+    "max": 363.19
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "BetMGM",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": 11,
+   "price": -108,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "DraftKings",
+   "selection": "",
+   "selection_line": "over",
+   "points": 46.5,
+   "price": -105,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "DraftKings",
+   "selection": "",
+   "selection_line": "under",
+   "points": 46.5,
+   "price": -115,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "DraftKings",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": null,
+   "price": 470,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "FanDuel",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": -10.5,
+   "price": -115,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Total Points",
+   "sportsbook": "bet365",
+   "selection": "",
+   "selection_line": "over",
+   "points": 46.5,
+   "price": -105,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "DraftKings",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": 10.5,
+   "price": -105,
+   "is_main": true
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Moneyline",
+   "sportsbook": "Novig",
+   "selection": "Kansas City Chiefs",
+   "selection_line": null,
+   "points": null,
+   "price": -614,
+   "is_main": true,
+   "limits": {
+    "max": 9806.39
+   }
+  },
+  {
+   "fixture_id": "20260927D946A16B",
+   "market": "Point Spread",
+   "sportsbook": "bet365",
+   "selection": "Miami Dolphins",
+   "selection_line": null,
+   "points": 11.5,
+   "price": -110,
+   "is_main": true
+  }
+ ]
+}

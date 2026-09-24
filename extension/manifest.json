@@ -1,18 +1,14 @@
 {
   "manifest_version": 3,
   "name": "CLV Analyzer Capture",
-  "version": "0.1.0",
-  "description": "Adds a CLV checkbox column to the OddsJam and PropProfessor Fantasy Optimizers and snapshots the board when you tick a pick.",
+  "version": "0.2.0",
+  "description": "Adds a CLV checkbox column to the OddsJam Fantasy Optimizer and snapshots the board when you tick a pick.",
   "permissions": [
     "storage",
-    "alarms",
-    "scripting",
-    "tabs"
+    "alarms"
   ],
   "host_permissions": [
     "https://fantasy.oddsjam.com/*",
-    "https://www.propprofessor.com/*",
-    "https://backend.propprofessor.com/*",
     "https://oddsterminal.org/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
@@ -38,67 +34,11 @@
     },
     {
       "matches": [
-        "https://www.propprofessor.com/fantasy*"
-      ],
-      "js": [
-        "content/propprofessor.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.propprofessor.com/fantasy*"
-      ],
-      "js": [
-        "content/pp-grid-bridge.js"
-      ],
-      "run_at": "document_idle",
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "https://www.propprofessor.com/*"
-      ],
-      "js": [
-        "content/pp-positive-ev.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://oddsjam.com/game/*",
         "https://oddsjam.com/*/odds*"
       ],
       "js": [
         "content/oddsjam-site.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.propprofessor.com/*"
-      ],
-      "js": [
-        "content/pp-token-bridge.js"
-      ],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "https://www.propprofessor.com/*"
-      ],
-      "js": [
-        "content/pp-token-relay.js"
-      ],
-      "run_at": "document_start"
-    },
-    {
-      "matches": [
-        "https://oddsterminal.org/*"
-      ],
-      "js": [
-        "content/oddsterminal-site.js"
       ],
       "run_at": "document_idle"
     }

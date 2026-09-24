@@ -7,20 +7,14 @@ import type {
   TrackedLookupResponse,
   UntrackMessage,
   UntrackResponse,
-  PpTokenMessage,
   OddsLookupMessage,
   OddsLookupResponse,
   OddsLookupPick,
-  OddsTerminalLookupMessage,
-  OddsTerminalPathMessage,
-  OddsTerminalPathResponse,
-  OddsTerminalResultMessage,
-  OddsTerminalSnapshotMessage,
-  OddsTerminalSnapshotResponse,
   KellySettingsMessage,
   KellySettingsResponse,
 } from "../content/shared/messages";
-import { storeToken } from "./pp-token";
+import type { OddsTerminalReadPlan } from "@clv/shared";
+import { readOddsTerminal, OddsTerminalSignedOutError } from "./odds-terminal-read";
 
 const QUEUE_KEY = "clv:queue";
 const ALARM = "clv:flush";
@@ -127,258 +121,99 @@ async function configured(): Promise<{ backendUrl: string; apiKey: string } | nu
   return { backendUrl: settings.backendUrl, apiKey: settings.apiKey };
 }
 
-const WARMER_ID = "clv-dashboard-warm";
-
 /**
- * Runs the one-line warm-up script on the dashboard, whatever origin it lives at.
+ * The Odds Terminal path: plan on the server, read in this worker, compute on the server.
  *
- * It cannot be a manifest `content_scripts` entry because the manifest is static and the backend
- * URL is not -- it is a tailnet host, a localhost port, or whatever the user typed. So it is
- * registered here from the saved setting, and re-registered whenever that setting changes.
+ * Three steps rather than one because each is the only place that can do its job. The plan needs
+ * the book ordering, which is a database setting. The read needs the user's own browser session,
+ * which only this worker can spend. The verdict needs `buildClosingVerdict`, and a second copy of
+ * that arithmetic in the extension would drift from the dashboard's silently.
  *
- * Silently does nothing when Chrome has not granted host access to that origin (the options page
- * asks for it on Save). That is the correct outcome rather than an error: without the grant the
- * captures do not work either, and the user is already told so there.
+ * What is conspicuously absent is the shape this replaced: no pending map, no request ids, no tab,
+ * no relay, no held-open `sendResponse`. The worker fetches and answers inside one message.
  */
-async function registerDashboardWarmer(): Promise<void> {
-  try {
-    const settings = await loadSettings();
-    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [WARMER_ID] });
-    if (existing.length > 0) await chrome.scripting.unregisterContentScripts({ ids: [WARMER_ID] });
-
-    if (!settings.backendUrl) return;
-    const origin = `${new URL(settings.backendUrl).origin}/*`;
-    if (!(await chrome.permissions.contains({ origins: [origin] }))) return;
-
-    await chrome.scripting.registerContentScripts([
-      {
-        id: WARMER_ID,
-        matches: [origin],
-        js: ["content/dashboard-warm.js"],
-        runAt: "document_idle",
-      },
-    ]);
-  } catch (error) {
-    console.warn("[CLV Analyzer] could not register the dashboard warmer:", error);
-  }
-}
-
-// The backend URL is saved from the options page, which runs in its own context -- so the worker
-// finds out the same way anything else does, and re-points the warmer at the new origin.
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "sync" && changes.backendUrl) void registerDashboardWarmer();
-});
-
-/**
- * Odds Terminal lookups waiting on the tab the user's click opened.
- *
- * ## Why the worker holds state at all
- *
- * Every other source answers inside one request. This one is a three-hop round trip -- the board
- * opens a tab, the relay in that tab asks what to fetch, then reports what it read -- and the
- * modal is sitting on a single `sendMessage` await across the whole thing. So the worker parks the
- * modal's `sendResponse` here and resolves it when the third hop lands.
- *
- * ## Why an unguessable id is the authentication
- *
- * The worker cannot check that a snapshot message came from Odds Terminal the way the `clv:pp-token`
- * handler below checks its sender, because doing so would mean naming that host in background code
- * -- which is exactly what this design forbids, and what the automation guard asserts is absent.
- * The pending id does that job instead: a result is only honoured if it quotes an id this worker
- * minted itself, that is still within its timeout, and that has not already been answered. Each
- * entry is consumed on first use, so a reload of the opened tab cannot replay a read either.
- *
- * Nothing here is persisted. A worker restart drops every pending lookup, which is correct: the
- * modal that was waiting is gone too, and a read that survived its own asker would be precisely
- * the unattended automation this whole arrangement exists to prevent.
- */
-interface PendingOddsTerminal {
-  pick: OddsLookupPick;
-  /** The relative path the relay should fetch, resolved from the server before the relay asks. */
-  path: Promise<OddsTerminalPathResponse>;
-  respond: (response: OddsLookupResponse) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-const pendingOddsTerminal = new Map<string, PendingOddsTerminal>();
-
-/**
- * How long a lookup may stay parked.
- *
- * Long enough for a cold tab to clear Cloudflare and sign-in to be noticed, short enough that a
- * user who closed the tab gets a real message rather than a spinner forever. The relay has its own,
- * shorter timeout on the fetch itself; this one covers everything that can go wrong around it --
- * the tab never loading, the user closing it, the content script never being injected at all.
- */
-const ODDS_TERMINAL_TIMEOUT_MS = 30_000;
-
-function settleOddsTerminal(requestId: string, response: OddsLookupResponse): void {
-  const entry = pendingOddsTerminal.get(requestId);
-  if (!entry) return;
-  pendingOddsTerminal.delete(requestId);
-  clearTimeout(entry.timer);
-  entry.respond(response);
-}
-
-/** Asks the server what the relay should fetch. Returns a relative path, never an origin. */
-async function oddsTerminalPath(pick: OddsLookupPick): Promise<OddsTerminalPathResponse> {
-  const settings = await configured();
-  if (!settings) return { ok: false, reason: "not configured -- open the extension options" };
-  try {
-    const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-verdict"), {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
-      body: JSON.stringify({ ...pick, plan: true }),
-    });
-    if (!response.ok) return { ok: false, reason: `server ${response.status}` };
-    const body = (await response.json()) as { ok?: boolean; path?: string; reason?: string };
-    return body?.ok && body.path
-      ? { ok: true, path: body.path }
-      : { ok: false, reason: body?.reason ?? "Odds Terminal cannot answer this market." };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: error instanceof Error ? error.message : "could not reach the backend",
-    };
-  }
-}
-
-/** Asks the server which fixture the snapshot names, and what to stream next. */
-async function oddsTerminalFixture(
-  pick: OddsLookupPick,
-  snapshot: unknown
-): Promise<OddsTerminalSnapshotResponse> {
-  const settings = await configured();
-  if (!settings) return { ok: false, reason: "not configured -- open the extension options" };
-  try {
-    const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-verdict"), {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
-      body: JSON.stringify({ ...pick, snapshot }),
-    });
-    if (!response.ok) return { ok: false, reason: `server ${response.status}` };
-    const body = (await response.json()) as OddsTerminalSnapshotResponse;
-    return body?.ok && body.streamPath
-      ? { ok: true, streamPath: body.streamPath, fixture: body.fixture }
-      : { ok: false, reason: body?.reason ?? "Odds Terminal is not listing this game." };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: error instanceof Error ? error.message : "could not reach the backend",
-    };
-  }
-}
-
-/** Turns the relayed stream into the verdict the modal renders. The server does the computing; it
- *  never does the fetching. */
-async function oddsTerminalVerdict(
-  pick: OddsLookupPick,
-  stream: unknown
-): Promise<OddsLookupResponse> {
+async function oddsTerminalLookup(pick: OddsLookupPick): Promise<OddsLookupResponse> {
   const settings = await configured();
   if (!settings) return { ok: false, error: "not configured -- open the extension options" };
-  try {
+
+  const post = async (body: unknown): Promise<Record<string, unknown>> => {
     const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-verdict"), {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
-      body: JSON.stringify({ ...pick, stream }),
+      body: JSON.stringify(body),
     });
-    if (!response.ok) return { ok: false, error: `server ${response.status}` };
-    const body = (await response.json()) as { preview?: OddsLookupResponse["preview"] };
-    return { ok: true, preview: body.preview };
+    if (!response.ok) throw new Error(`server ${response.status}`);
+    return (await response.json()) as Record<string, unknown>;
+  };
+
+  try {
+    const planned = await post({ ...pick, plan: true });
+    if (!planned.ok || !planned.plan) {
+      // "Odds Terminal does not carry college hockey" is a real, final answer to the question
+      // asked -- shown as one rather than as an error.
+      return {
+        ok: true,
+        preview: {
+          fetchedAt: new Date().toISOString(),
+          ok: false,
+          reason: (planned.reason as string) ?? "Odds Terminal cannot answer this market.",
+          verdict: null,
+          source: "ODDS_TERMINAL",
+        },
+      };
+    }
+
+    const plan = planned.plan as OddsTerminalReadPlan;
+    const read = await readOddsTerminal(plan, {
+      matchup: pick.matchup,
+      subjectTeam: pick.subjectTeam,
+    });
+    if (!read) {
+      return {
+        ok: true,
+        preview: {
+          fetchedAt: new Date().toISOString(),
+          ok: false,
+          reason: pick.matchup
+            ? `Odds Terminal is not listing a ${plan.league.toUpperCase()} game matching "${pick.matchup}" in the week ahead.`
+            : "This row records no matchup, and Odds Terminal needs one to identify the game.",
+          verdict: null,
+          source: "ODDS_TERMINAL",
+        },
+      };
+    }
+
+    const body = await post({ ...pick, read });
+    return { ok: true, preview: body.preview as OddsLookupResponse["preview"] };
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "odds lookup failed",
+      error:
+        error instanceof OddsTerminalSignedOutError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "the Odds Terminal read failed",
     };
   }
 }
 
 chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }, sender, sendResponse) => {
-  if (message?.type === "clv:pp-token") {
-    // Only from a content script actually running on PropProfessor. A message claiming to carry
-    // their token from anywhere else has no business being trusted.
-    const from = sender.url ?? "";
-    if (/^https:\/\/www\.propprofessor\.com\//.test(from)) {
-      void storeToken((message as PpTokenMessage).token);
-    }
-    return false;
-  }
-
-  if (message?.type === "clv:odds-terminal-lookup") {
-    const { requestId, pick } = message as OddsTerminalLookupMessage;
-    // The path is resolved immediately rather than when the relay asks for it, so the server round
-    // trip overlaps with the tab loading instead of following it. The relay awaits this promise.
-    const path = oddsTerminalPath(pick);
-    const timer = setTimeout(() => {
-      settleOddsTerminal(requestId, {
-        ok: false,
-        error:
-          "Odds Terminal did not answer. Check that the tab opened (a blocked pop-up would stop it) " +
-          "and that you are signed in there, then hit Refresh.",
-      });
-    }, ODDS_TERMINAL_TIMEOUT_MS);
-    pendingOddsTerminal.set(requestId, { pick, path, respond: sendResponse, timer });
-
-    // A plan the server refuses ("this source does not carry that market") is final and there is
-    // nothing for the tab to do, so it is answered now rather than left to time out.
-    void path.then((resolved) => {
-      if (!resolved.ok) settleOddsTerminal(requestId, { ok: false, error: resolved.reason });
-    });
-    return true;
-  }
-
-  if (message?.type === "clv:odds-terminal-path") {
-    const { requestId } = message as OddsTerminalPathMessage;
-    const entry = pendingOddsTerminal.get(requestId);
-    // An id nobody is waiting on gets nothing. This is what stops a reload of the opened tab, or
-    // any other page, from provoking a read.
-    if (!entry) {
-      sendResponse({ ok: false, reason: "This lookup is no longer waiting for an answer." } satisfies OddsTerminalPathResponse);
-      return false;
-    }
-    void entry.path.then(sendResponse);
-    return true;
-  }
-
-  if (message?.type === "clv:odds-terminal-snapshot") {
-    const { requestId, snapshot } = message as OddsTerminalSnapshotMessage;
-    const entry = pendingOddsTerminal.get(requestId);
-    // Same gate as the path hop: an id nobody is waiting on gets nothing.
-    if (!entry) {
-      sendResponse({ ok: false, reason: "This lookup is no longer waiting for an answer." } satisfies OddsTerminalSnapshotResponse);
-      return false;
-    }
-    void oddsTerminalFixture(entry.pick, snapshot).then(sendResponse);
-    return true;
-  }
-
-  if (message?.type === "clv:odds-terminal-result") {
-    const result = message as OddsTerminalResultMessage;
-    const entry = pendingOddsTerminal.get(result.requestId);
-    if (!entry) return false; // Timed out, already answered, or never ours.
-    if (!result.ok) {
-      settleOddsTerminal(result.requestId, { ok: false, error: result.reason ?? "Odds Terminal could not be read." });
-      return false;
-    }
-    void oddsTerminalVerdict(entry.pick, result.stream).then((response) => {
-      settleOddsTerminal(result.requestId, response);
-    });
-    return false;
-  }
-
   if (message?.type === "clv:odds-lookup") {
     (async () => {
+      const pick = (message as OddsLookupMessage).pick;
+      if (pick.source === "ODDS_TERMINAL") {
+        sendResponse(await oddsTerminalLookup(pick));
+        return;
+      }
       try {
         const settings = await configured();
         if (!settings) {
           sendResponse({ ok: false, error: "not configured -- open the extension options" });
           return;
         }
-        const pick = (message as OddsLookupMessage).pick;
-        // The Odds API is the only source now (PropProfessor automation was disabled after that
-        // account was banned, 2026-09), and it authenticates with its own key -- there is no
-        // session to push ahead of the request the way there used to be.
+        // The Odds API authenticates with its own key, held by the server -- there is no session
+        // to push ahead of the request the way the banned PropProfessor path used to.
         const response = await fetch(apiUrl(settings.backendUrl, "/api/odds-lookup"), {
           method: "POST",
           headers: { "content-type": "application/json", "x-api-key": settings.apiKey },
@@ -547,24 +382,25 @@ chrome.runtime.onMessage.addListener((message: CaptureMessage | { type: string }
 
 chrome.alarms.create(ALARM, { periodInMinutes: 1 });
 
-// There used to be a second, `CLOSING_ALARM` alarm here that read PropProfessor's odds screen
+// A dashboard "warmer" also lived here: a one-line content script registered at runtime against
+// the dashboard's own origin, whose only job was to tell this worker "the dashboard is open" so it
+// could push a fresh PropProfessor screen token to the server before anyone clicked Odds. There is
+// no token to push any more, so the script, its registration, the `clv:warm` message and the
+// `scripting` permission it needed are all gone rather than left inert.
+//
+// // There used to be a second, `CLOSING_ALARM` alarm here that read PropProfessor's odds screen
 // every minute -- both the scheduled closing-read queue and the Odds modal's on-demand queue rode
-// on it. That automation is what got the PropProfessor account banned (2026-09), so it is gone:
-// closing-line capture is disabled for now rather than rewired, and the Odds modal answers from
-// The Odds API inside its own request instead of queuing. `closing-worker.ts`,
-// `odds-preview-worker.ts` and `pp-token.ts`'s token minting all still exist but nothing calls
-// them any more.
+// on it. That automation is what got the PropProfessor account banned (2026-09). It is gone, and
+// so is every module it drove: `closing-worker.ts`, `closing-reader.ts`, `odds-preview-worker.ts`
+// and `pp-token.ts` have been deleted rather than left unreferenced, because an unreferenced
+// reader is one import away from being a reader again. Closing-line capture stays paused; the Odds
+// modal answers inside its own request from The Odds API or Odds Terminal.
+//
+// This alarm flushes the capture queue and does nothing else. It contacts no site but our own.
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) void flushQueue();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void flushQueue();
-  // Registered scripts normally survive a browser restart, so this is a repair rather than the
-  // usual path -- but a registration lost to a crash or a profile copy would otherwise stay lost.
-  void registerDashboardWarmer();
-});
-
-chrome.runtime.onInstalled.addListener(() => {
-  void registerDashboardWarmer();
 });

@@ -1,60 +1,51 @@
 import {
   findMatchingRow,
-  findOddsTerminalFixture,
-  normalizeOddsTerminalStream,
-  oddsTerminalStreamPath,
+  normalizeOddsTerminalOdds,
   planOddsTerminalRead,
   type ClosingReadOutcome,
   type ClosingSourceInfo,
   type ClosingWorkItem,
   type OddsTerminalFixture,
+  type OddsTerminalOddsEntry,
   type OddsTerminalReadPlan,
-  type OddsTerminalStreamEntry,
   type ParsedRow,
 } from "@clv/shared";
 import { getAppSettings } from "./app-settings";
 
 /**
- * Turns a relayed Odds Terminal snapshot into a closing outcome.
+ * Turns the Odds Terminal entries the extension read into a closing outcome.
  *
  * ## Read this before adding a fetch to this file
  *
- * **This module makes no outbound request and must never make one.** It is handed bytes that were
- * already obtained, elsewhere, by a content script running inside a tab the user's own click
- * opened, and its whole job is the part that happens *after* those bytes exist: resolve the
- * fixture, parse the flat odds array, match the pick's row.
+ * **This module makes no outbound request and must never make one.** It is handed entries that
+ * were already obtained, elsewhere, by the extension's background worker on the user's own signed-in
+ * session, and its whole job is the part that happens *after* those bytes exist: parse, match, and
+ * hand back an outcome.
  *
- * That is the entire architectural point of the Odds Terminal source. The shape that got the
+ * That is the architectural point of this source, not a layering accident. The shape that got the
  * PropProfessor account banned (2026-09) was a captured session token driving **server-initiated**
  * reads on a timer, firing whether or not the user was looking at anything. So the rule here is
- * structural rather than a matter of discipline: the server never learns the host, never holds a
- * session, and cannot originate contact even by accident, because the only thing it is ever given
- * is a response body. `oddsjam-automation-guard.test.ts` asserts it.
+ * structural: this server never learns the host, never holds a session, and cannot originate
+ * contact even by accident, because the only thing it is ever given is a response body.
+ * `oddsjam-automation-guard.test.ts` asserts it.
  *
  * ## Why it is not `odds-terminal-read.ts`
  *
- * The sibling modules (`pp-screen-read.ts`, `odds-api-read.ts`) own their own transport: they hold
- * a timeout, a cache and a credential, and they return an outcome. This one deliberately owns none
- * of that -- there is nothing to cache (the relay's tab is the cache), nothing to authenticate
- * (the user's own cookie jar did that, in their own browser) and no timeout to set (the fetch
- * already happened). Naming it `-read` would invite exactly the code this comment forbids.
+ * The sibling module (`odds-api-read.ts`) owns its own transport: it holds a timeout, a cache and a
+ * credential, and it returns an outcome. This one deliberately owns none of that -- there is
+ * nothing to cache, nothing to authenticate (the user's own cookie jar did that, in their own
+ * browser) and no timeout to set (the fetch already happened). Naming it `-read` would invite
+ * exactly the code this comment forbids.
  */
 
-/**
- * What the relay collected, as it came off the wire.
- *
- * Two hops, because the feed needs two: the snapshot names the fixture, the stream prices it.
- */
-export interface RelayedSnapshot {
-  /** The parsed JSON body of `/api/snapshot`. Untouched, and treated as untrusted input. */
-  body: unknown;
-}
-
-export interface RelayedStream {
-  /** The `data[]` entries collected off `/api/stream`. Untrusted. */
-  entries: OddsTerminalStreamEntry[];
-  /** The fixture the relay was told to stream, echoed back so the parse can filter on it. */
+/** What the extension collected, as it came off the wire. Untrusted, all of it. */
+export interface RelayedOddsTerminalRead {
+  /** The fixture the worker matched, echoed back so the parse can filter to it. */
   fixture: OddsTerminalFixture;
+  /** The `odds[]` entries for the pick's market, already narrowed to it by the worker. */
+  entries: OddsTerminalOddsEntry[];
+  /** Market names the fixture carried, so "not quoting that" can say what it saw instead. */
+  marketsSeen?: string[];
 }
 
 function sourceFor(plan: OddsTerminalReadPlan, fixtureId: string | null): ClosingSourceInfo {
@@ -64,13 +55,13 @@ function sourceFor(plan: OddsTerminalReadPlan, fixtureId: string | null): Closin
     // is the only kind this source is allowed to persist.
     url: `${plan.sport}/${fixtureId ?? "unknown"}`,
     league: plan.league,
-    // A prop has no feed-side id (it is matched by name), so the pick's own market name is what
-    // gets recorded. `ClosingSourceInfo.market` is provenance, not a key to fetch with.
-    market: plan.marketId ?? plan.requestedStatMarket,
+    // Markets are matched by name here, so the pick's own market name is what gets recorded.
+    // `ClosingSourceInfo.market` is provenance, not a key to fetch with.
+    market: plan.requestedStatMarket,
   };
 }
 
-/** A few of the names the snapshot did carry, so "not among them" can say what it saw. */
+/** A few of the names the read did carry, so "not among them" can say what it saw. */
 function sampleNamesFrom(rows: ParsedRow[], limit = 6): string[] {
   const names = new Set<string>();
   for (const row of rows) {
@@ -82,87 +73,40 @@ function sampleNamesFrom(rows: ParsedRow[], limit = 6): string[] {
 }
 
 /**
- * What the relay should ask for, so the extension never has to know the vocabulary.
+ * What the extension should ask for, so it never has to know this project's vocabulary.
  *
- * The plan is made server-side and handed out rather than built in the content script, because the
- * book ordering it depends on is a user setting that lives in the database. The relay receives a
- * finished path and appends nothing of its own.
+ * Made server-side and handed out rather than built in the worker, because the book ordering it
+ * depends on is a user setting that lives in the database, and the market vocabulary it resolves
+ * through is this project's own. The worker receives a finished plan and appends nothing.
  */
 export async function planRelayRead(
-  item: ClosingWorkItem
+  item: ClosingWorkItem & { gameStartIso?: string | null }
 ): Promise<OddsTerminalReadPlan | { kind: "noEquivalent" | "unmapped"; reason: string }> {
   const settings = await getAppSettings();
   return planOddsTerminalRead(item, { bookOrder: settings.bookOrder });
 }
 
-/** What the relay should do next, once the fixture is known. */
-export interface ResolvedFixture {
-  fixture: OddsTerminalFixture;
-  /** Relative, always. The relay appends nothing of its own. */
-  streamPath: string;
-}
-
 /**
- * Finds the pick's fixture in a snapshot the relay already fetched.
- *
- * This is all the snapshot is for now. The stream will not hand out a `fixture_id`, and it will
- * not answer without one, so the fixture has to be identified here first -- from team names, with
- * the same fail-closed discipline as everywhere else: ambiguity is a refusal, never a guess.
- */
-export function resolveRelayedFixture(
-  item: ClosingWorkItem,
-  plan: OddsTerminalReadPlan,
-  snapshot: RelayedSnapshot
-): ResolvedFixture | ClosingReadOutcome {
-  const body = snapshot.body;
-  if (!body || typeof body !== "object") {
-    return { kind: "READ_FAILED", reason: "Odds Terminal returned something that was not a snapshot." };
-  }
-  const fixtures = (body as { fixtures?: unknown }).fixtures;
-  if (!Array.isArray(fixtures)) {
-    return { kind: "READ_FAILED", reason: "The Odds Terminal snapshot carried no fixtures." };
-  }
-
-  const fixture = findOddsTerminalFixture(fixtures as OddsTerminalFixture[], plan, {
-    matchup: item.matchup,
-    subjectTeam: item.subjectTeam,
-  });
-  if (!fixture) {
-    return {
-      kind: "READ_FAILED",
-      reason: item.matchup
-        ? `Odds Terminal is not listing a ${plan.league.toUpperCase()} game matching "${item.matchup}" right now.`
-        : "This pick records no matchup, and Odds Terminal needs one to identify the game.",
-    };
-  }
-  const id = typeof fixture.id === "string" ? fixture.id : null;
-  if (!id) return { kind: "READ_FAILED", reason: "That Odds Terminal fixture carries no id." };
-  return { fixture, streamPath: oddsTerminalStreamPath(plan, id) };
-}
-
-/**
- * The outcome for one pick, from the stream entries the relay collected.
+ * The outcome for one pick, from the entries the extension collected.
  *
  * Returns the same `ClosingReadOutcome` every other source produces, so everything downstream --
  * `buildClosingVerdict`, the modal's rendering -- cannot tell which source produced it.
  */
-export function readRelayedStream(
+export function readRelayedOdds(
   item: ClosingWorkItem,
   plan: OddsTerminalReadPlan,
-  relayed: RelayedStream
+  read: RelayedOddsTerminalRead
 ): ClosingReadOutcome {
-  const source = sourceFor(
-    plan,
-    typeof relayed.fixture.id === "string" ? relayed.fixture.id : null
-  );
-  const parsed = normalizeOddsTerminalStream(relayed.entries, plan, relayed.fixture, {
+  const source = sourceFor(plan, typeof read.fixture?.id === "string" ? read.fixture.id : null);
+  const parsed = normalizeOddsTerminalOdds(read.entries, plan, read.fixture ?? {}, {
     atLine: item.takenLine,
+    marketsSeen: read.marketsSeen,
   });
 
   if (!parsed.ok) {
-    // The parser's reason names the markets the stream DID carry, which is nearly always the
+    // The parser's reason names the markets the fixture DID carry, which is nearly always the
     // actionable detail -- a market spelled differently rather than one that is missing.
-    return { kind: "READ_FAILED", reason: parsed.reason ?? "unreadable stream" };
+    return { kind: "READ_FAILED", reason: parsed.reason ?? "unreadable odds" };
   }
   if (parsed.rows.length === 0) {
     return { kind: "MARKET_NOT_OFFERED", source, availableMarkets: [] };

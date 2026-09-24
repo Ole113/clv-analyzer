@@ -11,10 +11,10 @@ const SECTIONS = [
 ];
 
 // Updated 2026-09: the PropProfessor account was banned for the automated screen reads section 2
-// used to describe. That automation is now permanently disabled -- see the code comments in
-// `pp-screen-read.ts` and `closing-reader.ts` -- and closing-line capture is paused rather than
-// rewired onto another source. The Odds modal now reads only The Odds API, a keyed third-party
-// API that needs no PropProfessor session at all.
+// used to describe. Every module that could make that request has since been deleted rather than
+// disabled, along with the extension's PropProfessor board scripts -- `oddsjam-automation-guard`
+// fails the build if the hostname reappears anywhere in code. Closing-line capture stays paused;
+// the Odds modal reads Odds Terminal (in the extension, on the user's own session) or The Odds API.
 
 export default function AboutPage() {
   return (
@@ -53,26 +53,28 @@ export default function AboutPage() {
 
           <h3 id="closing-read">2. Reading the closing line</h3>
           <p>
-            Shortly before a game starts, the dashboard used to make one more read of the market to see
-            where the line ended up, the same way as capture: a background script, still running inside
-            a signed-in browser, made a plain request to the JSON endpoint PropProfessor&apos;s own
-            website already calls to draw its odds screen (<code>backend.propprofessor.com/screen</code>
-            ), authenticated with a session token observed off a request PropProfessor&apos;s own app
-            was already making.
+            Shortly before a game starts, the dashboard used to make one more read of the market to
+            see where the line ended up: a background script, running inside a signed-in browser,
+            made a plain request to the JSON endpoint PropProfessor&apos;s own website calls to draw
+            its odds screen, authenticated with a session token observed off a request that site&apos;s
+            own app was already making.
           </p>
           <p>
-            <strong>That automation is now permanently disabled.</strong> It is what got the
-            PropProfessor account banned in September 2026, and nothing in this codebase makes that
-            request any more — not on a schedule, and not on demand. Closing-line capture is paused
-            rather than rewired onto another source; the code that used to do it is still in the
-            extension (<code>closing-reader.ts</code>, <code>closing-worker.ts</code>), unreferenced,
-            in case a deliberate, human decision to read PropProfessor again is ever made.
+            <strong>That is gone, and not merely switched off.</strong> It is what got the
+            PropProfessor account banned in September 2026. Every part of it has been deleted — the
+            token bridge and its relay, the closing reader and worker, the server-side screen reader,
+            the board scripts, and the extension&apos;s permission to touch that site at all. An
+            automated test fails the build if the hostname so much as appears in code again.
+            Closing-line capture is paused rather than rewired onto another source.
           </p>
           <p>
             The Odds modal — &quot;current odds ↗&quot; on a pick, or the board button the extension
-            injects — now reads only <strong>The Odds API</strong>, a keyed, metered third-party API
-            unrelated to either PropProfessor or OddsJam. It needs no browser session and is contacted
-            only when a person opens or refreshes that modal, never on a timer.
+            injects — reads two sources, neither of which is a board. <strong>Odds Terminal</strong>
+            is fetched by the extension itself, in the background, on the session your own browser is
+            already signed in with: no tab is opened, no credential is captured or stored, and a read
+            happens only because you clicked. <strong>The Odds API</strong> is a keyed, metered
+            third-party API the server calls directly. Both are contacted only when a person opens or
+            refreshes that modal, never on a timer.
           </p>
           <p>
             <strong>OddsJam is never read automatically either.</strong> There is no background request

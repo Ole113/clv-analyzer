@@ -1,70 +1,67 @@
 /**
- * Odds Terminal's `/api/snapshot`, turned into the same `ParsedRow`s every other source produces.
+ * Planning a read of Odds Terminal: which books to ask for, which slate to ask about, and which
+ * market names count as an answer.
  *
  * ## What this module is, and what it deliberately is not
  *
- * It is a **pure parser and planner**. It names no host, opens no connection and has no idea how
- * the bytes it is handed were obtained -- which is the property that lets it live in
- * `shared/src/sources/` alongside the others without tripping the automation guard's allowlist
- * (`oddsjam-automation-guard.test.ts` scans this whole directory for hostnames).
+ * It is a **pure planner**. It names no host, opens no connection and never sees a response. Every
+ * path it produces is relative by construction, so nothing that imports it can be turned into
+ * outbound traffic by accident -- the origin is added in exactly one place
+ * (`extension/src/background/odds-terminal-read.ts`), and `oddsjam-automation-guard.test.ts` scans
+ * this whole directory to keep it that way.
  *
- * That is not an accident of layering, it is the design. The fetch itself happens in
- * `extension/src/content/oddsterminal-site/relay.ts`, inside a tab the user's own click opened,
- * against a **same-origin relative path**. No server-side or background code ever contacts Odds
- * Terminal -- that exact shape (a captured session driving backend-initiated reads) is what got
- * the PropProfessor account banned, and this source is treated as being in the same risk class.
+ * ## The two requests a lookup makes, and why it is two
  *
- * ## The response shape this parses
+ * `/api/snapshot` answers two completely different questions depending on whether it is given a
+ * `fixture_id`, and that shape is the whole design:
  *
- * `GET /api/snapshot?sport=<sport>&sportsbook=<book>&...` (between one and five `sportsbook`
- * params, or the API 400s) answers with:
+ *   1. **Without** one (`oddsTerminalFixturesPath`) it lists the slate -- fixtures plus their main
+ *      markets. This is how a pick's game is found; there is no other way to learn a fixture id.
+ *   2. **With** one (`oddsTerminalOddsPath`) it returns *every* market that fixture has, player
+ *      props included -- 2,300+ entries across 112 markets for one NFL game, verified live
+ *      (2026-09-24). No second endpoint, no stream, no market table.
  *
- * ```json
- * {
- *   "coverage": { "DraftKings": { "returned": 12, ... } },
- *   "fixtures": [ { "id", "sport": {id,name}, "league": {id,name}, "start_date",
- *                   "home_competitors": [{name,...}], "away_competitors": [...],
- *                   "home_team_display", "away_team_display", ... } ],
- *   "odds": [ { "sportsbook", "market", "market_id", "name", "price", "points",
- *               "selection", "normalized_selection", "is_main", "fixture_id", ... } ]
- * }
- * ```
+ * That second point is worth stating plainly because the previous implementation was built on the
+ * opposite belief. It read `/api/snapshot` without a fixture id, concluded the endpoint "serves
+ * main markets only", and went looking for player props on the Server-Sent Events endpoint
+ * (`/api/stream`) instead -- which, asked the same question, answers 200 and then sends nothing at
+ * all for as long as anything listens. Every prop lookup timed out. Passing `fixture_id` is the
+ * entire difference between the two behaviours.
  *
- * The critical structural difference from The Odds API: **odds are a flat array keyed by
- * `fixture_id`, not nested under their fixture.** So a read resolves a fixture first and then
- * filters the flat array to it, rather than being handed one event's odds.
+ * ## Three things the endpoint does that have to be planned around
  *
- * ## What it shares with the other sources, on purpose
- *
- * Line selection goes through the shared `pickMainLines` (`main-line.ts`) untouched. Two tabs
- * quoting different "main lines" for one market because each source reconstructed the idea
- * differently would read as a disagreement between sportsbooks when it is really a disagreement
- * between two of our own parsers -- the whole reason that module was extracted.
+ *  - **Five books, hard.** Six is `400 Choose between one and five sportsbooks.`, not a truncation.
+ *  - **The slate is 36 hours unless you say otherwise.** `start_date_after`/`start_date_before`
+ *    (ISO timestamps, the site's own "Next 7 days" control) are what widen it. Without them a
+ *    Sunday NFL slate is invisible on a Wednesday, which is most of the week.
+ *  - **The slate is paginated at 100.** A 7-day NCAAF slate is 121 fixtures over two pages, so a
+ *    single-page read silently cannot find a fifth of college games.
  */
 
-import type { MarketType, ParseResult, ParsedRow, PickSide } from "../types";
-import { bookLogoUrl, normalizeBookKey } from "../books";
-import { marketFilterKey, normalizeMarketName, propProfessorLeague } from "../markets";
+import type { MarketType } from "../types";
+import { normalizeBookKey } from "../books";
+import {
+  extractPeriod,
+  marketFilterKey,
+  normalizeMarketName,
+  propProfessorLeague,
+  resolveClosingMarket,
+} from "../markets";
 import { normalizeName } from "../matching";
-import { devigTwoWay } from "../devig";
-import { pickMainLines, type BookQuote } from "./main-line";
 
 // --- vocabulary -------------------------------------------------------------------------------
 
 /**
  * Our league code -> Odds Terminal's `sport` query value and its own league id.
  *
- * The `sport` value is what the endpoint is keyed by; the `league` is what a returned fixture
- * carries in `league.id`, and is how a multi-league sport ("football" covers NFL, NCAAF and CFL at
- * once) is narrowed back down to the one the pick is about.
+ * The `sport` value is what the endpoint is keyed by; the `league` is both a query filter and what
+ * a returned fixture carries in `league.id`, which is how a multi-league sport ("football" covers
+ * NFL, NCAAF and CFL at once) is narrowed to the one the pick is about.
  *
  * Tennis, soccer, golf and MMA are absent for the same reason they are absent from
  * `ODDS_API_SPORTS`: our league vocabulary collapses every tournament into one code, and a source
  * that keys them per competition cannot be asked about "Tennis" without guessing which event. An
  * honest "not covered" beats an answer about the wrong match.
- *
- * Matching on these ids is deliberately lenient (see `sameLeague`) and *fails closed*: a fixture
- * whose league cannot be confirmed as the pick's is not matched at all, rather than being assumed.
  */
 export const ODDS_TERMINAL_SPORTS: Record<string, { sport: string; league: string }> = {
   NFL: { sport: "football", league: "nfl" },
@@ -82,25 +79,18 @@ export const ODDS_TERMINAL_SPORTS: Record<string, { sport: string; league: strin
  *
  * ## Two spellings, because the API uses two
  *
- * Confirmed against a live `/api/catalog?sport=football` (2026-09-23): each book has a lowercase
- * `id` ("draftkings") and a display `name` ("DraftKings"), and **they are not interchangeable**:
+ * Every book has a lowercase `id` and a display `name`, and **they are not interchangeable**: the
+ * `sportsbook=` query parameter takes the id, while `odds[].sportsbook` in the response comes back
+ * as the name. So the query is built from `id` and the parse is keyed on `name`.
  *
- *  - the `sportsbook=` query parameter takes the **id**. `sportsbook=DraftKings` is not what the
- *    endpoint expects;
- *  - `odds[].sportsbook` in the response comes back as the **name**.
- *
- * So the query is built from `id` and the parse is keyed on `name`. Keeping only one of the two --
- * which is what this table did first -- meant either an unanswerable query or unattributable rows.
+ * Every id below was read out of a live `/api/catalog?sport=<sport>` response (2026-09-24), which
+ * is the only way to get them right: they are not guessable (`hard_rock` with the underscore,
+ * `polymarket_usa_` with the trailing one, `circa_sports`, and `bet365` lowercase in both fields).
+ * ESPN BET and Underdog are absent because that catalog does not carry them -- ESPN BET is in its
+ * `missing` list -- and asking for a book the endpoint does not know burns one of only five slots.
  *
  * `key` is the key this project already uses for the same book, so `SPORTSBOOK_HINTS`,
  * `BOOK_DOMAINS`, the book order and the outlier test all apply downstream with no special-casing.
- *
- * ## Why some obvious books are absent
- *
- * ESPN BET, Prophet X and Underdog were in this table and are **not offered by this source**: the
- * catalog lists 216 books and none of them is any of those three (ESPN BET appears in the
- * catalog's own `missing` list, i.e. known but not carried). Asking for a book the endpoint does
- * not know wastes one of only five slots, so they are gone rather than left in hopefully.
  */
 export interface OddsTerminalBook {
   /** What `sportsbook=` wants. */
@@ -112,25 +102,27 @@ export interface OddsTerminalBook {
 }
 
 export const ODDS_TERMINAL_BOOKS: OddsTerminalBook[] = [
-  { id: "pinnacle", name: "Pinnacle", key: "pinnacle" },
-  { id: "fanduel", name: "FanDuel", key: "fanduel" },
   { id: "draftkings", name: "DraftKings", key: "draftkings" },
+  { id: "fanduel", name: "FanDuel", key: "fanduel" },
+  { id: "bet365", name: "bet365", key: "bet365" },
   { id: "betmgm", name: "BetMGM", key: "betmgm" },
   { id: "caesars", name: "Caesars", key: "caesars" },
+  { id: "novig", name: "Novig", key: "novig" },
   { id: "fanatics", name: "Fanatics", key: "fanatics" },
   { id: "betrivers", name: "BetRivers", key: "betrivers" },
-  { id: "novig", name: "Novig", key: "novig" },
-  { id: "kalshi", name: "Kalshi", key: "kalshi" },
-  { id: "polymarket", name: "Polymarket", key: "polymarket" },
-  { id: "betonline", name: "BetOnline", key: "betonline" },
-  // The id is `hard_rock`, with the underscore -- not `hardrock`, which is what our own
-  // `normalizeBookKey` would produce and what this table used to assume.
   { id: "hard_rock", name: "Hard Rock", key: "hardrock" },
-  { id: "fliff", name: "Fliff", key: "fliff" },
+  { id: "pinnacle", name: "Pinnacle", key: "pinnacle" },
+  { id: "circa_sports", name: "Circa Sports", key: "circa" },
+  { id: "betonline", name: "BetOnline", key: "betonline" },
   { id: "bovada", name: "Bovada", key: "bovada" },
+  { id: "fliff", name: "Fliff", key: "fliff" },
+  { id: "prophet_x", name: "Prophet X", key: "prophet" },
+  { id: "kalshi", name: "Kalshi", key: "kalshi" },
+  { id: "polymarket_usa_", name: "Polymarket (USA)", key: "polymarketus" },
   // DFS/pickem. Never averaged (`isSportsbookForClose` denies them), but worth showing: a DFS line
   // beside the sportsbook consensus is the comparison the Odds modal exists to make.
   { id: "prizepicks", name: "PrizePicks", key: "prizepicks" },
+  { id: "sleeper", name: "Sleeper", key: "sleeper" },
 ];
 
 /** Display name -> our book key, for reading a response. */
@@ -139,152 +131,176 @@ const BOOK_KEY_BY_NAME = new Map(ODDS_TERMINAL_BOOKS.map((b) => [b.name, b.key])
 /** The endpoint's own ceiling: more than five `sportsbook` params is a 400, not a truncation. */
 export const ODDS_TERMINAL_MAX_BOOKS = 5;
 
+/**
+ * How many chunks of five a lookup may work through before giving up.
+ *
+ * A second chunk exists because the user's book ranking is not a ranking of *prop* coverage, and on
+ * this feed those are very different things: on one NFL game (2026-09-24) DraftKings quoted 20
+ * player markets and FanDuel 13, while Pinnacle, BetOnline and Circa -- three books ranked high in
+ * this install -- quoted **none at all**. Ranking alone would spend three of five slots on books
+ * that cannot answer the question being asked. So a chunk that comes back thin is followed by the
+ * next one, and the results are merged. Three is the cap: fifteen books is already more than any
+ * verdict needs, and each chunk is a request against a site this project is careful with.
+ */
+export const ODDS_TERMINAL_MAX_BOOK_CHUNKS = 3;
+
+/** How wide the slate request is when the pick's own kickoff time is unknown. */
+export const ODDS_TERMINAL_WINDOW_DAYS = 7;
+
+/** The slate's page size, and therefore how many pages a big college slate needs. */
+export const ODDS_TERMINAL_MAX_FIXTURE_PAGES = 4;
+
 /** This project's book key for one of Odds Terminal's display names. */
 export function normalizeOddsTerminalBookKey(sportsbook: string): string {
   return BOOK_KEY_BY_NAME.get(sportsbook) ?? normalizeBookKey(sportsbook) ?? "unknown";
 }
 
 /**
- * Which five books to ask for, ranked by the user's own book order.
+ * Every supported book, ranked by the user's own book order.
  *
- * Identical in spirit to `oddsApiBookmakers`: the install's ranking decides which of the supported
- * books make the cut, and anything the user has not ranked falls in behind them in the table's own
- * order. Five slots is not many, which is exactly why the ranking has to be honoured rather than a
- * fixed five being hardcoded.
+ * Identical in spirit to `oddsApiBookmakers`: the install's ranking decides who is asked first, and
+ * anything the user has not ranked falls in behind in this table's own order.
  */
 function rankedBooks(bookOrder: string[]): OddsTerminalBook[] {
   const rank = new Map(bookOrder.map((key, index) => [key, index]));
-  return [...ODDS_TERMINAL_BOOKS]
-    .sort((a, b) => {
-      const ra = rank.get(a.key) ?? Number.MAX_SAFE_INTEGER;
-      const rb = rank.get(b.key) ?? Number.MAX_SAFE_INTEGER;
-      if (ra !== rb) return ra - rb;
-      return ODDS_TERMINAL_BOOKS.indexOf(a) - ODDS_TERMINAL_BOOKS.indexOf(b);
-    })
-    .slice(0, ODDS_TERMINAL_MAX_BOOKS);
+  return [...ODDS_TERMINAL_BOOKS].sort((a, b) => {
+    const ra = rank.get(a.key) ?? Number.MAX_SAFE_INTEGER;
+    const rb = rank.get(b.key) ?? Number.MAX_SAFE_INTEGER;
+    if (ra !== rb) return ra - rb;
+    return ODDS_TERMINAL_BOOKS.indexOf(a) - ODDS_TERMINAL_BOOKS.indexOf(b);
+  });
 }
 
 /**
- * The books to ask for, as `/api/snapshot` wants them: lowercase ids.
+ * The books to ask for, as `/api/snapshot` wants them (lowercase ids), in chunks of five.
  *
- * Confirmed live -- `sportsbook=draftkings` is accepted there.
+ * A chunk is one request. The caller works through them until the market it wants is covered --
+ * see `ODDS_TERMINAL_MAX_BOOK_CHUNKS` for why more than one exists at all.
  */
+export function oddsTerminalBookChunks(bookOrder: string[] = []): string[][] {
+  const ranked = rankedBooks(bookOrder).map((b) => b.id);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ranked.length && chunks.length < ODDS_TERMINAL_MAX_BOOK_CHUNKS; i += ODDS_TERMINAL_MAX_BOOKS) {
+    chunks.push(ranked.slice(i, i + ODDS_TERMINAL_MAX_BOOKS));
+  }
+  return chunks;
+}
+
+/** The first chunk on its own, which is what a single-request read asks for. */
 export function oddsTerminalBooks(bookOrder: string[] = []): string[] {
-  return rankedBooks(bookOrder).map((b) => b.id);
+  return oddsTerminalBookChunks(bookOrder)[0] ?? [];
 }
 
 /**
- * The books to ask for, as `/api/stream` wants them: display names.
+ * The game markets each sport family actually offers, straight from live responses.
  *
- * The two endpoints disagree, which is the kind of thing no amount of reasoning would have
- * predicted. The evidence is a captured stream URL that reads `...&sportsbook=Kalshi` -- the
- * display name, where the snapshot endpoint takes `kalshi`. Only the name form is actually
- * attested for this endpoint, so that is what is sent; sending the id here is an untested guess,
- * and a rejected `sportsbook` returns nothing for the whole read rather than just that book.
- */
-export function oddsTerminalStreamBooks(bookOrder: string[] = []): string[] {
-  return rankedBooks(bookOrder).map((b) => b.name);
-}
-
-/**
- * There is no player-prop market table any more, and that is deliberate.
- *
- * There used to be one, with roughly fifty hand-written ids. Every one of them was wrong. The live
- * feed slugs its own display names, punctuation included -- "Player Hits + Runs + RBIs" is
- * `player_hits_+_runs_+_rbis` -- which is not guessable, and a wrong id renders as an empty tab
- * with nothing to explain it.
- *
- * `/api/stream?...&mode=all` returns every market for a fixture, so nothing needs to be named in
- * advance: the filtering happens on the way out, by running the feed's own market name and the
- * pick's through `marketFilterKey`. See `odds-terminal-stream.ts`. That is what makes this source
- * work for *any* prop the site carries, rather than for the subset somebody remembered to type in.
- */
-
-/**
- * The game markets each sport family actually offers, straight from the live catalog.
- *
- * ## Why this is a table and not three constants
- *
- * It used to hardcode `point_spread` and `total_points` for every sport, which is right for
- * football and basketball and **wrong for everything else**. Confirmed against
- * `/api/catalog?sport=<sport>` (2026-09-23): baseball quotes `run_line`/`total_runs`, hockey
- * `puck_line`/`total_goals`. An MLB or NHL game market would have been planned against an id this
- * source has never heard of, and -- because the parser filters `odds[]` on `market_id` -- the tab
- * would have come back empty for every one of them, with nothing to say why.
- *
- * Worth stating plainly, since it is the reason this matters more than it looks: game markets are
- * the *only* thing `/api/snapshot` carries (see `ODDS_TERMINAL_MARKETS` below), so a bug in this
- * table is a bug in everything this source can actually answer.
- *
- * The other families the catalog reports -- soccer `asian_handicap`/`total_goals`, tennis
- * `game_spread`/`total_games`, and so on -- are deliberately absent, because `ODDS_TERMINAL_SPORTS`
- * does not map a league onto them; there is nothing that could reach this table asking for one.
+ * Names, not ids. Matching happens on the feed's own display name for every market -- game markets
+ * and player props alike -- because a fixture read returns all of them and the display name is the
+ * one field that is stable, readable and shared with the vocabulary this project already has.
+ * Verified live (2026-09-24): football and basketball quote "Point Spread"/"Total Points", baseball
+ * "Run Line"/"Total Runs", hockey "Puck Line"/"Total Goals". Guessing one family's names from
+ * another's is how an MLB lookup comes back empty with nothing to say why.
  */
 const GAME_MARKETS: Record<string, { spread: string; total: string }> = {
-  football: { spread: "point_spread", total: "total_points" },
-  basketball: { spread: "point_spread", total: "total_points" },
-  baseball: { spread: "run_line", total: "total_runs" },
-  hockey: { spread: "puck_line", total: "total_goals" },
+  football: { spread: "Point Spread", total: "Total Points" },
+  basketball: { spread: "Point Spread", total: "Total Points" },
+  baseball: { spread: "Run Line", total: "Total Runs" },
+  hockey: { spread: "Puck Line", total: "Total Goals" },
 };
 
-/** The game-market id for a market type in one sport family, or null when it is not a game
- *  market. `unsupported` means it is one, but not one this family offers. */
-function gameMarketId(
-  family: string,
-  marketType: MarketType,
-  stat: string
-): string | { unsupported: string } | null {
-  if (marketType === "MONEYLINE") return "moneyline";
-  const markets = GAME_MARKETS[family];
-  if (marketType === "SPREAD") {
-    return markets ? markets.spread : { unsupported: "spreads" };
-  }
-  if (marketType === "GAME_TOTAL") {
-    // Team totals are not a main market on this endpoint, and main markets are all it serves --
-    // the catalog lists exactly three per sport and `team_total` is not among them. Guessing an id
-    // would produce an empty tab indistinguishable from "the game has no market yet", so this says
-    // so instead. Same fail-closed discipline as the league and fixture matching.
-    if (/team/.test(stat)) return { unsupported: "team totals" };
-    return markets ? markets.total : { unsupported: "totals" };
-  }
-  return null;
-}
-
-export type ResolvedOddsTerminalMarket =
-  | { marketId: string | null }
-  | { kind: "noEquivalent"; reason: string };
+/** Team totals are carried, under one name in every sport ("Team Total", "1st Half Team Total"). */
+const TEAM_TOTAL = "Team Total";
 
 /**
- * Which Odds Terminal market a captured market name is.
+ * Board spellings that normalization alone cannot reconcile with the feed's own name.
  *
- * Only *game* markets resolve to an id, because only they are named in a query. A player prop
- * returns `{ marketId: null }` -- not a failure, and not an id we pretend to know: props are
- * matched by name against what the stream actually returns.
+ * Kept deliberately small, and it is the *last* thing consulted: `resolveClosingMarket` already
+ * turns a board's spelling into this project's canonical "Player X" name, and the feed's names are
+ * that same vocabulary. A table of market names is the thing that rots, so anything normalization
+ * or the canonical map can handle must be handled there instead.
  */
-export function resolveOddsTerminalMarket(
-  sport: string,
+const MARKET_ALIASES: Record<string, string> = {
+  // A DFS board writes total bases as bare "Bases"; the feed says "Player Bases".
+  bases: "bases",
+  "total bases": "bases",
+  sog: "shots on goal",
+  "blks plus stls": "blocks plus steals",
+  "3 pointers made": "three pointers made",
+  "threes made": "three pointers made",
+  "made threes": "three pointers made",
+};
+
+/**
+ * Every market name, in comparable form, that counts as an answer for one pick.
+ *
+ * Returned as a set of keys rather than a single name because a board and this feed can legitimately
+ * disagree about spelling in three independent ways, and a lookup should survive all of them:
+ *
+ *  - the "Player " prefix, which `marketFilterKey` already strips from both sides;
+ *  - the whole word ("Bases" vs "Player Bases", "SOG" vs "Player Shots On Goal"), which the
+ *    canonical map and then `MARKET_ALIASES` cover;
+ *  - a period qualifier, which this feed writes as a *prefix* ("1st Half Player Touchdowns") where
+ *    PropProfessor's vocabulary writes it as a suffix ("Player Touchdowns - 1st Half").
+ *
+ * Fails closed in the one way that matters: a period-qualified pick only ever matches a
+ * period-qualified name, so "1st Half Player Touchdowns" can never be answered with the full-game
+ * market, which would be a wrong answer that parses perfectly.
+ */
+export function oddsTerminalMarketKeys(
+  sport: string | null,
   marketType: MarketType,
   statMarket: string | null
-): ResolvedOddsTerminalMarket {
-  const stat = normalizeMarketName(statMarket);
-  const family = ODDS_TERMINAL_SPORTS[sport]?.sport;
-  if (!family) {
-    return {
-      kind: "noEquivalent",
-      reason: `Odds Terminal is not covered for ${sport} in this extension yet.`,
-    };
+): string[] {
+  const keys = new Set<string>();
+  const add = (name: string | null | undefined) => {
+    const key = marketFilterKey(name);
+    if (key) keys.add(MARKET_ALIASES[key] ?? key);
+  };
+
+  const raw = normalizeMarketName(statMarket);
+  const { base, period } = extractPeriod(raw);
+  const family = ODDS_TERMINAL_SPORTS[propProfessorLeague(sport) ?? ""]?.sport ?? "";
+  const withPeriod = (name: string) => (period ? `${period} ${name}` : name);
+
+  if (marketType === "MONEYLINE") {
+    add(withPeriod("Moneyline"));
+    return [...keys];
+  }
+  if (marketType === "SPREAD") {
+    const spread = GAME_MARKETS[family]?.spread;
+    if (spread) add(withPeriod(spread));
+    return [...keys];
+  }
+  if (marketType === "GAME_TOTAL") {
+    if (/\bteam\b/.test(base)) {
+      add(withPeriod(TEAM_TOTAL));
+      return [...keys];
+    }
+    const total = GAME_MARKETS[family]?.total;
+    if (total) add(withPeriod(total));
+    // A board that named the total specifically ("Total Touchdowns", "Total Hits") is taken at its
+    // word as well -- the feed carries those alongside the league's own headline total.
+    add(statMarket);
+    return [...keys];
   }
 
-  const gameMarket = gameMarketId(family, marketType, stat);
-  if (typeof gameMarket === "string") return { marketId: gameMarket };
-  if (gameMarket !== null) {
-    return {
-      kind: "noEquivalent",
-      reason: `Odds Terminal does not carry ${gameMarket.unsupported} for ${sport}.`,
-    };
+  // A player prop. Three spellings: the board's own, this project's canonical name for it, and the
+  // canonical name with the period moved to the front.
+  add(statMarket);
+  const resolved = resolveClosingMarket(sport, statMarket, marketType);
+  if (resolved.ok) {
+    // `resolveClosingMarket` returns "Player Touchdowns - 1st Half"; this feed spells that
+    // "1st Half Player Touchdowns".
+    const [canonical, suffix] = resolved.market.split(" - ");
+    add(suffix ? `${suffix} ${canonical}` : canonical);
   }
-  // A player prop. No id, by design.
-  return { marketId: null };
+  return [...keys];
+}
+
+/** The comparable form of a market name as it came off the wire. */
+export function oddsTerminalMarketKey(name: string | null | undefined): string {
+  const key = marketFilterKey(name);
+  return MARKET_ALIASES[key] ?? key;
 }
 
 // --- read planning ----------------------------------------------------------------------------
@@ -292,22 +308,25 @@ export function resolveOddsTerminalMarket(
 export interface OddsTerminalReadPlan {
   /** The `sport` query value. */
   sport: string;
-  /** The league id a returned fixture must carry to be this pick's game. */
+  /** The league id: a query filter, and what a returned fixture must carry to be this pick's. */
   league: string;
-  /**
-   * The `market_id` for a game market, or null for a player prop.
-   *
-   * Null is the normal case and not a gap: props are filtered by market *name* against what the
-   * stream returns, so there is no id to carry. See `odds-terminal-stream.ts`.
-   */
-  marketId: string | null;
-  /** The snapshot's `sportsbook` values (ids), at most `ODDS_TERMINAL_MAX_BOOKS` of them. */
-  sportsbooks: string[];
-  /** The user's own book ranking, kept so the stream can re-derive its own (name) spelling. */
+  /** Every market name, in comparable form, that answers this pick. Never empty. */
+  marketKeys: string[];
+  /** The books to ask for, as ids, five per request. */
+  bookChunks: string[][];
+  /** The user's own book ranking, kept so a caller can re-derive the order. */
   bookOrder: string[];
   marketType: MarketType;
   /** The market name as the *pick* spells it, carried through so the shared matcher still works. */
   requestedStatMarket: string;
+  /**
+   * The pick's own kickoff, when the board recorded one.
+   *
+   * Not a filter on the odds -- it narrows the *slate* request to a few hours either side, which
+   * turns a 121-fixture two-page college slate into a handful of games and removes most of the
+   * chances for two fixtures to look like one matchup.
+   */
+  gameStartIso: string | null;
 }
 
 export interface UnplannableOddsTerminalRead {
@@ -322,7 +341,12 @@ export interface UnplannableOddsTerminalRead {
  * goes. The capture site is provenance and nothing more.
  */
 export function planOddsTerminalRead(
-  pick: { sport: string | null; statMarket: string | null; marketType: MarketType },
+  pick: {
+    sport: string | null;
+    statMarket: string | null;
+    marketType: MarketType;
+    gameStartIso?: string | null;
+  },
   options: { bookOrder?: string[] } = {}
 ): OddsTerminalReadPlan | UnplannableOddsTerminalRead {
   const league = propProfessorLeague(pick.sport);
@@ -333,33 +357,93 @@ export function planOddsTerminalRead(
   if (!sport) {
     return { kind: "noEquivalent", reason: `Odds Terminal does not cover ${league} here.` };
   }
-  const market = resolveOddsTerminalMarket(league, pick.marketType, pick.statMarket);
-  if ("kind" in market) return market;
+
+  const marketKeys = oddsTerminalMarketKeys(pick.sport, pick.marketType, pick.statMarket);
+  if (marketKeys.length === 0) {
+    return {
+      kind: "noEquivalent",
+      reason: `Odds Terminal has no ${league} equivalent of "${pick.statMarket}".`,
+    };
+  }
 
   return {
     sport: sport.sport,
     league: sport.league,
-    marketId: market.marketId,
-    sportsbooks: oddsTerminalBooks(options.bookOrder ?? []),
+    marketKeys,
+    bookChunks: oddsTerminalBookChunks(options.bookOrder ?? []),
     bookOrder: options.bookOrder ?? [],
     marketType: pick.marketType,
     requestedStatMarket: pick.statMarket ?? "",
+    gameStartIso: pick.gameStartIso ?? null,
   };
 }
 
-/**
- * The snapshot query, as a **path and query string only** -- never an absolute URL.
- *
- * This is the single most important line in the module. The relay fetches this against its own
- * origin from inside a tab the user opened; returning a relative path is what makes it impossible
- * for this module (or anything importing it) to name the host, and impossible for server or
- * background code to accidentally turn a plan into an outbound request.
- */
-export function oddsTerminalSnapshotPath(plan: OddsTerminalReadPlan): string {
-  const params = new URLSearchParams();
-  params.set("sport", plan.sport);
-  for (const book of plan.sportsbooks) params.append("sportsbook", book);
+/** Shared query shape. Relative path only -- see this module's header. */
+function snapshotPath(params: URLSearchParams, books: string[]): string {
+  for (const book of books) params.append("sportsbook", book);
   return `/api/snapshot?${params.toString()}`;
+}
+
+/**
+ * The slate request: which games this league has, over the window the pick needs.
+ *
+ * `start_date_after`/`start_date_before` are the site's own "Next 7 days" control, and without them
+ * the endpoint answers for the next 36 hours only -- which on a Wednesday is an NFL slate of one
+ * Thursday game, and no Sunday at all. When the board recorded the pick's kickoff the window is
+ * narrowed to half a day either side of it instead, which is both cheaper and less ambiguous.
+ */
+export function oddsTerminalFixturesPath(
+  plan: OddsTerminalReadPlan,
+  options: { page?: number; now?: Date } = {}
+): string {
+  const now = options.now ?? new Date();
+  const start = plan.gameStartIso ? new Date(plan.gameStartIso) : null;
+  const usable = start && Number.isFinite(start.getTime()) ? start : null;
+
+  const after = usable
+    ? new Date(usable.getTime() - 12 * 60 * 60 * 1000)
+    : new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const before = usable
+    ? new Date(usable.getTime() + 12 * 60 * 60 * 1000)
+    : new Date(now.getTime() + ODDS_TERMINAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+  const params = new URLSearchParams({
+    sport: plan.sport,
+    league: plan.league,
+    // "all" is the games filter, not the market scope: the endpoint takes all/live/upcoming and
+    // answers `400 Invalid game filter.` to anything else. A pick can be on a game that has already
+    // started (a live board), so "upcoming" would be wrong.
+    mode: "all",
+    page: String(options.page ?? 1),
+    start_date_after: after.toISOString(),
+    start_date_before: before.toISOString(),
+  });
+  // One book is enough to list a slate -- fixtures come back whether or not that book prices them,
+  // and the odds this request carries are thrown away. Asking for five would multiply the response
+  // (419 KB against 56 KB on one NFL slate) for nothing.
+  return snapshotPath(params, plan.bookChunks[0]?.slice(0, 1) ?? []);
+}
+
+/**
+ * The odds request: every market one fixture has, for one chunk of books.
+ *
+ * This is the request the whole source turns on. With `fixture_id` the endpoint stops summarising
+ * the slate and returns the fixture's entire book -- player props, alternates, period markets, the
+ * lot. Without it, props are simply absent, which is what the previous implementation ran into.
+ */
+export function oddsTerminalOddsPath(
+  plan: OddsTerminalReadPlan,
+  fixtureId: string,
+  books: string[] = plan.bookChunks[0] ?? []
+): string {
+  const params = new URLSearchParams({
+    sport: plan.sport,
+    league: plan.league,
+    mode: "all",
+    page: "1",
+    fixture_id: fixtureId,
+  });
+  return snapshotPath(params, books);
 }
 
 // --- fixture resolution -----------------------------------------------------------------------
@@ -378,8 +462,6 @@ export interface OddsTerminalFixture {
 
 const str = (v: unknown): string | null =>
   typeof v === "string" && v.trim() !== "" ? v.trim() : null;
-const num = (v: unknown): number | null =>
-  typeof v === "number" && Number.isFinite(v) ? v : null;
 
 /** Splits "Boston College vs. Rutgers" / "Rutgers @ Boston College" into its normalized sides. */
 function matchupSides(matchup: string | null): string[] {
@@ -390,7 +472,7 @@ function matchupSides(matchup: string | null): string[] {
     .filter(Boolean);
 }
 
-/** True when a normalized board team name and a snapshot team name are plausibly the same club. */
+/** True when a normalized board team name and a feed team name are plausibly the same club. */
 function sameTeam(boardTeam: string, feedTeam: string): boolean {
   if (!boardTeam || !feedTeam) return false;
   if (boardTeam === feedTeam) return true;
@@ -409,7 +491,7 @@ function sameTeam(boardTeam: string, feedTeam: string): boolean {
  *
  * Lenient on spelling (`{id,name}`, either of which may be what this deployment populates, in
  * whatever case) but strict on absence: a fixture carrying no recognisable league at all is **not**
- * assumed to be the right one. One `sport=football` snapshot holds NFL, NCAAF and CFL games
+ * assumed to be the right one. One `sport=football` response can hold NFL, NCAAF and CFL games
  * together, so assuming would mean quietly answering an NFL question with a college game.
  */
 function sameLeague(fixture: OddsTerminalFixture, league: string): boolean {
@@ -450,9 +532,11 @@ function fixtureTeams(fixture: OddsTerminalFixture): { home: string | null; away
  *
  * Same integration risk, and therefore the same discipline, as `findOddsApiEvent`: the only handle
  * a pick carries is a matchup written in whatever prose its board used, both sides have to match,
- * and **ambiguity is a refusal rather than a coin toss**. Two fixtures matching one matchup means
- * the team names did not identify a game; returning the wrong one is far worse than returning
- * none, because the market would then parse perfectly and describe a different game.
+ * and **ambiguity is a refusal rather than a coin toss** -- except where the pick's own kickoff
+ * time settles it, which is a fact about this game rather than a guess between two.
+ *
+ * Returning the wrong fixture is far worse than returning none: the market would then parse
+ * perfectly and describe a different game.
  */
 export function findOddsTerminalFixture(
   fixtures: OddsTerminalFixture[],
@@ -482,23 +566,55 @@ export function findOddsTerminalFixture(
     return false;
   });
 
-  return candidates.length === 1 ? candidates[0] : null;
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 0) return null;
+
+  // Two fixtures answering to one matchup is normally a refusal. A kickoff time the board recorded
+  // is the one thing that can separate them honestly -- a doubleheader, or the same two teams
+  // meeting again inside the window -- so the nearest start wins, and only if it is clearly nearer.
+  const wanted = plan.gameStartIso ? new Date(plan.gameStartIso).getTime() : NaN;
+  if (!Number.isFinite(wanted)) return null;
+
+  const scored = candidates
+    .map((fixture) => {
+      const start = str(fixture.start_date);
+      const at = start ? new Date(start).getTime() : NaN;
+      return { fixture, gap: Number.isFinite(at) ? Math.abs(at - wanted) : Number.POSITIVE_INFINITY };
+    })
+    .sort((a, b) => a.gap - b.gap);
+
+  const [best, runnerUp] = scored;
+  const HOUR = 60 * 60 * 1000;
+  return best.gap <= 6 * HOUR && runnerUp.gap - best.gap > 3 * HOUR ? best.fixture : null;
 }
 
-// --- the snapshot's only remaining job ---------------------------------------------------------
-
 /**
- * The snapshot response, as far as this module still cares about it.
+ * The snapshot response, as far as this module cares about it.
  *
- * It used to be parsed for odds. It is not any more: `/api/snapshot` serves main markets only
- * (verified live across all sixteen sports), so the odds come from `/api/stream` instead -- see
- * `odds-terminal-stream.ts`. What the snapshot is still needed for, and the reason it is still
- * fetched first, is that the stream requires a `fixture_id` and offers no way to discover one.
- *
- * So the flow is: snapshot to find the fixture, stream to price it.
+ * `fixtures` and `odds` are siblings: odds are a flat array keyed by `fixture_id`, never nested
+ * under their fixture. `totalPages`/`hasMore` are what a slate read has to follow -- a 7-day NCAAF
+ * slate is two pages, and a reader that stops at the first one cannot see a fifth of the games.
  */
 export interface OddsTerminalSnapshot {
   fixtures?: unknown;
   odds?: unknown;
+  page?: unknown;
+  totalPages?: unknown;
+  hasMore?: unknown;
 }
 
+/** The fixtures a snapshot body carried, or an empty list when it carried none. */
+export function oddsTerminalFixturesOf(body: unknown): OddsTerminalFixture[] {
+  if (!body || typeof body !== "object") return [];
+  const fixtures = (body as OddsTerminalSnapshot).fixtures;
+  return Array.isArray(fixtures) ? (fixtures as OddsTerminalFixture[]) : [];
+}
+
+/** Whether a slate response says there is another page, and what it is. */
+export function oddsTerminalNextPage(body: unknown, page: number): number | null {
+  if (!body || typeof body !== "object") return null;
+  const snapshot = body as OddsTerminalSnapshot;
+  const total = typeof snapshot.totalPages === "number" ? snapshot.totalPages : 1;
+  const more = snapshot.hasMore === true || page < total;
+  return more && page < ODDS_TERMINAL_MAX_FIXTURE_PAGES ? page + 1 : null;
+}

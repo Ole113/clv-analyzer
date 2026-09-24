@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { normalizeScreenMarket, planScreenRead, findMatchingRow } from "@clv/shared";
+import { findMatchingRow } from "@clv/shared";
+import { parseOddsTerminal } from "./support/odds-terminal-fixture";
 import { americanFromProbability, averageClosingPrice } from "../clv";
 import { buildClosingVerdict } from "../closing";
 
@@ -104,30 +103,22 @@ describe("averageClosingPrice", () => {
 });
 
 describe("buildClosingVerdict price reporting", () => {
-  const FIXTURES = join(__dirname, "../../../../shared/src/__fixtures__");
-
   it("reports a price on a real captured market, over the same field as the line", () => {
-    const plan = planScreenRead({
-      sport: "NCAAF",
-      statMarket: "Rushing Yards",
-      marketType: "PLAYER_PROP",
-    });
-    if ("kind" in plan) throw new Error("expected a plannable read");
-
-    const raw = JSON.parse(readFileSync(join(FIXTURES, "pp-screen-ncaaf-rushing-yards.json"), "utf8"));
-    const parsed = normalizeScreenMarket(raw, plan);
+    // A live Odds Terminal read: three books quoting Travis Kelce's receptions, each with both
+    // sides at its own main line.
+    const { parsed } = parseOddsTerminal("Receptions", "PLAYER_PROP", { atLine: 4.5 });
     const row = findMatchingRow(parsed.rows, {
       marketType: "PLAYER_PROP",
-      player: "Xavier Robinson",
+      player: "Travis Kelce",
       subjectTeam: null,
-      matchup: null,
-      statMarket: "Rushing Yards",
-      side: "UNDER",
+      matchup: "Kansas City Chiefs vs Miami Dolphins",
+      statMarket: "Receptions",
+      side: "OVER",
       externalPropId: null,
     });
     if (!row) throw new Error("expected the captured row to match");
 
-    const verdict = buildClosingVerdict("PLAYER_PROP", "UNDER", 21.5, row, null, "PP_SCREEN");
+    const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 4.5, row, null, "ODDS_TERMINAL");
 
     expect(verdict.avgClosingPrice).not.toBeNull();
     // A player prop's price sits somewhere near the pick'em line; anything outside this is a scale
@@ -151,8 +142,8 @@ describe("buildClosingVerdict price reporting", () => {
     // the price-only columns are the DFS payout and the algo column (a flat -119 and a derived
     // -165.82), and admitting those as "the market price" would be worse than having no price.
     //
-    // It costs nothing where this modal actually reads. On PropProfessor's odds screen essentially
-    // every column carries a line, which is why the captured-market test above gets a price.
+    // It costs nothing where this modal actually reads: on Odds Terminal every prop quote carries
+    // both a line and a price, which is why the captured-market test above gets one.
     const verdict = buildClosingVerdict("PLAYER_PROP", "OVER", 14, {
       rowIndex: 0,
       marketType: "PLAYER_PROP",
