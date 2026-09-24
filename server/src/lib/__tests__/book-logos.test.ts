@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { bookLogoUrl, normalizeBookKey, normalizeScreenMarket, planScreenRead } from "@clv/shared";
+import { bookLogoUrl, normalizeBookKey } from "@clv/shared";
+import { parseOddsTerminal } from "./support/odds-terminal-fixture";
 
 /**
- * The odds screen ships no images, so every book line read through it used to come back with
+ * A JSON odds source ships no images, so every book line read through one used to come back with
  * `logoUrl: null` -- which is why the Odds modal rendered a wall of bare names next to numbers the
  * bet page shows with icons. `bookLogoUrl` fills that in from the book's name.
  *
@@ -12,8 +11,6 @@ import { bookLogoUrl, normalizeBookKey, normalizeScreenMarket, planScreenRead } 
  * project has already been bitten by once (see the note on SPORTSBOOK_HINTS about "BetRivers"
  * containing "betr"). A lookup that answers BetRivers with Betr's icon is worse than no icon.
  */
-
-const FIXTURES = join(__dirname, "../../../../shared/src/__fixtures__");
 
 describe("book logos", () => {
   it("does not answer a book with a different book's icon", () => {
@@ -24,7 +21,7 @@ describe("book logos", () => {
     expect(bookLogoUrl("novig", "Novig")).toContain("novig.us");
   });
 
-  it("recognizes the alt-line variants the screen actually returns", () => {
+  it("recognizes the alt-line variants a board actually returns", () => {
     // "Betr (Alt)" normalizes to "betralt", which matches no key exactly.
     expect(bookLogoUrl(normalizeBookKey("Betr (Alt)")!, "Betr (Alt)")).toContain("betr.app");
     expect(bookLogoUrl(normalizeBookKey("Underdog (Alt)")!, "Underdog (Alt)")).toContain(
@@ -37,18 +34,10 @@ describe("book logos", () => {
     expect(bookLogoUrl("col-7", null)).toBeNull();
   });
 
-  it("gives most books on a real captured market an icon", () => {
-    const plan = planScreenRead({
-      sport: "NCAAF",
-      statMarket: "Rushing Yards",
-      marketType: "PLAYER_PROP",
-    });
-    if ("kind" in plan) throw new Error("expected a plannable read");
-
-    const raw = JSON.parse(
-      readFileSync(join(FIXTURES, "pp-screen-ncaaf-rushing-yards.json"), "utf8")
-    );
-    const parsed = normalizeScreenMarket(raw, plan);
+  it("gives every book on a real captured market an icon", () => {
+    // A live Odds Terminal read, which is where this actually bites: five books, no images, and
+    // the modal has to look like the rest of the app.
+    const { parsed } = parseOddsTerminal("Receptions");
     expect(parsed.ok).toBe(true);
 
     const lines = parsed.rows.flatMap((r) => r.bookLines);

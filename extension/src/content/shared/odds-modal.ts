@@ -1,26 +1,11 @@
-import {
-  isExchange,
-  newOddsTerminalRequestId,
-  oddsTerminalRequestUrl,
-  type ParsedRow,
-} from "@clv/shared";
+import { isExchange, ODDS_TERMINAL_SIGN_IN_URL, type ParsedRow } from "@clv/shared";
 import type {
   OddsLookupLine,
   OddsLookupMessage,
   OddsLookupPick,
   OddsLookupResponse,
   OddsSource,
-  OddsTerminalLookupMessage,
 } from "./messages";
-
-/**
- * Where a human click on this modal goes when the read matched nothing to point at.
- *
- * A successful read supplies `screenUrl` instead, which opens the screen already filtered to the
- * market, the game and the player -- built from the identifiers the screen itself returned, so it
- * lands on the row this modal is describing rather than on a search box.
- */
-const PP_ODDS_SCREEN_URL = "https://www.propprofessor.com/screen";
 
 /**
  * "What is this market priced at right now", shown on the board itself.
@@ -41,9 +26,10 @@ const PP_ODDS_SCREEN_URL = "https://www.propprofessor.com/screen";
  *    own parse (already done for capture); the numbers come from whichever source tab is active,
  *    never from the board. An OddsJam row asking about its market sends nothing to OddsJam.
  *
- * The Odds Terminal tab is the one exception to "everything happens over `chrome.runtime`": it has
- * to call `window.open` **synchronously inside the user's click**, because a tab opened after an
- * `await` is a popup the browser may block. See `load()`.
+ * Both sources are one message to the background worker and one answer back. That is newer than
+ * it looks: Odds Terminal used to open a tab on the user's click and have a content script in it
+ * do the reading, which meant a tab nobody asked for on every click and a three-hop round trip
+ * that never once completed. The worker fetches it directly now, so nothing here opens anything.
  */
 
 export const ODDS_MODAL_STYLES = `
@@ -315,6 +301,11 @@ export function pickFromRow(row: ParsedRow): OddsLookupPick {
     side: row.side,
     takenLine: row.takenLine,
     externalPropId: row.externalPropId,
+    // Only Odds Terminal uses this, and only to narrow which slate it asks for: with a kickoff in
+    // hand the read asks for the half-day around the game instead of the next seven days, which is
+    // both a smaller response and one where two games are far less likely to answer to one
+    // matchup. Null on a board that renders no time, and the seven-day window covers that.
+    gameStartIso: row.gameStartTimeIso,
   };
 }
 
@@ -462,9 +453,10 @@ function table(lines: OddsLookupLine[], atLine: number | null): HTMLElement {
  *
  * This modal briefly had one tab. It used to have two, the first of which read PropProfessor's
  * odds screen; that automation is what got the PropProfessor account banned (2026-09), and it is
- * never coming back. Odds Terminal now occupies that first, eager slot -- but reached a completely
- * different way, through a tab the user's own click opens rather than a server-side read with a
- * borrowed session. That difference is the entire point; see `oddsterminal-site/relay.ts`.
+ * never coming back -- nothing in this extension reads that site at all any more. Odds Terminal
+ * now occupies that first, eager slot, reached a completely different way: the extension's own
+ * worker fetches it on the session the browser is already signed in with, with no credential
+ * captured and nothing on a timer. See `background/odds-terminal-read.ts`.
  */
 const SOURCE_TABS: { source: OddsSource; label: string }[] = [
   { source: "ODDS_TERMINAL", label: "Odds Terminal" },
@@ -587,9 +579,7 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
         el(
           "p",
           "clva-odds-wait",
-          active === "ODDS_API"
-            ? "Reading The Odds API…"
-            : "Reading Odds Terminal in the tab that just opened…"
+          active === "ODDS_API" ? "Reading The Odds API…" : "Reading Odds Terminal…"
         )
       );
       return;
@@ -618,23 +608,19 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
 
     const note = el("p", "clva-odds-note");
     if (active === "ODDS_API") {
-      // No deep link: The Odds API is an API, not a site, so there is no market page to open. The
-      // PropProfessor odds screen is still linked as a manual fallback -- a human clicking it is
-      // fine, this modal just never reads it for them any more.
+      // No deep link: The Odds API is an API, not a site, so there is no market page to open.
       note.append(
         "Sportsbook lines from ",
         link("The Odds API ↗", "https://the-odds-api.com"),
-        ", averaged the same way the Odds Terminal tab is — so the two are directly comparable. ",
-        "You can also check ",
-        link("PropProfessor's odds screen ↗", PP_ODDS_SCREEN_URL),
-        " by hand."
+        ", averaged the same way the Odds Terminal tab is — so the two are directly comparable."
       );
     } else {
-      // Deliberately no link to the market: this tab's numbers were read from a tab the user's own
-      // click opened, and that tab is still sitting there for them to look at.
+      // A link a person may click, never one this modal follows: the numbers above were fetched
+      // by the extension on this browser's own Odds Terminal session, in the background.
       note.append(
-        "Sportsbook lines read from Odds Terminal in the tab this modal opened, averaged the same " +
-          "way a closing read is."
+        "Sportsbook lines read from ",
+        link("Odds Terminal ↗", ODDS_TERMINAL_SIGN_IN_URL),
+        " on your own signed-in session, averaged the same way a closing read is."
       );
     }
     wrap.appendChild(note);
@@ -662,18 +648,14 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
   /**
    * Asks the active source, and parks the answer in that tab.
    *
-   * ## Why this function is not `async`
+   * Requests are tagged (`mine`), so a Refresh fired while the first read is still in flight cannot
+   * be overwritten by the older answer landing second.
    *
-   * The Odds Terminal branch calls `window.open` on the very first line of its path, with no
-   * `await` anywhere before it. That is load-bearing, not stylistic: the browser only treats a
-   * `window.open` as a user-initiated navigation while it is still inside the click's own task, so
-   * a single `await` in front of it turns the lookup into a blocked popup. Everything that can be
-   * deferred -- resolving what to fetch, the read itself, the verdict -- happens after the tab is
-   * already open, which is also why the worker is told about the request id separately.
-   *
-   * It is the same constraint `showOddsJamLink` in `inject.ts` is built around, and for once the
-   * two really are the same pattern: open the tab on the gesture, let the content script in it
-   * finish the job.
+   * Both sources take the same shape now -- one message out, one response back -- because both are
+   * fetched by the background worker. The Odds Terminal branch used to be structurally different:
+   * it had to call `window.open` synchronously inside the click, before any `await`, or the browser
+   * would treat the tab as a blocked pop-up. Nothing here opens a tab any more, so that constraint
+   * and the function's un-`async` shape that existed to honour it are both gone.
    */
   function load(isRefresh: boolean): void {
     const source = active;
@@ -681,13 +663,13 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
     tabs.set(source, { kind: "loading" });
     render();
 
-    const request: Promise<OddsLookupResponse | undefined> =
-      source === "ODDS_TERMINAL" ? startOddsTerminalLookup() : askServer(source, isRefresh);
-
     void (async () => {
       let response: OddsLookupResponse | undefined;
       try {
-        response = await request;
+        response = await chrome.runtime.sendMessage({
+          type: "clv:odds-lookup",
+          pick: { ...pick, refresh: isRefresh, source },
+        } satisfies OddsLookupMessage);
       } catch (error) {
         response = {
           ok: false,
@@ -707,47 +689,6 @@ export function openOddsModal(pick: OddsLookupPick, label: string): void {
       // whatever is on screen now.
       if (active === source) render();
     })();
-  }
-
-  /**
-   * The Odds Terminal path: open the tab first, ask second.
-   *
-   * The id is minted here and travels two ways -- in the opened tab's URL fragment, and to the
-   * background worker -- which is what lets the relay in that tab prove it is answering a lookup
-   * this extension is actually waiting on. The worker holds this response open until it is.
-   */
-  function startOddsTerminalLookup(): Promise<OddsLookupResponse | undefined> {
-    const lookupId = newOddsTerminalRequestId();
-    // Synchronously, inside the click. Nothing may be awaited above this line -- see `load`.
-    //
-    // The return value is deliberately ignored, and that is not laziness. `window.open` returns
-    // **null whenever `noopener` is set**, by specification: the opener relationship is severed, so
-    // there is no handle to hand back. Treating that null as "the pop-up was blocked" -- which this
-    // did at first -- meant every single lookup reported a blocked pop-up while the tab it had just
-    // opened sat there perfectly fine, and, far worse, returned early so the worker was never told
-    // the request id existed. The relay would then ask about an id nobody was waiting on and be
-    // turned away. The feature did not work even once.
-    //
-    // `noopener` stays. This opens a third-party, account-gated site, and handing that page a
-    // `window.opener` reference back to the board is not worth trading for a diagnostic. A pop-up
-    // that really is blocked is caught by the worker's timeout, which names it as a likely cause.
-    window.open(oddsTerminalRequestUrl(lookupId), "_blank", "noopener");
-    return chrome.runtime.sendMessage({
-      type: "clv:odds-terminal-lookup",
-      requestId: lookupId,
-      pick,
-    } satisfies OddsTerminalLookupMessage);
-  }
-
-  /** The Odds API path: one round trip through the server, exactly as it has always been. */
-  function askServer(
-    source: OddsSource,
-    isRefresh: boolean
-  ): Promise<OddsLookupResponse | undefined> {
-    return chrome.runtime.sendMessage({
-      type: "clv:odds-lookup",
-      pick: { ...pick, refresh: isRefresh, source },
-    } satisfies OddsLookupMessage);
   }
 
   refresh.addEventListener("click", () => load(true));

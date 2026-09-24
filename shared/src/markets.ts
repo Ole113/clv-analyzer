@@ -48,10 +48,16 @@ export function marketFilterKey(name: string | null | undefined): string {
 }
 
 /**
- * Captured market name -> PropProfessor screen market.
+ * Captured market name -> this project's canonical market name.
  *
  * Keyed by `normalizeMarketName` output. Both the bare and the "player"-prefixed spellings are
  * listed for each concept because the two boards genuinely disagree and both reach the database.
+ *
+ * The name is historical: these values were transcribed from PropProfessor's own market dropdown,
+ * and nothing reads that site any more (see `oddsjam-automation-guard.test.ts`). The table stays
+ * because the vocabulary outlived the source that supplied it -- Odds Terminal spells its markets
+ * the same way, so `oddsTerminalMarketKeys` resolves a board's spelling through here to get the
+ * name that feed will answer to. It is a table of words; it is not a read target.
  */
 export const PROPPROFESSOR_MARKETS: Record<string, string> = {
   // --- football ---

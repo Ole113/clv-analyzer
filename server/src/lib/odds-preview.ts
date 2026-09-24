@@ -13,10 +13,8 @@ import {
 } from "./odds-api-read";
 import {
   planRelayRead,
-  readRelayedStream,
-  resolveRelayedFixture,
-  type RelayedSnapshot,
-  type RelayedStream,
+  readRelayedOdds,
+  type RelayedOddsTerminalRead,
 } from "./odds-terminal-verdict";
 
 /**
@@ -33,9 +31,10 @@ import {
  *
  *  - **The Odds API** (`odds-api-read.ts`) -- a keyed, metered third-party API this server calls
  *    directly, because a key is not a hijacked browser session and the API is sold to be called.
- *  - **Odds Terminal** (`odds-terminal-verdict.ts`) -- fetched by the extension inside a tab the
- *    user's own click opened, and only ever handed to this server as bytes. `lookupFromRelay`
- *    below is that path, and the thing it conspicuously does not do is fetch anything.
+ *  - **Odds Terminal** (`odds-terminal-verdict.ts`) -- fetched by the extension's own background
+ *    worker on the user's signed-in session, in response to a click, and only ever handed to this
+ *    server as bytes. `lookupFromRelay` below is that path, and the thing it conspicuously does
+ *    not do is fetch anything.
  *
  * State lives in memory, not the database, on purpose: this app runs as one long-lived Node
  * process (the grading and closing pollers already depend on that -- see the `[grader] started`
@@ -83,9 +82,9 @@ export interface OddsPreview {
  * whole design:
  *
  *  - `ODDS_API` is a keyed third-party API this server calls directly (`odds-api-read.ts`).
- *  - `ODDS_TERMINAL` is **never called by this server at all.** Its bytes are fetched by a content
- *    script inside a tab the user's own click opened, and POSTed here for the verdict alone. See
- *    `odds-terminal-verdict.ts`, which is where that distinction is written out in full.
+ *  - `ODDS_TERMINAL` is **never called by this server at all.** Its bytes are fetched by the
+ *    extension's background worker, on the browser session the user already has, and POSTed here
+ *    for the verdict alone. See `odds-terminal-verdict.ts`, where that is written out in full.
  */
 export type OddsSource = "ODDS_API" | "ODDS_TERMINAL";
 
@@ -393,20 +392,21 @@ async function verdictFor(
 
 
 /**
- * The Odds Terminal answer, computed from a snapshot the extension's relay already fetched.
+ * The Odds Terminal answer, computed from entries the extension already fetched.
  *
  * The shape to notice is the one that is missing: there is no fetch, no cache, no timeout and no
- * credential anywhere in this function or anything it calls. It is handed a response body and
- * produces a verdict from it. Every byte of Odds Terminal data that reaches this process arrives
- * this way, as the payload of a POST from an extension acting on a click a person just made.
+ * credential anywhere in this function or anything it calls. It is handed a fixture and a list of
+ * quotes and produces a verdict from them. Every byte of Odds Terminal data that reaches this
+ * process arrives this way, as the payload of a POST from an extension acting on a click a person
+ * just made.
  *
  * Everything past the parse is identical to the Odds API path -- the same `verdictFor`, the same
  * settings, the same weighting, the same book ordering -- which is the only reason the two tabs in
  * the modal are comparable at all.
  */
 export async function lookupFromRelay(
-  item: ClosingWorkItem,
-  relayed: RelayedStream
+  item: ClosingWorkItem & { gameStartIso?: string | null },
+  read: RelayedOddsTerminalRead
 ): Promise<OddsPreview> {
   const fetchedAt = new Date().toISOString();
   const plan = await planRelayRead(item);
@@ -422,7 +422,7 @@ export async function lookupFromRelay(
     };
   }
 
-  const outcome = readRelayedStream(item, plan, relayed);
+  const outcome = readRelayedOdds(item, plan, read);
   if (outcome.kind !== "MATCHED") {
     return {
       fetchedAt,

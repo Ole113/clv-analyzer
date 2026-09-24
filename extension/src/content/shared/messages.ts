@@ -40,15 +40,6 @@ export interface TestConnectionMessage {
   type: "clv:test-connection";
 }
 
-/**
- * Carries the odds-screen bearer token from the page-context bridge to the background worker.
- * Sent by the isolated-world relay, never by the page itself.
- */
-export interface PpTokenMessage {
-  type: "clv:pp-token";
-  token: string;
-}
-
 /** How a book's number reads on the odds screen right now. Mirrors the server's
  *  `ClosingLineRecord`, kept as its own declaration so the extension does not depend on a server
  *  module -- the two are asserted to agree by `odds-lookup.test.ts`. */
@@ -67,7 +58,7 @@ export interface OddsLookupLine {
   liquidity: number | null;
 }
 
-/** The fields the server needs to find one market on PropProfessor's odds screen. */
+/** The fields a source needs to find the one market this row is about. */
 export interface OddsLookupPick {
   sport: string | null;
   statMarket: string;
@@ -80,6 +71,9 @@ export interface OddsLookupPick {
   externalPropId: string | null;
   /** Set by the modal's Refresh button so a deliberate re-check skips the server's response cache. */
   refresh?: boolean;
+  /** The board's own kickoff time for this row, when it rendered one. Narrows an Odds Terminal
+   *  slate read to the hours around the game instead of a seven-day window. */
+  gameStartIso?: string | null;
   /** Which source to ask. Decides the transport, not just the answer -- see `OddsSource`. */
   source?: OddsSource;
 }
@@ -95,74 +89,11 @@ export interface OddsLookupPick {
  * The two reach their data by completely different routes, which is the whole design:
  *
  *  - `ODDS_API` is answered entirely by the server, which calls a keyed third-party API.
- *  - `ODDS_TERMINAL` is answered by a tab the user's own click opens: the relay fetches it from
- *    inside that tab and the server only ever sees the bytes. See `oddsterminal-site/relay.ts`.
+ *  - `ODDS_TERMINAL` is fetched by the extension's own background worker, on the session the
+ *    browser is already signed in with, and the server only ever sees the entries that came back.
+ *    See `background/odds-terminal-read.ts`.
  */
 export type OddsSource = "ODDS_API" | "ODDS_TERMINAL";
-
-/**
- * Starts an Odds Terminal lookup the board has just opened a tab for.
- *
- * Sent immediately after `window.open`, from inside the same click, and deliberately *not*
- * answered straight away: the worker registers `requestId` as pending and holds the response open
- * until the relay in that tab reports back, so the modal's existing await-a-response shape works
- * unchanged across what is really a three-hop round trip.
- */
-export interface OddsTerminalLookupMessage {
-  type: "clv:odds-terminal-lookup";
-  requestId: string;
-  pick: OddsLookupPick;
-}
-
-/**
- * The relay asking what to fetch.
- *
- * The query is built by our server, from the market vocabulary and the user's book ordering, and
- * handed back as a relative path -- so the content script never has to know either, and a read is
- * impossible for an id the worker is not already waiting on.
- */
-export interface OddsTerminalPathMessage {
-  type: "clv:odds-terminal-path";
-  requestId: string;
-}
-
-export interface OddsTerminalPathResponse {
-  ok: boolean;
-  /** Relative, always: `/api/snapshot?...`. Never carries an origin. */
-  path?: string;
-  reason?: string;
-}
-
-/**
- * The relay handing back the snapshot, to be told which fixture to stream.
- *
- * The middle hop of three. `/api/snapshot` serves main markets only, so it is fetched purely to
- * identify the fixture; the server resolves it and answers with the stream path to read next.
- */
-export interface OddsTerminalSnapshotMessage {
-  type: "clv:odds-terminal-snapshot";
-  requestId: string;
-  snapshot: unknown;
-}
-
-export interface OddsTerminalSnapshotResponse {
-  ok: boolean;
-  /** Relative, always: `/api/stream?...`. Never carries an origin. */
-  streamPath?: string;
-  /** Echoed back on the final hop so the parse can filter to this fixture. */
-  fixture?: unknown;
-  reason?: string;
-}
-
-/** The relay's answer: either the stream entries it read, or why it could not. */
-export interface OddsTerminalResultMessage {
-  type: "clv:odds-terminal-result";
-  requestId: string;
-  ok: boolean;
-  /** The `data[]` entries collected off the SSE stream, plus the fixture they belong to. */
-  stream?: { entries: unknown[]; fixture: unknown };
-  reason?: string;
-}
 
 /** What is left of this month's Odds API quota, off the API's own response headers. */
 export interface OddsQuota {
@@ -180,8 +111,10 @@ export interface OddsQuota {
  * without anyone noticing. That stays true for both sources -- what differs is only who does the
  * *fetching*, never who does the arithmetic.
  *
- * This message carries the `ODDS_API` path alone. `ODDS_TERMINAL` goes through
- * `OddsTerminalLookupMessage` instead, because it has to open a tab first.
+ * One message for both sources, which is newer than it looks: Odds Terminal used to need its own
+ * three-message dance because the read happened in a tab the click had to open synchronously. It
+ * does not any more -- the worker fetches it directly -- so from the modal's point of view the two
+ * sources are now the same round trip, and `pick.source` is the only difference.
  */
 export interface OddsLookupMessage {
   type: "clv:odds-lookup";
@@ -244,9 +177,4 @@ export interface KellySettingsResponse {
     unitSize: number;
     kellyBoards: string[];
   };
-}
-
-/** Sent by the dashboard warm-up script the moment the dashboard loads. */
-export interface WarmMessage {
-  type: "clv:warm";
 }

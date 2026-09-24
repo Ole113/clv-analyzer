@@ -5,11 +5,9 @@ import {
   findMatchingRow,
   findOddsApiEvent,
   normalizeOddsApiEvent,
-  normalizeScreenMarket,
   oddsApiBookmakers,
   oddsApiOddsUrl,
   planOddsApiRead,
-  planScreenRead,
   resolveOddsApiMarket,
   ODDS_API_BOOKS,
   ODDS_API_MAX_BOOKMAKERS,
@@ -18,6 +16,7 @@ import {
   type ParseResult,
 } from "@clv/shared";
 import { DEFAULT_BOOK_ORDER } from "../app-settings";
+import { parseOddsTerminal } from "./support/odds-terminal-fixture";
 import { buildClosingVerdict } from "../closing";
 
 /**
@@ -407,24 +406,16 @@ describe("the verdict, which both sources share", () => {
     expect(matched?.side).toBe("OVER");
   });
 
-  it("produces the same row shape the PropProfessor parser does", () => {
+  it("produces the same row shape the other source does", () => {
     // Not a cosmetic check. `buildClosingVerdict`, `findMatchingRow` and both modals are written
-    // against one shape, and the entire design rests on neither source needing a special case.
-    const screenPlan = planScreenRead({
-      sport: "NCAAF",
-      statMarket: "Receiving Yards",
-      marketType: "PLAYER_PROP",
-    });
-    if ("kind" in screenPlan) throw new Error("expected a screen plan");
-    const screen = normalizeScreenMarket(
-      JSON.parse(readFileSync(join(FIXTURES, "pp-screen-ncaaf-receiving-yards.json"), "utf8")),
-      screenPlan
-    );
+    // against one shape, and the entire design rests on neither source needing a special case --
+    // which is also why the Odds modal can put the two side by side and call them comparable.
+    const { parsed: terminal } = parseOddsTerminal("Receptions");
     const { rows } = parse(plan);
 
-    expect(Object.keys(rows[0]).sort()).toEqual(Object.keys(screen.rows[0]).sort());
+    expect(Object.keys(rows[0]).sort()).toEqual(Object.keys(terminal.rows[0]).sort());
     expect(Object.keys(rows[0].bookLines[0]).sort()).toEqual(
-      Object.keys(screen.rows[0].bookLines[0]).sort()
+      Object.keys(terminal.rows[0].bookLines[0]).sort()
     );
   });
 });
