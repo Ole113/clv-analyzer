@@ -14,8 +14,9 @@ import { saveKellySettings, type KellySettings } from "./kelly-settings";
  * The board already tells you a line is off the market. It never tells you the stake, and until now
  * that step happened in a phone calculator on the side.
  *
- * The input is deliberately the discrepancy in odds points -- "Fliff is -110, everyone else is
- * -140, that's 30" -- because that is what a human reads off a board. The arithmetic behind it all
+ * The input is deliberately the discrepancy in odds points to the *de-vigged* price -- "Fliff is
+ * -110, OddsJam's no-vig is -140, that's 30" -- because that is what a human reads off a board
+ * with OddsJam's de-vig toggle on. Measured to the vigged price it would stake the hold as edge. The arithmetic behind it all
  * lives in `shared/src/kelly.ts`, shared with the dashboard's own /kelly tab so the two can never
  * quote different stakes for the same bet.
  *
@@ -169,10 +170,10 @@ export function openKellyModal(ctx: KellyContext): void {
 
   const fields = el("div", "clva-kelly-fields");
   const priceInput = field(fields, "Your odds", ctx.price === null ? "" : String(ctx.price), "5");
-  const pointsInput = field(fields, "Discrepancy (pts)", "", "5");
+  const pointsInput = field(fields, "Pts vs no-vig", "", "5");
   const fairInput = field(
     fields,
-    "Fair odds",
+    "No-vig odds",
     ctx.fairPrice === null || ctx.fairPrice === undefined ? "" : String(ctx.fairPrice),
     "5"
   );
@@ -276,7 +277,7 @@ export function openKellyModal(ctx: KellyContext): void {
           "p",
           "clva-kelly-foot",
           Number(bankrollInput.value) > 0
-            ? "Enter a price and a fair price to see the stake."
+            ? "Enter your odds and the points to the de-vigged price to see the stake."
             : "Set a bankroll — here, or on the dashboard's Settings page to keep it."
         )
       );
@@ -294,16 +295,16 @@ export function openKellyModal(ctx: KellyContext): void {
       stat(
         "Expected value",
         `${r.evPercent > 0 ? "+" : ""}${r.evPercent.toFixed(2)}%`,
-        `${r.points > 0 ? "+" : ""}${r.points} pts of edge`,
+        `${r.points > 0 ? "+" : ""}${r.points} pts vs no-vig`,
         r.evPercent > 0 ? "good" : "bad"
       ),
       stat("Of bankroll", pct(r.fraction), `${Number(multiplierInput.value)}x Kelly`),
       stat("Fair win rate", pct(r.fairProbability, 1), `full Kelly is ${pct(r.fullKellyFraction)}`)
     );
     foot.textContent =
-      `An entered ${fmtOdds(num(fairInput))} is taken to mean ${pct(r.fairProbability, 1)} to win. ` +
-      `There is only one side here, so nothing is de-vigged — if that is a vigged consensus price, ` +
-      `this stake is high by roughly half the hold.`;
+      `The no-vig ${fmtOdds(num(fairInput))} is taken as the true price: ${pct(r.fairProbability, 1)} to win. ` +
+      `Measure the discrepancy with OddsJam's de-vig toggle on — against the vigged price, this ` +
+      `stake would count the hold as edge.`;
   }
 
   const presetButtons = KELLY_PRESETS.map((preset) => {

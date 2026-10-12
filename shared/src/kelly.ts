@@ -1,12 +1,13 @@
 import { impliedProbability } from "./devig";
 
 /**
- * Kelly staking from a price you can see and a fair price you supply yourself.
+ * Kelly staking from a price you can see and the de-vigged fair price for the same side.
  *
  * The boards already say a line is off the market; none of them say how much to put on it. The
- * input here is deliberately the thing a human actually notices -- "Fliff is -110 and everyone else
- * is -140, that's 30 points" -- rather than a probability, because a probability is not what anyone
- * reads off a board.
+ * input here is deliberately the thing a human actually notices -- "Fliff is -110 and the no-vig
+ * price is -140, that's 30 points" -- rather than a probability, because a probability is not what
+ * anyone reads off a board. OddsJam quotes one side per row and has a toggle that swaps the board
+ * to de-vigged prices, so the gap is read against that.
  *
  * Lives in `shared/` rather than beside `evPercent` in the server's `ev.ts` for a dependency reason,
  * not a taste one: this runs inside a content script on OddsJam as well as on the dashboard, and a
@@ -14,16 +15,17 @@ import { impliedProbability } from "./devig";
  * `devig.ts` makes, for the same reason. `server/src/lib/ev.ts` re-exports `decimalFromAmerican`
  * from here so there is still one place to look for the American-odds conversions.
  *
- * **The fair price is taken at face value.** With only one side quoted there is no second side to
- * de-vig against, so an entered -140 means exactly "58.3% to win". If that -140 is itself a vigged
- * consensus price then the EV below is optimistic by roughly half the hold, and both surfaces say
- * so in a footnote rather than silently correcting for a vig nobody stated.
+ * **The fair price must already be de-vigged.** It is taken at face value -- an entered -140 means
+ * exactly "58.3% to win" -- because the de-vig has already happened on OddsJam's side, and with one
+ * side quoted there is nothing here to de-vig against. Measuring the discrepancy to the *vigged*
+ * price instead would stake the hold as if it were edge, which is why both surfaces label the
+ * inputs "no-vig" rather than "fair".
  */
 
 export interface KellyInput {
   /** American odds you are getting. */
   price: number;
-  /** American odds you believe is fair for the same side. */
+  /** De-vigged (no-vig) American odds for the same side, taken as the true price. */
   fairPrice: number;
   bankroll: number;
   /** 1 = full Kelly, 0.25 = quarter Kelly. */
@@ -49,7 +51,7 @@ export interface KellyResult {
   fraction: number;
   stake: number;
   units: number;
-  /** Signed odds-point gap: positive when `price` beats `fairPrice`. */
+  /** Signed odds-point gap to the no-vig price: positive when `price` beats `fairPrice`. */
   points: number;
   /** Dollars per unit actually used, after the 1%-of-bankroll fallback. */
   unitSize: number;
@@ -85,7 +87,7 @@ export function shiftAmerican(price: number, points: number): number {
   return Math.round(americanFromAxis(oddsAxis(price) - points));
 }
 
-/** How many points better than `fairPrice` the price you are getting is. The inverse of `shiftAmerican`. */
+/** How many points better than the no-vig `fairPrice` the price you are getting is. The inverse of `shiftAmerican`. */
 export function pointsBetween(price: number, fairPrice: number): number {
   if (!Number.isFinite(price) || !Number.isFinite(fairPrice)) return 0;
   return Math.round(oddsAxis(price) - oddsAxis(fairPrice));

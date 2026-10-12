@@ -130,16 +130,17 @@ export function KellyCalculator({
 
       <div className="filters">
         <NumField label="Your odds" value={price} onChange={editPrice} step="5" width={100} />
-        <NumField label="Discrepancy" value={points} onChange={editPoints} step="5" width={90} suffix="pts" />
-        <NumField label="Fair odds" value={fairPrice} onChange={editFairPrice} step="5" width={100} />
+        <NumField label="Discrepancy vs no-vig" value={points} onChange={editPoints} step="5" width={90} suffix="pts" />
+        <NumField label="No-vig odds" value={fairPrice} onChange={editFairPrice} step="5" width={100} />
         <NumField label="Bankroll" value={bankroll} onChange={setBankroll} step="100" width={110} suffix="$" />
         <NumField label="Kelly multiplier" value={multiplier} onChange={setMultiplier} step="any" width={90} suffix="x" />
         <NumField label="Unit size" value={unitSize} onChange={setUnitSize} step="10" width={90} suffix="$" />
       </div>
 
       <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>
-        The discrepancy is in odds points: your {fmtOdds(Number(price) || 0)} against a market you
-        think is really {fmtOdds(Number(fairPrice) || 0)}. Editing either one moves the other. Leave
+        The discrepancy is in odds points between your {fmtOdds(Number(price) || 0)} and the
+        de-vigged {fmtOdds(Number(fairPrice) || 0)} — OddsJam&apos;s no-vig price, not the vigged
+        one. Editing either one moves the other. Leave
         unit size blank for 1% of bankroll. Bankroll, multiplier and unit size start from{" "}
         <a href="/settings#kelly">Settings</a>; changing them here is for this bet only.
       </p>
@@ -147,7 +148,7 @@ export function KellyCalculator({
       {result === null ? (
         <p className="muted">
           {Number(bankroll) > 0 ? (
-            "Enter a price and a fair price to see the stake."
+            "Enter your odds and the points to the de-vigged price to see the stake."
           ) : (
             <>
               Set a bankroll — here, or in <a href="/settings#kelly">Settings</a> to keep it — to
@@ -165,7 +166,7 @@ export function KellyCalculator({
               </div>
               <div className="sub">
                 <span className={`badge ${isPlus ? "good" : "bad"}`}>{isPlus ? "+EV" : "-EV"}</span>{" "}
-                {result.points > 0 ? `+${result.points}` : result.points} pts of edge
+                {result.points > 0 ? `+${result.points}` : result.points} pts vs no-vig
               </div>
             </div>
             <div className="tile">
@@ -198,7 +199,7 @@ export function KellyCalculator({
                 <tr>
                   <td>Fair win probability <span className="muted">p</span></td>
                   <td className="num">{pct(result.fairProbability, 3)}</td>
-                  <td className="muted">implied by {fmtOdds(Number(fairPrice) || 0)}</td>
+                  <td className="muted">implied by the no-vig {fmtOdds(Number(fairPrice) || 0)}</td>
                 </tr>
                 <tr>
                   <td>Net decimal odds <span className="muted">b</span></td>
@@ -230,10 +231,10 @@ export function KellyCalculator({
               </tbody>
             </table>
             <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-              The fair price is taken at face value: an entered {fmtOdds(Number(fairPrice) || 0)}{" "}
-              means {pct(result.fairProbability, 1)} to win, full stop. There is only one side here,
-              so there is nothing to de-vig against — if that number is itself a vigged consensus
-              price, the EV above is optimistic by roughly half the hold, and the stake with it.
+              The no-vig price is taken as the true price: {fmtOdds(Number(fairPrice) || 0)} means{" "}
+              {pct(result.fairProbability, 1)} to win, full stop. It has to be the de-vigged number —
+              measured against the vigged price, the EV above would count the hold as edge, and the
+              stake with it.
               Full Kelly assumes the probability is exactly right; the multiplier is what covers the
               fact that it is not.
             </p>
