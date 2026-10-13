@@ -397,7 +397,8 @@ server was unreachable (it retries automatically), and **red** on a real error �
   against the close, how much EV each losing prop gave up, which sportsbook hung the least
   favourable closing number per prop, and an Over vs Under split.
 * `/kelly` — how much to stake on a line that is off the market. Enter the price you are getting
-  and how many odds points it beats fair by (Fliff -110 against a -140 market is 30) and it gives
+  and how many odds points it beats the de-vigged price by (Fliff -110 against OddsJam's no-vig
+  -140 is 30) and it gives
   the EV, the Kelly fraction and the dollars. The same calculator is on a **Kelly** button inside
   OddsJam's own "Add to Bet Tracker" modal, on the boards that quote real prices.
 * `/settings` — database size, a two-step "clear the last N days" purge, the current closing
